@@ -4,10 +4,10 @@ import { locate, pointAt, maxCurvatureAhead, wrapAngle, wrapS } from './track.js
 import { forwardSpeed, KART } from './physics.js';
 import { surfaceParams, bankSlope } from './surface.js';
 
-const MAX_LAT = 16; // 想定する最大横加速度 (m/s²)。物理の上限 15 ぎりぎりまで攻める
+const MAX_LAT = 23.5; // 想定する最大横加速度 (m/s²)。物理の上限 24 ぎりぎりまで攻める
 
 export function createDriver(rng, level = 'normal') {
-  const base = { easy: 0.9, normal: 1.0, hard: 1.05 }[level] ?? 1.0;
+  const base = { easy: 0.92, normal: 1.02, hard: 1.06 }[level] ?? 1.02;
   return {
     skill: base + rng() * 0.04,
     linePref: (rng() - 0.5) * 0.6,

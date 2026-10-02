@@ -28,7 +28,7 @@ test('物理: 加速して自動変速し、最高速付近で頭打ち', () => 
   run(k, { throttle: 1 }, 30);
   assert.equal(k.gear, MAX_GEAR);
   const v = forwardSpeed(k);
-  assert.ok(v > 26 && v < KART.gearTop[MAX_GEAR] + 0.4, `top ${v}`);
+  assert.ok(v > KART.gearTop[MAX_GEAR] * 0.85 && v < KART.gearTop[MAX_GEAR] * 1.02, `top ${v}`);
   assert.ok(Math.abs(k.z) < 1e-6, 'まっすぐ進む');
 });
 
@@ -82,7 +82,7 @@ test('レース: NPC 11 台が 3 周を完走し、壁を突き抜けない', ()
   for (const e of race.karts) {
     assert.ok(e.finished, `${e.name} 完走`);
     assert.equal(e.lapTimes.length, 3);
-    for (const t of e.lapTimes) assert.ok(t > 45 && t < 90, `${e.name} lap ${t}`);
+    for (const t of e.lapTimes) assert.ok(t > 35 && t < 90, `${e.name} lap ${t}`);
   }
   const pos = race.standings().map((e) => e.position);
   assert.deepEqual(pos, Array.from({ length: 11 }, (_, i) => i + 1));

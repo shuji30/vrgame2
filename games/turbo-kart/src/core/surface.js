@@ -4,9 +4,9 @@ const TAU = Math.PI * 2;
 const RAMP = 8; // 区間の境目をなめらかに切り替える距離 (m)
 
 export const SURFACES = {
-  tarmac: { grip: 7, maxLat: 16.5, rolling: 0, bump: 0.004 },
-  rough: { grip: 6.5, maxLat: 15.5, rolling: 0.1, bump: 0.045 },
-  dirt: { grip: 4, maxLat: 12, rolling: 0.35, bump: 0.03 },
+  tarmac: { grip: 8.5, maxLat: 24, rolling: 0, bump: 0.004 },
+  rough: { grip: 8, maxLat: 22, rolling: 0.1, bump: 0.045 },
+  dirt: { grip: 5.5, maxLat: 18, rolling: 0.3, bump: 0.03 },
 };
 
 function smooth(x) {
