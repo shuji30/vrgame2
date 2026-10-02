@@ -158,9 +158,10 @@ test('FFB: 速度が出るとセンターへ戻す力、ロック超えで押し
 
 test('物理: H シフターは入っている段がギアになり、ニュートラルでは駆動しない', () => {
   const k = createKart(0, 0, 0);
+  run(k, { throttle: 1, hGear: 1 }, 0.1, { manual: true });
   run(k, { throttle: 1, hGear: 0 }, 2, { manual: true });
-  assert.equal(k.gear, 0);
-  assert.ok(Math.abs(forwardSpeed(k)) < 0.01, 'N では進まない');
+  assert.equal(k.gear, 0, 'シフターを N に戻すとニュートラル');
+  assert.ok(Math.abs(forwardSpeed(k)) < 0.5, 'N では加速しない');
   run(k, { throttle: 1, hGear: 1 }, 2, { manual: true });
   assert.equal(k.gear, 1);
   assert.ok(forwardSpeed(k) > 5);
@@ -181,4 +182,15 @@ test('物理: AT でもパドルで変速でき、しばらく手動のまま保
   assert.equal(k.gear, g - 1, '保持中は自動でシフトアップしない');
   run(k, { throttle: 1 }, 8);
   assert.ok(k.gear >= g, '保持が切れると AT に戻る');
+});
+
+test('物理: H シフターを割り当てていても、触れていなければパドルで変速できる', () => {
+  const k = createKart(0, 0, 0);
+  run(k, { throttle: 1, hGear: 0 }, 0.5, { manual: true });
+  assert.equal(k.gear, 1, 'シフターが N のままでも最初の状態を壊さない');
+  stepKart(k, { throttle: 1, hGear: 0, shiftUp: true }, 1 / 60, { manual: true });
+  run(k, { throttle: 1, hGear: 0 }, 0.5, { manual: true });
+  assert.equal(k.gear, 2, 'パドルの変速が保たれる');
+  run(k, { throttle: 1, hGear: 4 }, 0.2, { manual: true });
+  assert.equal(k.gear, 4, 'シフターを動かすとその段へ');
 });

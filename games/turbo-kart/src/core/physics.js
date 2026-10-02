@@ -92,16 +92,19 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
   // 変速
   if (k.shiftTimer > 0) k.shiftTimer -= dt;
   if (manual) {
-    if (input.hGear !== undefined) {
-      // H シフター: 入っている段がそのままギア（0 = ニュートラル）
-      if (k.gear !== input.hGear) {
+    // H シフター: 位置が変わったときだけその段に入れる（0 = ニュートラル）。
+    // シフターに触れていなければパドルでも変速できる
+    if (input.hGear !== undefined && input.hGear !== k.lastHGear) {
+      // 最初はシフターが入っている段から（N のままなら 1 速のまま）
+      const first = k.lastHGear === undefined;
+      if ((!first || input.hGear !== 0) && k.gear !== input.hGear) {
         k.gear = input.hGear;
         k.shiftTimer = KART.shiftTime;
       }
-    } else {
-      if (input.shiftUp) shift(k, 1);
-      if (input.shiftDown) shift(k, -1);
+      k.lastHGear = input.hGear;
     }
+    if (input.shiftUp) shift(k, 1);
+    if (input.shiftDown) shift(k, -1);
   } else if (input.shiftUp || input.shiftDown) {
     // AT でもパドルを使えば手動で変速し、しばらく自動変速を止める（ティプトロニック風）
     if (input.shiftUp) shift(k, 1);

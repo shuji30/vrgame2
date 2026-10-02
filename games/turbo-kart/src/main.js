@@ -25,6 +25,7 @@ setHidPads(() => hid.pads());
 const screens = { menu: $('menu'), calib: $('calib') };
 const ui = {
   hud: $('hud'),
+  debug: $('debug'),
   showScreen(name) {
     for (const [k, el] of Object.entries(screens)) el.hidden = k !== name;
     if (name !== 'race') ui.hud.hidden = true;

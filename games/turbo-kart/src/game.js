@@ -224,6 +224,8 @@ export class Game {
     }
     if (inp.recenter) this.recenter();
     if (inp.camera && !this.xrOn && this.me) this.setCameraMode(this.cameraMode === 'chase' ? 'cockpit' : 'chase');
+    if (inp.debug) this.showDebug = !this.showDebug;
+    if (inp.shiftUp || inp.shiftDown) this.lastShiftInput = { up: inp.shiftUp, at: performance.now() };
     if (this.recenterAt && performance.now() > this.recenterAt && this.xrOn) {
       this.recenter();
       this.recenterAt = 0;
@@ -310,6 +312,7 @@ export class Game {
         this.ffb.update({ constant: 0, damper: 0.2 * this.ffb.settings.gain, spring: 0.3 * this.ffb.settings.gain, rumble: 0, rumbleHz: 0 });
       }
       this.audio.update(me.kart, Math.abs(forwardSpeed(me.kart)), me.input.throttle || 0, this.state === 'race' || this.state === 'results');
+      this.updateDebug(inp);
 
       if (me.finished && !this.finishedShown) {
         this.finishedShown = true;
@@ -318,6 +321,28 @@ export class Game {
       }
       if (this.state === 'results') this.hud.showBoard(race, this.boardHtml());
     }
+  }
+
+  // I キーで入力の状態を表示（パドルなどが届いているかの確認用）
+  updateDebug(inp) {
+    const el = this.ui.debug;
+    if (!el) return;
+    el.hidden = !this.showDebug;
+    if (!this.showDebug) return;
+    const B = this.input.config.bindings;
+    const k = this.me.kart;
+    const ago = this.lastShiftInput ? `${((performance.now() - this.lastShiftInput.at) / 1000).toFixed(1)} 秒前 (${this.lastShiftInput.up ? '↑' : '↓'})` : 'なし';
+    const bind = (a) => (B[a] ? `${B[a].pad} の ${B[a].kind === 'button' ? 'ボタン' : '軸'} ${B[a].control}` : '未割り当て');
+    el.textContent = [
+      `変速: ${this.me.manual ? 'MT' : 'AT'}  ギア: ${k.gear}  H シフター: ${inp.hGear ?? '未使用'}`,
+      `シフトアップ押下中: ${inp.shiftUpHeld ? 'はい' : 'いいえ'}  シフトダウン押下中: ${inp.shiftDownHeld ? 'はい' : 'いいえ'}`,
+      `最後に受け取ったシフト操作: ${ago}`,
+      `シフトアップ: ${bind('shiftUp')}`,
+      `シフトダウン: ${bind('shiftDown')}`,
+      `ハンドル: ${bind('steer')}  値 ${inp.steer.toFixed(2)}`,
+      `入力デバイス: ${(this.input.pads || []).map((p) => `${p.id}(#${p.index} 軸${p.axes.length}/ボタン${p.buttons.length})`).join(', ')}`,
+    ].join('
+');
   }
 
   boardHtml() {

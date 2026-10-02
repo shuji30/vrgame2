@@ -398,7 +398,11 @@ export class HIDManager {
     } catch {
       return;
     }
-    const st = { parser: new ReportParser(device), pid: hasPID(device) ? new PIDForce(device) : null, name: device.productName || 'HID device', index: this.next++ };
+    // 1 台が複数の HID 機能を持つと同じ名前で並ぶので、主な機能の種類を名前に含めて区別する
+    const top = device.collections[0];
+    const kind = top ? `${top.usagePage}:${top.usage}` : '?';
+    const name = device.productName || 'HID device';
+    const st = { parser: new ReportParser(device), pid: hasPID(device) ? new PIDForce(device) : null, name, key: `${name} [${kind}]`, index: this.next++ };
     device.addEventListener('inputreport', (ev) => st.parser.handle(ev));
     this.devices.set(device, st);
     this.emit();
@@ -417,7 +421,7 @@ export class HIDManager {
   }
 
   pads() {
-    return this.list().map((st) => ({ id: `HID: ${st.name}`, index: 2000 + st.index, ...st.parser.snapshot() }));
+    return this.list().map((st) => ({ id: `HID: ${st.key}`, index: 2000 + st.index, ...st.parser.snapshot() }));
   }
 
   // FFB を出せる機器（PID 対応）。名前の指定があればそれを優先

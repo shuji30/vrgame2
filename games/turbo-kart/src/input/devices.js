@@ -70,7 +70,7 @@ export function snapshotPads() {
   const out = [];
   const hid = hidPads() || [];
   for (const p of hid) out.push({ ...p, mapping: '', hid: true });
-  const hidNames = hid.map((p) => p.id.slice(5).toLowerCase());
+  const hidNames = hid.map((p) => p.id.slice(5).replace(/ \[[^\]]*\]$/, '').toLowerCase());
   const extra = (bridgePads() || []).filter((p) => !hidNames.some((n) => n && p.id.toLowerCase().startsWith(n)));
   for (const p of extra) {
     out.push({ id: `SDL: ${p.id}`, index: 1000 + p.index, mapping: '', axes: p.axes, buttons: p.buttons, bridge: true });
@@ -97,7 +97,9 @@ export function findPad(pads, binding) {
   if (!binding) return null;
   const same = pads.filter((p) => p.id === binding.pad);
   if (!same.length) return null;
-  return same.find((p) => p.index === binding.padIndex) || same[0];
+  // 同じ名前が複数あるときは、番号が一致し、かつその軸/ボタンを持つものを選ぶ
+  const has = (p) => (binding.kind === 'button' ? p.buttons.length : p.axes.length) > binding.control;
+  return same.find((p) => p.index === binding.padIndex && has(p)) || same.find(has) || same[0];
 }
 
 export class InputManager {
@@ -155,6 +157,7 @@ export class InputManager {
     held.recenter = k.has('KeyR');
     held.confirm = k.has('Enter');
     held.camera = k.has('KeyC');
+    held.debug = k.has('KeyI');
 
     // 標準配列のゲームパッド（割り当てが無いときの既定）
     const std = pads.find((p) => p.mapping === 'standard');
