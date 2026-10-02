@@ -67,6 +67,14 @@ export class FFBBridge {
         if (m.t === 'input') {
           this.pads = m.pads || [];
           this.padsAt = performance.now();
+          // 次に読まれるまでに一度でも押されたボタンを覚えておく（短い押下を取りこぼさない）
+          this.latch ||= new Map();
+          for (const p of this.pads) {
+            const key = `${p.index}:${p.id}`;
+            const l = this.latch.get(key) || [];
+            p.buttons.forEach((v, i) => { if (v > 0.5) l[i] = 1; });
+            this.latch.set(key, l);
+          }
         } else if (m.t === 'status') {
           this.status.devices = m.devices || [];
           this.status.selected = m.selected || null;
@@ -93,7 +101,14 @@ export class FFBBridge {
 
   // ブリッジ経由の入力デバイス（接続が切れていれば空）
   inputPads() {
-    return this.ws && this.ws.readyState === 1 ? this.pads || [] : [];
+    if (!this.ws || this.ws.readyState !== 1) return [];
+    const pads = (this.pads || []).map((p) => {
+      const l = this.latch?.get(`${p.index}:${p.id}`);
+      if (!l) return p;
+      return { ...p, buttons: p.buttons.map((v, i) => Math.max(v, l[i] || 0)) };
+    });
+    this.latch?.clear();
+    return pads;
   }
 
   disconnect() {

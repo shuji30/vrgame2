@@ -231,6 +231,9 @@ export class Game {
 
     const race = this.race;
     const events = [];
+    // 押した瞬間の入力は、物理の更新が来るまで保持する（高リフレッシュレートで取りこぼさない）
+    if (inp.shiftUp) this.pendingUp = true;
+    if (inp.shiftDown) this.pendingDown = true;
     if (this.state !== 'paused') {
       this.acc += dt;
       let first = true;
@@ -247,8 +250,9 @@ export class Game {
           } else {
             inputs.set(this.me.index, {
               steer: inp.steer, throttle: inp.throttle, brake: inp.brake, handbrake: inp.handbrake,
-              shiftUp: first && inp.shiftUp, shiftDown: first && inp.shiftDown, hGear: inp.hGear,
+              shiftUp: first && !!this.pendingUp, shiftDown: first && !!this.pendingDown, hGear: inp.hGear,
             });
+            if (first) this.pendingUp = this.pendingDown = false;
           }
         }
         race.step(STEP, inputs);

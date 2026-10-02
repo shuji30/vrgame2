@@ -8,8 +8,11 @@ PC で動かす小さな常駐プログラムです。ブラウザだけでは�
 ## 使い方
 
 1. [Python 3.10 以上](https://www.python.org/downloads/) をインストール
-2. `start.bat` をダブルクリック（初回は必要なパッケージを自動でインストールします）
+2. **おすすめ**: `install-autostart.bat` を 1 回だけダブルクリック。以後は Windows にログオンすると、画面を出さずに自動で起動します（解除は `uninstall-autostart.bat`）
+   - 手動で起動したいときは `start.bat`（ウィンドウを閉じると停止）
 3. PC の Chrome / Edge でゲームを開き、「ハンコン / FFB 設定」で「ブリッジ接続中」と出れば OK
+
+自動起動では FFB の最大出力を 30%（`--max 0.3`）にしています。強くしたいときは、スタートアップのショートカット（`TurboKart Device Bridge`）のプロパティで数値を変えてください。
 
 ## オプション
 

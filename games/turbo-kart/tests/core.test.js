@@ -167,3 +167,18 @@ test('物理: H シフターは入っている段がギアになり、ニュー�
   run(k, { throttle: 1, hGear: 3 }, 1, { manual: true });
   assert.equal(k.gear, 3);
 });
+
+test('物理: AT でもパドルで変速でき、しばらく手動のまま保持される', () => {
+  const k = createKart(0, 0, 0);
+  run(k, { throttle: 1 }, 3);
+  const g = k.gear;
+  stepKart(k, { throttle: 0.2, shiftDown: true }, 1 / 60);
+  assert.equal(k.gear, g, '回転が上限を超えるシフトダウンは拒否');
+  while (forwardSpeed(k) > KART.gearTop[g - 1] * 0.8) stepKart(k, { brake: 1 }, 1 / 60);
+  stepKart(k, { throttle: 0.2, shiftDown: true }, 1 / 60);
+  assert.equal(k.gear, g - 1, 'AT 中のシフトダウン');
+  run(k, { throttle: 0.2 }, 1);
+  assert.equal(k.gear, g - 1, '保持中は自動でシフトアップしない');
+  run(k, { throttle: 1 }, 8);
+  assert.ok(k.gear >= g, '保持が切れると AT に戻る');
+});

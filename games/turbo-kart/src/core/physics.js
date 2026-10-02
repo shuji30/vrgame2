@@ -102,6 +102,16 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
       if (input.shiftUp) shift(k, 1);
       if (input.shiftDown) shift(k, -1);
     }
+  } else if (input.shiftUp || input.shiftDown) {
+    // AT でもパドルを使えば手動で変速し、しばらく自動変速を止める（ティプトロニック風）
+    if (input.shiftUp) shift(k, 1);
+    // 回転が上限を超えてしまうシフトダウンは受け付けない（実車の AT と同じ保護）
+    if (input.shiftDown && k.gear > 1 && vF / P.gearTop[k.gear - 1] < 0.98) shift(k, -1);
+    k.manualHold = 4;
+  } else if (k.manualHold > 0) {
+    k.manualHold -= dt;
+    // 回転が上がり切ったら保持中でもシフトアップ（レブリミットで止まらないように）
+    if (k.gear > 0 && k.gear < MAX_GEAR && vF / P.gearTop[k.gear] > 1.0 && k.shiftTimer <= 0) shift(k, 1);
   } else if (k.gear > 0 && k.shiftTimer <= 0) {
     const r = vF / P.gearTop[k.gear];
     if (r > 0.95 && k.gear < MAX_GEAR && throttle > 0.1) shift(k, 1);
