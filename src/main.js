@@ -45,6 +45,8 @@ window.__test = {
     let t = 0;
     audio.songTime = () => (audio.lastTime = t);
     audio.advance = (dt) => { t += dt; };
+    const play = audio.playSong.bind(audio);
+    audio.playSong = (song) => { play(song); t = 0; };
     game.startSong();
   },
   step(sec, fps = 60) {

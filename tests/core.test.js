@@ -110,3 +110,9 @@ test('壁と頭の衝突', () => {
   assert.ok(headInWall({ x: -0.05, y: 1.6, z: 0 }, box, 0.11));
   assert.ok(!headInWall({ x: 0.3, y: 1.6, z: 0 }, box, 0.11));
 });
+
+test('sweepTest: NaN の刀は当たりにしない', () => {
+  const c = { x: 0, y: 1, z: -1 };
+  const nan = { x: NaN, y: NaN, z: -1 };
+  assert.equal(sweepTest(nan, nan, nan, nan, c, c, 0, NOTE_HALF), null);
+});

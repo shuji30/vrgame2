@@ -72,6 +72,10 @@ export function segmentAABB(p0, p1, h) {
 // 前フレーム→今フレームで刀身が箱を掃いたか。ノーツ自体の移動も相対座標で考慮する
 // 戻り値: { t: 時間方向の割合, f: 刀身上の位置(0=付け根,1=先端), local: 接触点(ノーツローカル) } または null
 export function sweepTest(prevHilt, prevTip, hilt, tip, prevC, curC, angle, half, samples = 10) {
+  // NaN は比較が常に false になり「当たり」と誤判定されるので弾く
+  for (const p of [prevHilt, prevTip, hilt, tip]) {
+    if (!Number.isFinite(p.x + p.y + p.z)) return null;
+  }
   let best = null;
   for (let i = 0; i <= samples; i++) {
     const f = i / samples;

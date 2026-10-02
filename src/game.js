@@ -39,13 +39,21 @@ export class Game {
     this.renderer = renderer;
     this.audio = audio;
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 300);
+    this.camera = new THREE.PerspectiveCamera(70, (window.innerWidth || 16) / (window.innerHeight || 9), 0.05, 300);
     this.rig = new THREE.Group();
     this.rig.add(this.camera);
     this.scene.add(this.rig);
     this.resetDesktopCamera();
 
     this.env = new Environment(this.scene);
+    // 壁に頭が入ったとき視界を赤くする
+    this.vignette = new THREE.Mesh(
+      new THREE.SphereGeometry(0.25, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xff1030, transparent: true, opacity: 0, side: THREE.BackSide, depthTest: false, depthWrite: false, fog: false }),
+    );
+    this.vignette.renderOrder = 100;
+    this.vignette.visible = false;
+    this.camera.add(this.vignette);
     this.views = new ObjectViews(this.scene);
     this.effects = new Effects(this.scene, this.views);
     this.sabers = [new Saber(0, COLORS.left), new Saber(1, COLORS.right)];
@@ -166,6 +174,8 @@ export class Game {
   }
 
   resize() {
+    // 最小化や非表示でサイズが 0 になると投影行列が壊れるので無視する
+    if (!window.innerWidth || !window.innerHeight) return;
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -300,7 +310,10 @@ export class Game {
   }
 
   getBest(songId, diff) {
-    return load(`best:${songId}:${diff}`, null);
+    const b = load(`best:${songId}:${diff}`, null);
+    // 壊れた記録は無視する
+    if (!b || !Number.isFinite(b.score) || typeof b.rank !== 'string') return null;
+    return b;
   }
 
   showMenu() {
@@ -326,6 +339,8 @@ export class Game {
     this.song = song;
     this.session = new PlaySession(map, { heightOffset: h, noFail: this.settings.noFail });
     this.autoplay = this.settings.autoplay ? new Autoplay(map, h) : null;
+    // デスクトップでは頭を動かせないので、壁を避ける体の傾きは常に自動で行う
+    this.guide = this.autoplay || new Autoplay(map, h);
     this.lastSongT = null;
     this.wallBuzz = 0;
     this.audio.playSong(song);
@@ -373,9 +388,9 @@ export class Game {
       badCuts: sc.badCuts,
       newBest: false,
     };
-    if (!failed && !this.autoplay) {
+    if (!failed && !this.autoplay && Number.isFinite(sc.score)) {
       const key = `best:${this.song.id}:${this.settings.diff}`;
-      const best = load(key, null);
+      const best = this.getBest(this.song.id, this.settings.diff);
       if (!best || sc.score > best.score) {
         save(key, { score: sc.score, rank: data.rank, acc });
         data.newBest = true;
@@ -389,6 +404,9 @@ export class Game {
   }
 
   clearObjects() {
+    if (!this.xrOn) this.resetDesktopCamera();
+    this.vignette.visible = false;
+    this.vignette.material.opacity = 0;
     const s = this.session;
     if (s) {
       for (const a of [...s.notes, ...s.bombs, ...s.walls]) {
@@ -430,6 +448,7 @@ export class Game {
         this.raycaster.setFromCamera(this.mouse, this.camera);
         const { origin, direction } = this.raycaster.ray;
         const k = (HAND_Z - origin.z) / direction.z;
+        if (!Number.isFinite(k)) continue;
         const x = THREE.MathUtils.clamp(origin.x + direction.x * k, -1.6, 1.6);
         const y = THREE.MathUtils.clamp(origin.y + direction.y * k, 0.2, 2.4);
         saber.root.position.set(x, y, HAND_Z);
@@ -473,8 +492,8 @@ export class Game {
 
     let head;
     if (this.xrOn) head = this.camera.getWorldPosition(this.tmp);
-    else head = { x: this.autoplay ? this.autoplay.headOffsetX(t) : 0, y: 1.6, z: 0 };
-    if (!this.xrOn && this.autoplay) {
+    else {
+      head = { x: this.guide.headOffsetX(t), y: 1.6, z: 0 };
       this.camera.position.x = DESKTOP_CAM.x + head.x * 0.6;
     }
 
@@ -494,6 +513,9 @@ export class Game {
       const b = a.box;
       a.view.position.set((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2);
     }
+    const vm = this.vignette.material;
+    vm.opacity += ((session.inWall ? 0.45 : 0) - vm.opacity) * Math.min(1, dt * 12);
+    this.vignette.visible = vm.opacity > 0.01;
     if (session.inWall) {
       this.wallBuzz -= dt;
       if (this.wallBuzz <= 0) {

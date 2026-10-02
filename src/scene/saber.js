@@ -95,7 +95,7 @@ export class Saber {
 // 直近数フレームの刀身位置をつないだ帯
 class Trail {
   constructor(colorHex) {
-    this.points = [];
+    this.count = 0;
     const geo = new THREE.BufferGeometry();
     this.pos = new Float32Array(TRAIL_LEN * 2 * 3);
     this.col = new Float32Array(TRAIL_LEN * 2 * 3);
@@ -117,17 +117,24 @@ class Trail {
   }
 
   reset() {
-    this.points.length = 0;
+    this.count = 0;
   }
 
   push(hilt, tip) {
+    // 履歴はリングバッファで持ち、毎フレームの確保を避ける
+    if (!this.ring) {
+      this.ring = Array.from({ length: TRAIL_LEN }, () => [new THREE.Vector3(), new THREE.Vector3()]);
+      this.head = 0;
+      this.count = this.count || 0;
+    }
+    this.head = (this.head + TRAIL_LEN - 1) % TRAIL_LEN;
     // 付け根側 25% は残像を出さない
-    const a = new THREE.Vector3().lerpVectors(hilt, tip, 0.25);
-    this.points.unshift([a, tip.clone()]);
-    if (this.points.length > TRAIL_LEN) this.points.length = TRAIL_LEN;
-    const n = this.points.length;
+    this.ring[this.head][0].lerpVectors(hilt, tip, 0.25);
+    this.ring[this.head][1].copy(tip);
+    this.count = Math.min(TRAIL_LEN, this.count + 1);
+    const n = this.count;
     for (let i = 0; i < TRAIL_LEN; i++) {
-      const p = this.points[Math.min(i, n - 1)];
+      const p = this.ring[(this.head + Math.min(i, n - 1)) % TRAIL_LEN];
       const k = i < n ? Math.pow(1 - i / TRAIL_LEN, 1.6) * 0.7 : 0;
       for (let j = 0; j < 2; j++) {
         const v = p[j];
