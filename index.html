@@ -13,7 +13,7 @@
     #help { position: fixed; top: 12px; left: 12px; max-width: min(360px, calc(100vw - 24px)); box-sizing: border-box;
       padding: 12px 14px; border-radius: 12px; background: rgba(12, 8, 30, 0.72); border: 1px solid rgba(255,255,255,0.15);
       font-size: 13px; line-height: 1.6; backdrop-filter: blur(6px); }
-    #help h1 { margin: 0 0 4px; font-size: 16px; letter-spacing: 0.08em; }
+    #help h1 { margin: 0 0 4px; padding-right: 22px; font-size: 16px; letter-spacing: 0.08em; }
     #help h1 .r { color: #ff2a55; } #help h1 .b { color: #2a8cff; }
     #help ul { margin: 4px 0 0; padding-left: 18px; }
     #help kbd { padding: 0 5px; border-radius: 4px; background: rgba(255,255,255,0.15); font-family: inherit; }
@@ -48,6 +48,11 @@
   <noscript>JavaScript を有効にしてください。</noscript>
   <script>
     const help = document.getElementById('help');
+    // 狭い画面ではメニューに重ならないよう最初から折りたたむ
+    if (innerWidth < 900) {
+      help.classList.add('min');
+      document.getElementById('help-toggle').textContent = '+';
+    }
     document.getElementById('help-toggle').addEventListener('click', (e) => {
       help.classList.toggle('min');
       e.currentTarget.textContent = help.classList.contains('min') ? '+' : '–';

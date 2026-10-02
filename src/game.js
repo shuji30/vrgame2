@@ -45,6 +45,8 @@ export class Game {
     this.rig.add(this.camera);
     this.scene.add(this.rig);
     this.resetDesktopCamera();
+    this.fitCamera();
+    this.camera.updateProjectionMatrix();
 
     this.env = new Environment(this.scene);
     // 壁に頭が入ったとき視界を赤くする
@@ -178,8 +180,16 @@ export class Game {
     // 最小化や非表示でサイズが 0 になると投影行列が壊れるので無視する
     if (!window.innerWidth || !window.innerHeight) return;
     this.camera.aspect = window.innerWidth / window.innerHeight;
+    this.fitCamera();
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  // 縦長の画面でも横方向が見切れないよう、水平視野角を最低 72° に保つ
+  fitCamera() {
+    const minH = THREE.MathUtils.degToRad(72);
+    const v = 2 * Math.atan(Math.tan(minH / 2) / this.camera.aspect);
+    this.camera.fov = Math.max(70, THREE.MathUtils.radToDeg(v));
   }
 
   get xrOn() {
@@ -389,7 +399,7 @@ export class Game {
       badCuts: sc.badCuts,
       newBest: false,
     };
-    if (!failed && !this.autoplay && Number.isFinite(sc.score)) {
+    if (!failed && !this.autoplay && Number.isFinite(sc.score) && sc.score > 0) {
       const key = `best:${this.song.id}:${this.settings.diff}`;
       const best = this.getBest(this.song.id, this.settings.diff);
       if (!best || sc.score > best.score) {
