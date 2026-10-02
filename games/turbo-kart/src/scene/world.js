@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { pointAt, locate, wrapS } from '../core/track.js';
 import { roadHeight, surfaceType } from '../core/surface.js';
 import { mulberry32 } from '../core/rng.js';
+import { toon, skyDome, clouds } from './style.js';
 
 function canvasTexture(w, h, draw, repeat = true) {
   const c = document.createElement('canvas');
@@ -91,11 +92,12 @@ export function terrainHeight(track, x, z) {
 export function buildWorld(scene, track) {
   const group = new THREE.Group();
   scene.add(group);
-  scene.background = new THREE.Color(0x8fc4ff);
-  scene.fog = new THREE.Fog(0xbad8ff, 150, 650);
+  scene.background = new THREE.Color(0x9fd9ff);
+  scene.fog = new THREE.Fog(0xc8efff, 220, 900);
+  scene.add(skyDome());
 
-  scene.add(new THREE.HemisphereLight(0xdcecff, 0x4a6b2a, 1.4));
-  const sun = new THREE.DirectionalLight(0xfff1d6, 2.2);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x6fbf3a, 1.6));
+  const sun = new THREE.DirectionalLight(0xfff4dc, 2.4);
   sun.position.set(80, 140, 40);
   scene.add(sun);
 
@@ -117,26 +119,31 @@ export function buildWorld(scene, track) {
   const tp = tg.attributes.position;
   for (let i = 0; i < tp.count; i++) tp.setY(i, terrainHeight(track, tp.getX(i), tp.getZ(i)));
   tg.computeVertexNormals();
-  const grassTex = canvasTexture(256, 256, (ctx, w, h) => speckle(ctx, w, h, '#4c8a2e', 70, 9000));
+  // 芝刈りの縞模様のある明るい芝
+  const grassTex = canvasTexture(256, 256, (ctx, w, h) => {
+    speckle(ctx, w, h, '#5ccf3c', 40, 5000);
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillRect(0, 0, w / 2, h);
+  });
   grassTex.repeat.set(nx / 3, nz / 3);
-  group.add(new THREE.Mesh(tg, new THREE.MeshLambertMaterial({ map: grassTex })));
+  group.add(new THREE.Mesh(tg, toon({ map: grassTex })));
   // 地平線まで続く平地
-  const far = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000), new THREE.MeshLambertMaterial({ color: 0x4f8a32 }));
+  const far = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000), toon({ color: 0x5ccf3c }));
   far.rotation.x = -Math.PI / 2;
   far.position.set(x0 + (nx * CELL) / 2, BASE - 3, z0 + (nz * CELL) / 2);
   group.add(far);
 
   // 路面
   const tarmacTex = canvasTexture(256, 512, (ctx, w, h) => {
-    speckle(ctx, w, h, '#3b3d42', 60, 14000);
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    speckle(ctx, w, h, '#50535e', 40, 9000);
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
     ctx.fillRect(8, 0, 6, h);
     ctx.fillRect(w - 14, 0, 6, h);
     ctx.fillStyle = 'rgba(255,255,255,0.75)';
     ctx.fillRect(w / 2 - 3, 0, 6, h * 0.45);
   });
   const roughTex = canvasTexture(256, 512, (ctx, w, h) => {
-    speckle(ctx, w, h, '#45464b', 80, 16000);
+    speckle(ctx, w, h, '#585a63', 60, 12000);
     // 補修跡とひび
     for (let i = 0; i < 14; i++) {
       ctx.fillStyle = `rgba(20,20,24,${0.25 + Math.random() * 0.3})`;
@@ -156,7 +163,7 @@ export function buildWorld(scene, track) {
     ctx.fillRect(w - 14, 0, 6, h);
   });
   const dirtTex = canvasTexture(256, 512, (ctx, w, h) => {
-    speckle(ctx, w, h, '#8a6a45', 90, 20000, 3);
+    speckle(ctx, w, h, '#c08a4e', 70, 16000, 3);
     // わだち
     for (const x of [w * 0.3, w * 0.7]) {
       const g = ctx.createLinearGradient(x - 26, 0, x + 26, 0);
@@ -168,9 +175,9 @@ export function buildWorld(scene, track) {
     }
   });
   const mats = {
-    tarmac: new THREE.MeshLambertMaterial({ map: tarmacTex }),
-    rough: new THREE.MeshLambertMaterial({ map: roughTex }),
-    dirt: new THREE.MeshLambertMaterial({ map: dirtTex }),
+    tarmac: toon({ map: tarmacTex }),
+    rough: toon({ map: roughTex }),
+    dirt: toon({ map: dirtTex }),
   };
   const curbTex = canvasTexture(64, 128, (ctx, w, h) => {
     ctx.fillStyle = '#e8262c';
@@ -178,10 +185,10 @@ export function buildWorld(scene, track) {
     ctx.fillStyle = '#f4f4f4';
     ctx.fillRect(0, h / 2, w, h / 2);
   });
-  const curbMat = new THREE.MeshLambertMaterial({ map: curbTex });
-  const runTex = canvasTexture(64, 64, (ctx, w, h) => speckle(ctx, w, h, '#5f8f3a', 50, 600));
-  const runMat = new THREE.MeshLambertMaterial({ map: runTex });
-  const gravelMat = new THREE.MeshLambertMaterial({ map: canvasTexture(64, 64, (ctx, w, h) => speckle(ctx, w, h, '#9b8462', 70, 900, 2)) });
+  const curbMat = toon({ map: curbTex });
+  const runTex = canvasTexture(64, 64, (ctx, w, h) => speckle(ctx, w, h, '#66d846', 30, 300));
+  const runMat = toon({ map: runTex });
+  const gravelMat = toon({ map: canvasTexture(64, 64, (ctx, w, h) => speckle(ctx, w, h, '#e0b77a', 60, 700, 2)) });
 
   for (const r of surfaceRanges(track)) {
     const dirt = r.type === 'dirt';
@@ -212,12 +219,12 @@ export function buildWorld(scene, track) {
     const u = luv.getX(i), v = luv.getY(i);
     luv.setXY(i, v - (s0 - 1) / 2, u);
   }
-  group.add(new THREE.Mesh(lineGeo, new THREE.MeshLambertMaterial({ map: checker })));
+  group.add(new THREE.Mesh(lineGeo, toon({ map: checker })));
 
   // スタートゲート
   const start = pointAt(track, s0, 0);
   const gate = new THREE.Group();
-  const postMat = new THREE.MeshLambertMaterial({ color: 0x2a2a33 });
+  const postMat = toon({ color: 0x2a2a33 });
   for (const side of [-1, 1]) {
     const post = new THREE.Mesh(new THREE.BoxGeometry(0.6, 7, 0.6), postMat);
     post.position.set(0, 3.5, side * (hw + 1.5));
@@ -225,7 +232,7 @@ export function buildWorld(scene, track) {
   }
   const banner = new THREE.Mesh(
     new THREE.BoxGeometry(0.4, 1.4, hw * 2 + 3.6),
-    new THREE.MeshLambertMaterial({
+    toon({
       map: canvasTexture(512, 64, (ctx, w, h) => {
         ctx.fillStyle = '#ff3b3b';
         ctx.fillRect(0, 0, w, h);
@@ -274,7 +281,7 @@ export function buildWorld(scene, track) {
   // タイヤバリア（赤白交互）
   const spacing = 1.1;
   const per = Math.floor(track.length / spacing);
-  const tires = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.45, 0.45, 0.9, 10), new THREE.MeshLambertMaterial({ color: 0xffffff }), per * 2);
+  const tires = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.45, 0.45, 0.9, 10), toon({ color: 0xffffff }), per * 2);
   const m4 = new THREE.Matrix4();
   const col = new THREE.Color();
   let n = 0;
@@ -291,12 +298,13 @@ export function buildWorld(scene, track) {
   }
   group.add(tires);
 
-  // 木（コースから離れた場所だけ）
+  // 木（コースから離れた場所だけ）。丸い木と円錐の木を混ぜる
   const rng = mulberry32(42);
-  const treeCount = 300;
-  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.25, 0.35, 2, 6), new THREE.MeshLambertMaterial({ color: 0x6b4423 }), treeCount);
-  const leaves = new THREE.InstancedMesh(new THREE.ConeGeometry(2.2, 5.5, 7), new THREE.MeshLambertMaterial({ color: 0xffffff }), treeCount);
-  let t = 0, tries = 0;
+  const treeCount = 320;
+  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.3, 0.4, 2.4, 7), toon({ color: 0x8a5a2b }), treeCount);
+  const balls = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(2.6, 1), toon({ color: 0xffffff }), treeCount);
+  const cones = new THREE.InstancedMesh(new THREE.ConeGeometry(2.3, 6, 8), toon({ color: 0xffffff }), treeCount);
+  let nb = 0, nc = 0, t = 0, tries = 0;
   const q = new THREE.Quaternion();
   const v = new THREE.Vector3();
   const sc3 = new THREE.Vector3();
@@ -306,18 +314,85 @@ export function buildWorld(scene, track) {
     const l = locate(track, x, z);
     if (Math.abs(l.lateral) < wall + 7) continue;
     const y = terrainHeight(track, x, z);
-    const sc = 0.7 + rng() * 0.8;
+    const sc = 0.8 + rng() * 0.7;
     sc3.set(sc, sc, sc);
-    trunks.setMatrixAt(t, m4.compose(v.set(x, y + 1 * sc, z), q, sc3));
-    leaves.setMatrixAt(t, m4.compose(v.set(x, y + 4.6 * sc, z), q, sc3));
-    leaves.setColorAt(t, col.setHSL(0.28 + rng() * 0.06, 0.5, 0.25 + rng() * 0.1));
+    trunks.setMatrixAt(t, m4.compose(v.set(x, y + 1.2 * sc, z), q, sc3));
+    if (rng() < 0.65) {
+      balls.setMatrixAt(nb, m4.compose(v.set(x, y + 4.2 * sc, z), q, sc3));
+      balls.setColorAt(nb++, col.setHSL(0.25 + rng() * 0.08, 0.75, 0.42 + rng() * 0.1));
+    } else {
+      cones.setMatrixAt(nc, m4.compose(v.set(x, y + 4.6 * sc, z), q, sc3));
+      cones.setColorAt(nc++, col.setHSL(0.33 + rng() * 0.05, 0.7, 0.3 + rng() * 0.08));
+    }
     t++;
   }
-  trunks.count = leaves.count = t;
-  group.add(trunks, leaves);
+  trunks.count = t;
+  balls.count = nb;
+  cones.count = nc;
+  group.add(trunks, balls, cones);
+
+  // 花畑（コース脇の芝に色とりどりの花）
+  const flowerCount = 1800;
+  const flowers = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.22, 0), toon({ color: 0xffffff }), flowerCount);
+  const petals = [0xff4f7b, 0xffd23f, 0xffffff, 0xff8a1f, 0xb06cff, 0x4fc3ff];
+  let nf = 0;
+  for (let i = 0; i < 9000 && nf < flowerCount; i++) {
+    const s0 = rng() * track.length;
+    const side = rng() < 0.5 ? -1 : 1;
+    const lat = side * (wall + 2 + rng() * 22);
+    const p = pointAt(track, s0, lat);
+    const y = terrainHeight(track, p.x, p.z);
+    flowers.setMatrixAt(nf, m4.compose(v.set(p.x, y + 0.25, p.z), q, sc3.set(1, 1, 1)));
+    flowers.setColorAt(nf++, col.set(petals[Math.floor(rng() * petals.length)]));
+  }
+  flowers.count = nf;
+  group.add(flowers);
+
+  // ストレートと大きなカーブ沿いのカラフルな看板
+  const boardTex = canvasTexture(512, 128, (ctx, w, h) => {
+    const cols = ['#ff3b5c', '#ffd23f', '#2fb4ff', '#7cff6a'];
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = cols[i];
+      ctx.fillRect((i * w) / 4, 0, w / 4, h);
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'italic 900 72px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.strokeText('TURBO KART!', w / 2, h / 2 + 4);
+    ctx.fillText('TURBO KART!', w / 2, h / 2 + 4);
+  }, false);
+  const boardMat = toon({ map: boardTex, side: THREE.DoubleSide });
+  const boardGeo = new THREE.PlaneGeometry(6, 1.5);
+  for (const [from, to, side] of [[20, 200, 1], [20, 200, -1], [430, 620, 1], [1080, 1200, 1], [1080, 1200, -1]]) {
+    for (let s0 = from; s0 < to; s0 += 7) {
+      const p = pointAt(track, s0, side * (wall + 1.3));
+      const b = new THREE.Mesh(boardGeo, boardMat);
+      b.position.set(p.x, roadHeight(track, s0, side * wall) + 1.1, p.z);
+      b.rotation.y = -p.heading;
+      group.add(b);
+    }
+  }
+
+  // 旗（バンクの外側に並べる）
+  const flagGeo = new THREE.PlaneGeometry(1.4, 0.9);
+  const poleGeo = new THREE.CylinderGeometry(0.05, 0.05, 4.5, 6);
+  const poleMat = toon({ color: 0xeeeeee });
+  for (let s0 = 220; s0 < 410; s0 += 12) {
+    const p = pointAt(track, s0, -(wall + 2));
+    const y = roadHeight(track, s0, -wall);
+    const pole = new THREE.Mesh(poleGeo, poleMat);
+    pole.position.set(p.x, y + 2.25, p.z);
+    const flag = new THREE.Mesh(flagGeo, toon({ color: petals[Math.floor(rng() * petals.length)], side: THREE.DoubleSide }));
+    flag.position.set(p.x, y + 4, p.z + 0.7);
+    flag.rotation.y = -p.heading + Math.PI / 2;
+    group.add(pole, flag);
+  }
 
   // 遠景の山
-  const mountMat = new THREE.MeshLambertMaterial({ color: 0x8299bb, flatShading: true, fog: false });
+  const mountMat = toon({ color: 0x7fb8e8, fog: false });
   const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
   for (let i = 0; i < 18; i++) {
     const a = (i / 18) * Math.PI * 2;
@@ -329,5 +404,6 @@ export function buildWorld(scene, track) {
     group.add(m);
   }
 
+  group.add(clouds(rng, { x: cx, z: cz }));
   return group;
 }

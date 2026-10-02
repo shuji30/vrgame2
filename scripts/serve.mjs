@@ -18,6 +18,17 @@ const types = {
 };
 
 createServer(async (req, res) => {
+  // 開発用: ブラウザから送ったスクリーンショットを .snapshots/ に保存する（PUT /__snap?name=xxx）
+  if (req.method === 'PUT' && req.url.startsWith('/__snap')) {
+    const name = (new URL(req.url, 'http://x').searchParams.get('name') || 'snap').replace(/[^\w-]/g, '');
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    const { mkdir, writeFile } = await import('node:fs/promises');
+    await mkdir(join(root, '.snapshots'), { recursive: true });
+    await writeFile(join(root, '.snapshots', `${name}.jpg`), Buffer.concat(chunks));
+    res.writeHead(200).end('ok');
+    return;
+  }
   try {
     const url = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     let file = normalize(join(root, url));

@@ -133,7 +133,7 @@ window.addEventListener('resize', () => {
   game.resize(window.innerWidth, window.innerHeight);
 });
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && !game.xrOn) game.pause(true);
+  if (document.hidden && !game.xrOn && !window.__kart?.noAutoPause) game.pause(true);
 });
 window.addEventListener('beforeunload', () => ffb.stop());
 window.addEventListener('pagehide', () => ffb.stop());

@@ -9,6 +9,7 @@ import { buildWorld } from './scene/world.js';
 import { KartModel, EYE } from './scene/kartmodel.js';
 import { Hud, fmtTime } from './scene/hud.js';
 import { KartAudio } from './audio.js';
+import { Effects, driftTier } from './scene/fx.js';
 import { createDriver, driveAI } from './core/ai.js';
 
 const STEP = 1 / 120; // 物理の固定刻み
@@ -29,6 +30,7 @@ export class Game {
     this.hud = new Hud(ui.hud);
     this.hud.setTrack(this.track);
     this.ffbModel = new FFBModel();
+    this.fx = new Effects(this.scene);
     this.audio = new KartAudio();
     this.clock = new THREE.Clock();
     this.acc = 0;
@@ -82,8 +84,9 @@ export class Game {
       seed: (Math.random() * 1e9) | 0,
       manual: opts.manual && playerIndex >= 0 ? [playerIndex] : [],
     });
-    this.models = this.race.karts.map((e) => {
-      const m = new KartModel(e.color, e.name, { isPlayer: e.type === 'player' });
+    this.fx.clear();
+    this.models = this.race.karts.map((e, i) => {
+      const m = new KartModel(e.color, e.name, { isPlayer: e.type === 'player', number: i + 1 });
       this.scene.add(m.group);
       return m;
     });
@@ -294,6 +297,16 @@ export class Game {
       this.models[i].update(pose, e.kart, steer, dt, this.input.config.steer.lockDeg);
     });
 
+    // 火花・土煙
+    race.karts.forEach((e, i) => {
+      const m = this.models[i];
+      m.group.updateMatrixWorld();
+      this.fx.kart(m, e.kart, Math.abs(forwardSpeed(e.kart)), dt);
+      if (e.kart.driftTime > 0) e.lastTier = driftTier(e.kart.driftTime);
+      for (const ev of e.events) if (ev.type === 'miniTurbo') this.fx.burst(m, e.lastTier || 1);
+    });
+    this.fx.update(dt);
+
     this.updateCamera(dt);
 
     if (this.me && this.state !== 'menu') {
@@ -382,8 +395,14 @@ export class Game {
       c.init = true;
     }
     c.heading = lerpAngle(c.heading, pose.heading, 1 - Math.exp(-dt * 5));
-    const back = this.me ? 5.5 : 9;
-    const up = this.me ? 2.3 : 4;
+    const back = this.me ? 4.8 : 9;
+    const up = this.me ? 1.9 : 4;
+    // ブースト中は視野を広げてスピード感を出す
+    const fov = 75 + (focus.kart.boost > 0 ? 10 : 0);
+    if (Math.abs(this.camera.fov - fov) > 0.05) {
+      this.camera.fov += (fov - this.camera.fov) * Math.min(1, dt * 6);
+      this.camera.updateProjectionMatrix();
+    }
     const target = new THREE.Vector3(pose.x - Math.cos(c.heading) * back, pose.y + up, pose.z - Math.sin(c.heading) * back);
     if (!c.posInit) {
       c.pos.copy(target);
