@@ -155,3 +155,15 @@ test('FFB: 速度が出るとセンターへ戻す力、ロック超えで押し
   assert.ok(hit.constant < -0.2, '右の壁に当たると左へ');
   for (const v of [still, moving, lock, hit]) assert.ok(Math.abs(v.constant) <= 1);
 });
+
+test('物理: H シフターは入っている段がギアになり、ニュートラルでは駆動しない', () => {
+  const k = createKart(0, 0, 0);
+  run(k, { throttle: 1, hGear: 0 }, 2, { manual: true });
+  assert.equal(k.gear, 0);
+  assert.ok(Math.abs(forwardSpeed(k)) < 0.01, 'N では進まない');
+  run(k, { throttle: 1, hGear: 1 }, 2, { manual: true });
+  assert.equal(k.gear, 1);
+  assert.ok(forwardSpeed(k) > 5);
+  run(k, { throttle: 1, hGear: 3 }, 1, { manual: true });
+  assert.equal(k.gear, 3);
+});

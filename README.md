@@ -7,6 +7,8 @@
 | # | ゲーム | パス |
 | --- | --- | --- |
 | 1 | BEAT BLADE VR | [`games/beat-blade/`](games/beat-blade/) |
+| 2 | TURBO KART VR | [`games/turbo-kart/`](games/turbo-kart/) |
+| 3 | ふたりの休日 〜海の見える丘で〜 | https://shuji30.github.io/vrsample/ （外部リンク） |
 
 ゲームを追加するときは `games/<名前>/` にフォルダを作り、トップの `index.html` の `GAMES` 配列に 1 行足します。
 
@@ -65,3 +67,21 @@ WebXR は HTTPS（または localhost）が必要です。動作確認用の URL
 - `src/audio.js` — 曲の合成と効果音
 - `src/game.js` — 状態遷移と入力（VR コントローラー / マウス）
 - `tests/` — `node --test` のテスト。全曲 × 全難易度をオートプレイでシミュレーションし、全ノーツを正しく斬れること（取りこぼし・誤切断・爆弾・壁の接触がゼロ）を検証する
+
+---
+
+# 2. TURBO KART VR
+
+NPC 10 台と競うカートレースです。コース「Thunder Ring」（1.3km）には、デイトナ風のバンク、シケイン、丘の上のダート S 字、ヘアピン、荒れたターマックの下り、最大 10m のアップダウンがあります。
+
+- **操作**：キーボード / ゲームパッド / ハンコン（ペダル・パドルシフト・H シフター・USB サイドブレーキ）
+- **AT / MT**：MT はパドルまたは H シフターで変速
+- **ドリフト**：サイドブレーキで横滑りし、離すとミニターボ
+- **FFB**：セルフアライニングトルク、路面の凹凸（バンプステア）、縁石・ダートの振動、衝突、ソフトロック。PC で [デバイスブリッジ](ffb-bridge/) を動かすと出力されます
+- **VR**：着座のコックピット視点。ハンドル中央のダッシュボードに速度・ギア・順位を表示します
+
+確認用の URL パラメータ：`games/turbo-kart/?autostart=1&autodrive=1&cam=cockpit`
+
+```bash
+node games/turbo-kart/analyze.mjs normal   # NPC だけのレースの統計
+```

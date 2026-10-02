@@ -247,7 +247,7 @@ export class Game {
           } else {
             inputs.set(this.me.index, {
               steer: inp.steer, throttle: inp.throttle, brake: inp.brake, handbrake: inp.handbrake,
-              shiftUp: first && inp.shiftUp, shiftDown: first && inp.shiftDown,
+              shiftUp: first && inp.shiftUp, shiftDown: first && inp.shiftDown, hGear: inp.hGear,
             });
           }
         }

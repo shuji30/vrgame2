@@ -92,15 +92,23 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
   // 変速
   if (k.shiftTimer > 0) k.shiftTimer -= dt;
   if (manual) {
-    if (input.shiftUp) shift(k, 1);
-    if (input.shiftDown) shift(k, -1);
+    if (input.hGear !== undefined) {
+      // H シフター: 入っている段がそのままギア（0 = ニュートラル）
+      if (k.gear !== input.hGear) {
+        k.gear = input.hGear;
+        k.shiftTimer = KART.shiftTime;
+      }
+    } else {
+      if (input.shiftUp) shift(k, 1);
+      if (input.shiftDown) shift(k, -1);
+    }
   } else if (k.gear > 0 && k.shiftTimer <= 0) {
     const r = vF / P.gearTop[k.gear];
     if (r > 0.95 && k.gear < MAX_GEAR && throttle > 0.1) shift(k, 1);
     else if (r < 0.5 && k.gear > 1) shift(k, -1);
   }
   const top = k.gear > 0 ? P.gearTop[k.gear] * (k.boost > 0 ? 1.15 : 1) : P.reverseTop;
-  k.rpm = k.gear > 0 ? Math.max(0, vF) / P.gearTop[k.gear] : Math.abs(vF) / P.reverseTop;
+  k.rpm = k.gear > 0 ? Math.max(0, vF) / P.gearTop[k.gear] : k.gear === 0 ? throttle * 0.9 : Math.abs(vF) / P.reverseTop;
 
   // 自動変速時は停止中にブレーキを踏み続けると後退
   if (!manual) {
@@ -129,7 +137,7 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
       drive += throttle * gearAccel * engineFactor(Math.max(0, vF) / top);
       if (k.boost > 0 && vF < top) drive += P.boostAccel;
     }
-  } else if (engineOn && vF > -P.reverseTop) {
+  } else if (k.gear === -1 && engineOn && vF > -P.reverseTop) {
     drive -= throttle * P.reverseAccel;
   }
   drive += k.slopeAccel || 0;

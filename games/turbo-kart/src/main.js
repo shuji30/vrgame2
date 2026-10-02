@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Game } from './game.js';
-import { InputManager } from './input/devices.js';
+import { InputManager, setBridgePads } from './input/devices.js';
 import { CalibrationUI } from './input/calibration.js';
 import { FFBBridge } from './ffb.js';
 
@@ -16,6 +16,7 @@ $('app').appendChild(renderer.domElement);
 
 const input = new InputManager();
 const ffb = new FFBBridge();
+setBridgePads(() => ffb.inputPads());
 
 const screens = { menu: $('menu'), calib: $('calib') };
 const ui = {

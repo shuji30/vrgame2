@@ -10,7 +10,7 @@ export function fmtTime(t) {
 }
 
 export function gearLabel(g) {
-  return g === -1 ? 'R' : String(g);
+  return g === -1 ? 'R' : g === 0 ? 'N' : String(g);
 }
 
 class CanvasPlane {

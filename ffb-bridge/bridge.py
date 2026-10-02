@@ -1,7 +1,9 @@
-"""TURBO KART VR - FFB ブリッジ
+"""TURBO KART VR - デバイスブリッジ（FFB 出力 + 入力の中継）
 
 ブラウザ（ゲーム）から WebSocket で受け取った力の指示を、SDL2 の Haptic API で
-ハンコンに出力する。SDL2 は Windows では DirectInput の FFB を使うため、メーカーの
+ハンコンに出力する。また、接続されているすべてのジョイスティック（ホイールベース・ペダル・
+サイドブレーキ・シフター）の軸とボタンをゲームへ送る。ブラウザの Gamepad API は同時に 4 台までしか
+扱えず、VR ヘッドセットなどに枠を取られると見えなくなるため、入力もブリッジ経由で読む。SDL2 は Windows では DirectInput の FFB を使うため、メーカーの
 PC 用ドライバーが入っていれば Fanatec / Thrustmaster / CAMMUS / Logitech / MOZA /
 Simagic など一般的な FFB ハンコンで動く。
 
@@ -23,6 +25,11 @@ import math
 import sys
 import time
 
+try:
+    from websockets.exceptions import ConnectionClosed
+except ImportError:  # --list だけなら websockets は無くてもよい
+    ConnectionClosed = Exception
+
 DEFAULT_ORIGINS = [
     "https://shuji30.github.io",
     "http://localhost:8080",
@@ -32,6 +39,7 @@ WHEEL_HINTS = ("wheel", "fanatec", "thrustmaster", "cammus", "logitech", "moza",
                "simucube", "g29", "g920", "g923", "t300", "t150", "t248", "tx", "csl", "podium", "dd")
 TICK = 1 / 200
 WATCHDOG = 0.25
+INPUT_INTERVAL = 1 / 125
 
 
 def clamp(v, a, b):
@@ -169,6 +177,10 @@ class Bridge:
         self.test_until = 0.0
         self.test = None
         self.clients = set()
+        self.input_clients = set()
+        self.joysticks = {}  # instance id -> (handle, name)
+        self.last_input = 0.0
+        self.last_payload = None
         if args.mock:
             self.dev = MockHaptic()
             self.devices = [{"index": 0, "name": self.dev.name, "haptic": True, "features": self.dev.features}]
@@ -179,7 +191,9 @@ class Bridge:
             if sdl2.SDL_Init(sdl2.SDL_INIT_JOYSTICK | sdl2.SDL_INIT_HAPTIC) != 0:
                 raise RuntimeError(sdl2.SDL_GetError().decode())
             self.scan()
-            self.select(args.device)
+            self.open_all()
+            if not args.no_ffb:
+                self.select(args.device)
 
     def scan(self):
         if not self.sdl2:
@@ -198,7 +212,7 @@ class Bridge:
         return out
 
     def select(self, want=None):
-        if self.args.mock:
+        if self.args.mock or self.args.no_ffb:
             return
         if self.dev:
             self.dev.close()
@@ -223,6 +237,74 @@ class Bridge:
         except RuntimeError as e:
             self.error = str(e)
             print("  ! " + self.error)
+
+    def open_all(self):
+        """入力の中継用に、すべてのジョイスティックを開いておく"""
+        if not self.sdl2:
+            return
+        s = self.sdl2
+        for i in range(s.SDL_NumJoysticks()):
+            js = s.SDL_JoystickOpen(i)
+            if not js:
+                continue
+            jid = s.SDL_JoystickInstanceID(js)
+            if jid in self.joysticks:
+                continue
+            name = (s.SDL_JoystickName(js) or b"?").decode(errors="replace")
+            self.joysticks[jid] = (js, name)
+
+    def poll_events(self):
+        """デバイスの抜き差しを処理する"""
+        if not self.sdl2:
+            return False
+        s = self.sdl2
+        ev = s.SDL_Event()
+        changed = False
+        while s.SDL_PollEvent(ctypes.byref(ev)):
+            if ev.type == s.SDL_JOYDEVICEADDED:
+                changed = True
+            elif ev.type == s.SDL_JOYDEVICEREMOVED:
+                jid = ev.jdevice.which
+                if jid in self.joysticks:
+                    s.SDL_JoystickClose(self.joysticks.pop(jid)[0])
+                changed = True
+        if changed:
+            self.open_all()
+            self.scan()
+        return changed
+
+    def read_inputs(self):
+        s = self.sdl2
+        pads = []
+        for jid, (js, name) in sorted(self.joysticks.items()):
+            axes = [round(s.SDL_JoystickGetAxis(js, a) / 32767, 4) for a in range(s.SDL_JoystickNumAxes(js))]
+            buttons = [s.SDL_JoystickGetButton(js, b) for b in range(s.SDL_JoystickNumButtons(js))]
+            # ハット（十字キー）は 4 つのボタンとして扱う
+            for h in range(s.SDL_JoystickNumHats(js)):
+                v = s.SDL_JoystickGetHat(js, h)
+                buttons += [int(bool(v & 1)), int(bool(v & 2)), int(bool(v & 4)), int(bool(v & 8))]
+            pads.append({"id": name, "index": jid, "axes": axes, "buttons": buttons})
+        return pads
+
+    async def send_inputs(self):
+        if not self.input_clients or not self.sdl2:
+            return
+        now = time.monotonic()
+        if now - self.last_input < INPUT_INTERVAL:
+            return
+        self.last_input = now
+        self.sdl2.SDL_JoystickUpdate()
+        payload = json.dumps({"t": "input", "pads": self.read_inputs()})
+        # 変化がなければ 0.5 秒に 1 回だけ送る
+        if payload == self.last_payload and now - getattr(self, "last_full", 0) < 0.5:
+            return
+        self.last_payload = payload
+        self.last_full = now
+        for ws in list(self.input_clients):
+            try:
+                await ws.send(payload)
+            except Exception:
+                self.input_clients.discard(ws)
 
     def status(self):
         return json.dumps({"t": "status", "devices": self.devices,
@@ -263,10 +345,15 @@ class Bridge:
                     self.select(m.get("device"))
                     await self.broadcast()
                 elif t in ("hello", "scan"):
+                    if m.get("input"):
+                        self.input_clients.add(ws)
                     self.scan()
                     await ws.send(self.status())
+        except ConnectionClosed:
+            pass  # ブラウザを閉じたときなど
         finally:
             self.clients.discard(ws)
+            self.input_clients.discard(ws)
             print(f"  ゲームが切断しました ({len(self.clients)})")
 
     def tick(self):
@@ -301,12 +388,17 @@ class Bridge:
 
     async def ticker(self):
         while True:
+            if self.poll_events():
+                await self.broadcast()
             self.tick()
+            await self.send_inputs()
             await asyncio.sleep(TICK)
 
     def close(self):
         if self.dev:
             self.dev.close()
+        for js, _ in self.joysticks.values():
+            self.sdl2.SDL_JoystickClose(js)
         if self.sdl2:
             self.sdl2.SDL_Quit()
 
@@ -316,7 +408,9 @@ async def main_async(args):
 
     bridge = Bridge(args)
     origins = DEFAULT_ORIGINS + args.allow_origin
-    print(f"FFB ブリッジ起動: ws://127.0.0.1:{args.port}  (最大出力 {args.max:.0%})")
+    print(f"デバイスブリッジ起動: ws://127.0.0.1:{args.port}  (FFB 最大出力 {args.max:.0%})")
+    for jid, (_, name) in sorted(bridge.joysticks.items()):
+        print(f"  入力デバイス: {name}")
     print("  接続を許可するゲームの URL: " + ", ".join(origins))
     try:
         async with serve(bridge.handler, "127.0.0.1", args.port, origins=origins):
@@ -333,12 +427,13 @@ def main():
         except (AttributeError, ValueError):
             pass
     p = argparse.ArgumentParser(description="TURBO KART VR FFB bridge")
-    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--port", type=int, default=18765)
     p.add_argument("--max", type=float, default=0.8, help="最大出力 0..1（既定 0.8）")
     p.add_argument("--slew", type=float, default=12.0, help="力の変化の速さの上限（1 秒あたり）")
     p.add_argument("--device", help="使うデバイス名（部分一致）")
     p.add_argument("--allow-origin", action="append", default=[], help="接続を許可するゲームの URL（例 https://example.com）")
     p.add_argument("--mock", action="store_true", help="ハンコン無しで動作確認")
+    p.add_argument("--no-ffb", action="store_true", help="FFB を出さず入力の中継だけ行う")
     p.add_argument("--list", action="store_true", help="デバイス一覧を表示して終了")
     args = p.parse_args()
     args.max = clamp(args.max, 0.05, 1.0)

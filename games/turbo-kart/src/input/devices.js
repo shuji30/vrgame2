@@ -15,7 +15,24 @@ export const ACTIONS = [
   { key: 'recenter', label: '視点リセンター（VR）', kind: 'button' },
   { key: 'confirm', label: '決定 / リスタート', kind: 'button' },
   { key: 'camera', label: 'カメラ切替（PC）', kind: 'button' },
+  { key: 'gear1', label: 'H シフター 1 速', kind: 'button', group: 'shifter' },
+  { key: 'gear2', label: 'H シフター 2 速', kind: 'button', group: 'shifter' },
+  { key: 'gear3', label: 'H シフター 3 速', kind: 'button', group: 'shifter' },
+  { key: 'gear4', label: 'H シフター 4 速', kind: 'button', group: 'shifter' },
+  { key: 'gear5', label: 'H シフター 5 速', kind: 'button', group: 'shifter' },
+  { key: 'gear6', label: 'H シフター 6 速', kind: 'button', group: 'shifter' },
+  { key: 'gearR', label: 'H シフター R（後退）', kind: 'button', group: 'shifter' },
 ];
+const GEARS = [['gear1', 1], ['gear2', 2], ['gear3', 3], ['gear4', 4], ['gear5', 5], ['gear6', 6], ['gearR', -1]];
+
+// VR ヘッドセットなどが出す疑似ゲームパッド（頭の動きで軸が動くので割り当て候補から外す）
+const IGNORE = /pimax|vive|valve index|oculus|meta quest|htc|windows mixed reality|hmd/i;
+
+// FFB ブリッジ（SDL2）経由のデバイス。ブラウザの Gamepad API は 4 台までしか扱えないため
+let bridgePads = () => [];
+export function setBridgePads(fn) {
+  bridgePads = fn;
+}
 
 export function defaultConfig() {
   return {
@@ -43,12 +60,19 @@ export function saveConfig(cfg) {
   }
 }
 
-// 接続中のパッドを軽量なスナップショットにする
+// 接続中のパッドを軽量なスナップショットにする（ブラウザ + ブリッジ）
 export function snapshotPads() {
   const out = [];
+  const extra = bridgePads() || [];
+  for (const p of extra) {
+    out.push({ id: `SDL: ${p.id}`, index: 1000 + p.index, mapping: '', axes: p.axes, buttons: p.buttons, bridge: true });
+  }
   const pads = navigator.getGamepads ? navigator.getGamepads() : [];
   for (const gp of pads) {
     if (!gp || !gp.connected) continue;
+    if (IGNORE.test(gp.id) || (gp.buttons.length === 0 && gp.axes.length >= 10)) continue;
+    // ブリッジ側にも同じ機器があればそちらを使う
+    if (extra.some((p) => gp.id.startsWith(p.id))) continue;
     out.push({
       id: gp.id,
       index: gp.index,
@@ -168,6 +192,15 @@ export class InputManager {
       const v = this.readBinding(pads, b);
       if (v == null) continue;
       held[a] ||= b.kind === 'button' ? v > 0.5 : Math.abs(v - (b.cal?.rest ?? 0)) > 0.5;
+    }
+
+    // H シフター（どの段にも入っていなければニュートラル）
+    if (GEARS.some(([a]) => B[a])) {
+      out.hGear = 0;
+      for (const [a, g] of GEARS) {
+        const b = B[a];
+        if (b && (this.readBinding(pads, b) ?? 0) > 0.5) out.hGear = g;
+      }
     }
 
     out.steer = Math.max(-1, Math.min(1, steer));
