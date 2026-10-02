@@ -113,3 +113,31 @@ export function cutScore({ speed, dirDot, offset }) {
   const acc = Math.round(15 * clamp01(1 - offset / 0.2));
   return { swing, angle, acc, total: swing + angle + acc };
 }
+
+// 2 線分の最近点（刀同士の接触判定用）。{ dist, point: 2 最近点の中点 }
+export function segmentDistance(p1, q1, p2, q2) {
+  const d1 = { x: q1.x - p1.x, y: q1.y - p1.y, z: q1.z - p1.z };
+  const d2 = { x: q2.x - p2.x, y: q2.y - p2.y, z: q2.z - p2.z };
+  const r = { x: p1.x - p2.x, y: p1.y - p2.y, z: p1.z - p2.z };
+  const dot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
+  const a = dot(d1, d1), e = dot(d2, d2), f = dot(d2, r);
+  const clamp = (v) => Math.min(1, Math.max(0, v));
+  let s, t;
+  if (a < 1e-9 && e < 1e-9) { s = 0; t = 0; }
+  else if (a < 1e-9) { s = 0; t = clamp(f / e); }
+  else {
+    const c = dot(d1, r);
+    if (e < 1e-9) { t = 0; s = clamp(-c / a); }
+    else {
+      const b = dot(d1, d2);
+      const den = a * e - b * b;
+      s = den > 1e-9 ? clamp((b * f - c * e) / den) : 0;
+      t = (b * s + f) / e;
+      if (t < 0) { t = 0; s = clamp(-c / a); }
+      else if (t > 1) { t = 1; s = clamp((b - c) / a); }
+    }
+  }
+  const c1 = lerp3(p1, q1, s), c2 = lerp3(p2, q2, t);
+  const dx = c1.x - c2.x, dy = c1.y - c2.y, dz = c1.z - c2.z;
+  return { dist: Math.sqrt(dx * dx + dy * dy + dz * dz), point: lerp3(c1, c2, 0.5) };
+}

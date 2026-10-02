@@ -116,3 +116,13 @@ test('sweepTest: NaN の刀は当たりにしない', () => {
   const nan = { x: NaN, y: NaN, z: -1 };
   assert.equal(sweepTest(nan, nan, nan, nan, c, c, 0, NOTE_HALF), null);
 });
+
+test('segmentDistance: 交差・平行・離れた線分', async () => {
+  const { segmentDistance } = await import('../src/core/slice.js');
+  const x = segmentDistance({ x: -1, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 0, y: -1, z: 0.1 }, { x: 0, y: 1, z: 0.1 });
+  assert.ok(Math.abs(x.dist - 0.1) < 1e-9);
+  const p = segmentDistance({ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 0, y: 0.5, z: 0 }, { x: 1, y: 0.5, z: 0 });
+  assert.ok(Math.abs(p.dist - 0.5) < 1e-9);
+  const far = segmentDistance({ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 3, y: 0, z: 0 }, { x: 4, y: 0, z: 0 });
+  assert.ok(Math.abs(far.dist - 2) < 1e-9);
+});

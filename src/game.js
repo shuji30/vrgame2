@@ -6,6 +6,7 @@ import { PlaySession } from './core/session.js';
 import { Autoplay } from './core/autoplay.js';
 import { COLORS, HAND_Z, BLADE_TILT } from './core/config.js';
 import { rankFor } from './core/scoring.js';
+import { segmentDistance } from './core/slice.js';
 import { Environment } from './scene/environment.js';
 import { Saber } from './scene/saber.js';
 import { ObjectViews } from './scene/objects.js';
@@ -497,6 +498,8 @@ export class Game {
       this.camera.position.x = DESKTOP_CAM.x + head.x * 0.6;
     }
 
+    if (active.length === 2) this.checkClash(dt);
+
     const session = this.session;
     const events = session.step(t, active, head);
     for (const e of events) this.handleEvent(e);
@@ -531,6 +534,19 @@ export class Game {
 
     if (session.score.failed) this.finish(true);
     else if (t > this.map.duration + 0.3 && session.done) this.finish(false);
+  }
+
+  // 左右の刀が触れ合ったら火花と振動
+  checkClash(dt) {
+    const [a, b] = this.sabers;
+    const c = segmentDistance(a.hilt, a.tip, b.hilt, b.tip);
+    this.clashCool = (this.clashCool || 0) - dt;
+    if (c.dist < 0.05 && this.clashCool <= 0) {
+      this.effects.burst(c.point, 0xffffff, 8, null, 1.5);
+      this.haptic(0, 0.25, 20);
+      this.haptic(1, 0.25, 20);
+      this.clashCool = 0.05;
+    }
   }
 
   handleEvent(e) {
