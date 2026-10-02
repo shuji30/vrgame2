@@ -1,11 +1,24 @@
-# Beat Blade VR
+# VR Arcade
 
-Three.js + WebXR で動く、Beat Saber 風のリズム斬りゲームです。ビルド不要の静的サイトで、VR ヘッドセット（Meta Quest など）のブラウザでも、PC のブラウザでも遊べます。
+ブラウザと VR ヘッドセット（Meta Quest など）で遊べる WebXR ゲーム集です。ビルド不要の静的サイトです。
 
-**プレイ:** https://shuji30.github.io/vrgame2/
+**プレイ:** https://shuji30.github.io/vrgame2/ （ゲーム選択画面）
+
+| # | ゲーム | パス |
+| --- | --- | --- |
+| 1 | BEAT BLADE VR | [`games/beat-blade/`](games/beat-blade/) |
+
+ゲームを追加するときは `games/<名前>/` にフォルダを作り、トップの `index.html` の `GAMES` 配列に 1 行足します。
+
+---
+
+# 1. BEAT BLADE VR
+
+Three.js + WebXR で動く、Beat Saber 風のリズム斬りゲームです。
 
 ## 遊び方
 
+- ゲーム内メニュー左上の「◀ GAMES」でゲーム選択画面に戻れます
 - 赤いノーツは左手、青いノーツは右手で、矢印の方向へ振って斬ります（丸印はどの方向でも可）
 - 黒い爆弾は斬らない。ピンクの壁は体（頭）を動かして避ける
 - ミスや爆弾でエネルギーが減り、0 になると失敗（NO FAIL で無効化）
@@ -40,12 +53,12 @@ Three.js + WebXR で動く、Beat Saber 風のリズム斬りゲームです。�
 ```bash
 npm start      # http://localhost:8080/ でローカル実行
 npm test       # 判定ロジックと全譜面のテスト
-node scripts/analyze.mjs   # 全譜面の統計とオートプレイ結果
+node games/beat-blade/analyze.mjs   # 全譜面の統計とオートプレイ結果
 ```
 
-WebXR は HTTPS（または localhost）が必要です。動作確認用の URL パラメータ: `?song=1&diff=expert&autoplay=1&autostart=1`
+WebXR は HTTPS（または localhost）が必要です。動作確認用の URL パラメータ: `games/beat-blade/?song=1&diff=expert&autoplay=1&autostart=1`
 
-### 構成
+### 構成（`games/beat-blade/` 以下）
 
 - `src/core/` — three.js に依存しない純粋ロジック（判定・譜面生成・スコア・オートプレイ）。node でテストできる
 - `src/scene/` — 3D 表示（ステージ、刀、ノーツ、エフェクト、UI パネル）

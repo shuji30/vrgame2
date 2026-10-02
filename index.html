@@ -2,62 +2,163 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-  <title>Beat Blade VR</title>
-  <meta name="description" content="Three.js + WebXR で動くリズム斬りゲーム。VR ヘッドセットでもブラウザでも遊べます。">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VR Game Arcade</title>
+  <meta name="description" content="ブラウザと VR ヘッドセットで遊べる WebXR ゲーム集">
   <meta name="theme-color" content="#05030d">
   <style>
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #05030d; color: #fff;
-      font-family: system-ui, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; }
-    #app, canvas { display: block; width: 100%; height: 100%; touch-action: none; }
-    #help { position: fixed; top: 12px; left: 12px; max-width: min(360px, calc(100vw - 24px)); box-sizing: border-box;
-      padding: 12px 14px; border-radius: 12px; background: rgba(12, 8, 30, 0.72); border: 1px solid rgba(255,255,255,0.15);
-      font-size: 13px; line-height: 1.6; backdrop-filter: blur(6px); }
-    #help h1 { margin: 0 0 4px; padding-right: 22px; font-size: 16px; letter-spacing: 0.08em; }
-    #help h1 .r { color: #ff2a55; } #help h1 .b { color: #2a8cff; }
-    #help ul { margin: 4px 0 0; padding-left: 18px; }
-    #help kbd { padding: 0 5px; border-radius: 4px; background: rgba(255,255,255,0.15); font-family: inherit; }
-    #help button { position: absolute; top: 6px; right: 8px; background: none; border: 0; color: #fff; opacity: 0.6;
-      font-size: 16px; cursor: pointer; }
-    #help.min ul, #help.min p { display: none; }
-    #help p { margin: 4px 0 0; opacity: 0.75; }
-    noscript { position: fixed; inset: 0; display: grid; place-items: center; }
-  </style>
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
-      }
+    :root {
+      --bg: #05030d;
+      --panel: rgba(22, 14, 48, 0.78);
+      --line: rgba(255, 255, 255, 0.14);
+      --text: #ffffff;
+      --muted: rgba(255, 255, 255, 0.66);
+      --red: #ff2a55;
+      --blue: #2a8cff;
+      --violet: #8a6bff;
     }
-  </script>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+      overflow-x: hidden;
+    }
+    /* 奥へ流れるネオンのグリッド */
+    .stage { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+    .stage::before {
+      content: ""; position: absolute; left: -50%; right: -50%; bottom: -10%; height: 70%;
+      background-image:
+        linear-gradient(rgba(138, 107, 255, 0.35) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(138, 107, 255, 0.35) 1px, transparent 1px);
+      background-size: 60px 60px;
+      transform: perspective(420px) rotateX(62deg);
+      transform-origin: center top;
+      animation: grid 3s linear infinite;
+      mask-image: linear-gradient(to bottom, transparent, #000 40%);
+    }
+    .stage::after {
+      content: ""; position: absolute; left: 50%; top: 18%; width: 120vmin; height: 120vmin;
+      transform: translateX(-50%);
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255, 42, 85, 0.18), rgba(42, 140, 255, 0.12) 45%, transparent 70%);
+    }
+    @keyframes grid { to { background-position: 0 60px, 0 0; } }
+    @media (prefers-reduced-motion: reduce) { .stage::before { animation: none; } }
+
+    main { position: relative; z-index: 1; max-width: 960px; margin: 0 auto; padding: 48px 16px 64px; }
+    header { text-align: center; margin-bottom: 36px; }
+    .logo { margin: 0; font-size: clamp(30px, 7vw, 56px); font-weight: 900; letter-spacing: 0.08em; line-height: 1.1; }
+    .logo .r { color: var(--red); text-shadow: 0 0 18px rgba(255, 42, 85, 0.6); }
+    .logo .b { color: var(--blue); text-shadow: 0 0 18px rgba(42, 140, 255, 0.6); }
+    .lead { margin: 12px 0 0; color: var(--muted); font-size: 15px; }
+    h2 { font-size: 13px; letter-spacing: 0.2em; color: var(--muted); font-weight: 700; margin: 0 0 14px; }
+
+    .games { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; }
+    .card {
+      position: relative; display: grid; grid-template-columns: auto 1fr auto; gap: 20px; align-items: center;
+      padding: 22px 24px; border-radius: 20px; background: var(--panel);
+      border: 1px solid var(--line); backdrop-filter: blur(8px);
+      text-decoration: none; color: inherit;
+      transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    a.card:hover, a.card:focus-visible {
+      transform: translateY(-2px);
+      border-color: rgba(255, 255, 255, 0.5);
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2), 0 10px 40px rgba(138, 107, 255, 0.35);
+      outline: none;
+    }
+    .num {
+      font-size: 44px; font-weight: 900; line-height: 1; width: 2.2ch; text-align: center;
+      background: linear-gradient(135deg, var(--red), var(--violet) 55%, var(--blue));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .title { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: 0.04em; }
+    .desc { margin: 6px 0 10px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+    .tags li { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+    .play {
+      font-weight: 800; font-size: 16px; letter-spacing: 0.06em; white-space: nowrap;
+      padding: 12px 20px; border-radius: 12px;
+      background: linear-gradient(135deg, var(--red), var(--violet));
+      box-shadow: 0 0 20px rgba(255, 42, 85, 0.35);
+    }
+    .card.soon { opacity: 0.55; border-style: dashed; }
+    .card.soon .num { background: none; color: var(--muted); }
+    .card.soon .play { background: none; box-shadow: none; border: 1px solid var(--line); color: var(--muted); }
+
+    footer { margin-top: 36px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.7; }
+    footer a { color: #9fd0ff; }
+
+    @media (max-width: 600px) {
+      main { padding-top: 32px; }
+      .card { grid-template-columns: auto 1fr; gap: 14px; padding: 18px 16px; }
+      .num { font-size: 34px; }
+      .title { font-size: 20px; }
+      .play { grid-column: 1 / -1; text-align: center; }
+    }
+  </style>
 </head>
 <body>
-  <div id="app"></div>
-  <div id="help">
-    <button id="help-toggle" aria-label="ヘルプを折りたたむ">–</button>
-    <h1><span class="r">BEAT</span> <span class="b">BLADE</span> VR</h1>
-    <ul>
-      <li>赤は左手、青は右手。矢印の方向へ振って斬る</li>
-      <li>黒い爆弾は斬らない／ピンクの壁は体をよけて避ける</li>
-      <li><b>VR:</b> 下の「ENTER VR」→ レイで選んでトリガー。A/B/X/Y でポーズ</li>
-      <li><b>PC:</b> マウスで刀を動かして斬る（色は問わない）。<kbd>Esc</kbd> ポーズ / <kbd>R</kbd> リトライ / <kbd>Enter</kbd> 開始</li>
-    </ul>
-    <p>AUTO PLAY をオンにするとお手本を見られます。</p>
-  </div>
-  <noscript>JavaScript を有効にしてください。</noscript>
+  <div class="stage" aria-hidden="true"></div>
+  <main>
+    <header>
+      <h1 class="logo"><span class="r">VR</span> <span class="b">ARCADE</span></h1>
+      <p class="lead">ブラウザでも VR ヘッドセットでも遊べるゲーム集</p>
+    </header>
+
+    <h2>SELECT GAME</h2>
+    <ol class="games" id="games"></ol>
+
+    <footer>
+      VR で遊ぶには Meta Quest などのブラウザでこのページを開き、ゲームを選んでから「ENTER VR」を押してください。<br>
+      <a href="https://github.com/shuji30/vrgame2">GitHub</a>
+    </footer>
+  </main>
+
   <script>
-    const help = document.getElementById('help');
-    // 狭い画面ではメニューに重ならないよう最初から折りたたむ
-    if (innerWidth < 900) {
-      help.classList.add('min');
-      document.getElementById('help-toggle').textContent = '+';
-    }
-    document.getElementById('help-toggle').addEventListener('click', (e) => {
-      help.classList.toggle('min');
-      e.currentTarget.textContent = help.classList.contains('min') ? '+' : '–';
+    // ゲームを増やすときはここに追加する（並び順＝番号）
+    const GAMES = [
+      {
+        title: 'BEAT BLADE VR',
+        href: 'games/beat-blade/',
+        desc: '音楽に合わせて飛んでくるノーツを、赤と青の刀で矢印の方向へ斬るリズムゲーム。3 曲 × 4 難易度。',
+        tags: ['VR 対応', 'PC（マウス）', 'リズム'],
+      },
+      {
+        title: 'COMING SOON',
+        desc: '次のゲームを準備中です。',
+        tags: [],
+        soon: true,
+      },
+    ];
+
+    const list = document.getElementById('games');
+    GAMES.forEach((g, i) => {
+      const li = document.createElement('li');
+      const card = document.createElement(g.soon ? 'div' : 'a');
+      card.className = 'card' + (g.soon ? ' soon' : '');
+      if (!g.soon) card.href = g.href;
+      card.innerHTML = `
+        <div class="num">${i + 1}</div>
+        <div>
+          <p class="title"></p>
+          <p class="desc"></p>
+          <ul class="tags"></ul>
+        </div>
+        <div class="play">${g.soon ? '準備中' : 'PLAY ▶'}</div>`;
+      card.querySelector('.title').textContent = g.title;
+      card.querySelector('.desc').textContent = g.desc;
+      const tags = card.querySelector('.tags');
+      for (const t of g.tags) {
+        const tag = document.createElement('li');
+        tag.textContent = t;
+        tags.appendChild(tag);
+      }
+      li.appendChild(card);
+      list.appendChild(li);
     });
   </script>
-  <script type="module" src="./src/main.js"></script>
 </body>
 </html>

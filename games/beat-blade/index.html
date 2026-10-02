@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Beat Blade VR</title>
+  <meta name="description" content="Three.js + WebXR で動くリズム斬りゲーム。VR ヘッドセットでもブラウザでも遊べます。">
+  <meta name="theme-color" content="#05030d">
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #05030d; color: #fff;
+      font-family: system-ui, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; }
+    #app, canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    #help { position: fixed; top: 12px; left: 12px; max-width: min(360px, calc(100vw - 24px)); box-sizing: border-box;
+      padding: 12px 14px; border-radius: 12px; background: rgba(12, 8, 30, 0.72); border: 1px solid rgba(255,255,255,0.15);
+      font-size: 13px; line-height: 1.6; backdrop-filter: blur(6px); }
+    #help h1 { margin: 0 0 4px; padding-right: 22px; font-size: 16px; letter-spacing: 0.08em; }
+    #help h1 .r { color: #ff2a55; } #help h1 .b { color: #2a8cff; }
+    #help ul { margin: 4px 0 0; padding-left: 18px; }
+    #help kbd { padding: 0 5px; border-radius: 4px; background: rgba(255,255,255,0.15); font-family: inherit; }
+    #help button { position: absolute; top: 6px; right: 8px; background: none; border: 0; color: #fff; opacity: 0.6;
+      font-size: 16px; cursor: pointer; }
+    #help.min ul, #help.min p { display: none; }
+    #help p { margin: 4px 0 0; opacity: 0.75; }
+    #help a { color: #9fd0ff; }
+    noscript { position: fixed; inset: 0; display: grid; place-items: center; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="help">
+    <button id="help-toggle" aria-label="ヘルプを折りたたむ">–</button>
+    <h1><span class="r">BEAT</span> <span class="b">BLADE</span> VR</h1>
+    <ul>
+      <li>赤は左手、青は右手。矢印の方向へ振って斬る</li>
+      <li>黒い爆弾は斬らない／ピンクの壁は体をよけて避ける</li>
+      <li><b>VR:</b> 下の「ENTER VR」→ レイで選んでトリガー。A/B/X/Y でポーズ</li>
+      <li><b>PC:</b> マウスで刀を動かして斬る（色は問わない）。<kbd>Esc</kbd> ポーズ / <kbd>R</kbd> リトライ / <kbd>Enter</kbd> 開始</li>
+    </ul>
+    <p>AUTO PLAY をオンにするとお手本を見られます。</p>
+    <p><a href="../../">◀ ゲーム選択に戻る</a></p>
+  </div>
+  <noscript>JavaScript を有効にしてください。</noscript>
+  <script>
+    const help = document.getElementById('help');
+    // 狭い画面ではメニューに重ならないよう最初から折りたたむ
+    if (innerWidth < 900) {
+      help.classList.add('min');
+      document.getElementById('help-toggle').textContent = '+';
+    }
+    document.getElementById('help-toggle').addEventListener('click', (e) => {
+      help.classList.toggle('min');
+      e.currentTarget.textContent = help.classList.contains('min') ? '+' : '–';
+    });
+  </script>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

@@ -1,7 +1,7 @@
-// 全譜面の統計とオートプレイ結果を表示する: node scripts/analyze.mjs
-import { SONGS } from '../src/core/songs.js';
-import { generateBeatmap, DIFF_ORDER } from '../src/core/beatmap.js';
-import { simulate } from '../src/core/simulate.js';
+// 全譜面の統計とオートプレイ結果を表示する: node games/beat-blade/analyze.mjs
+import { SONGS } from './src/core/songs.js';
+import { generateBeatmap, DIFF_ORDER } from './src/core/beatmap.js';
+import { simulate } from './src/core/simulate.js';
 
 for (const song of SONGS) {
   for (const dk of DIFF_ORDER) {

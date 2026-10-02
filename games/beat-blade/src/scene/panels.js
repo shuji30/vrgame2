@@ -115,6 +115,7 @@ export class MenuPanel extends CanvasPanel {
     const st = this.state;
     const song = SONGS[st.song];
     this.background(ctx, song.accent);
+    this.button(ctx, 'exit', 40, 36, 200, 60, '◀ GAMES', { size: 26 });
     // タイトル
     ctx.save();
     ctx.shadowColor = song.accent;

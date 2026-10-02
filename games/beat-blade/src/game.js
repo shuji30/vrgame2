@@ -283,6 +283,7 @@ export class Game {
       else if (id === 'opt:autoplay') s.autoplay = !s.autoplay;
       else if (id === 'opt:nofail') s.noFail = !s.noFail;
       else if (id === 'play') return this.startSong();
+      else if (id === 'exit') return this.exitToLauncher();
       save('settings', s);
       this.menu.redraw();
     } else if (panel === this.pausePanel) {
@@ -296,6 +297,14 @@ export class Game {
   }
 
   // ---------- 状態遷移 ----------
+
+  // ゲーム選択画面へ戻る（VR 中ならセッションを終えてから）
+  exitToLauncher() {
+    const go = () => { location.href = '../../'; };
+    const session = this.renderer.xr.getSession();
+    if (session) session.end().then(go, go);
+    else go();
+  }
 
   resetDesktopCamera() {
     this.camera.position.copy(DESKTOP_CAM);
