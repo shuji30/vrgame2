@@ -30,6 +30,7 @@ export class Race {
   constructor(track, entries, { laps = 3, seed = 1, level = 'normal', manual = [] } = {}) {
     this.track = track;
     this.laps = laps;
+    this.level = level;
     this.rng = mulberry32(seed);
     this.time = -COUNTDOWN; // 0 でスタート
     this.state = 'countdown';
@@ -91,10 +92,12 @@ export class Race {
       if (e.type === 'npc') {
         const others = this.karts.filter((o) => o !== e);
         // ラバーバンド: プレイヤーと離れすぎないよう少しだけ速さを補正
+        // 「つよい」は手加減なし、「ふつう」は大差のときだけ少し緩め、「やさしい」は早めに待つ
         let pace = 1;
         if (player && !player.finished) {
           const gap = e.progress - player.progress;
-          pace = gap > 60 ? 0.95 : gap < -60 ? 1.04 : 1;
+          const rb = { easy: [60, 0.95], normal: [120, 0.98], hard: [Infinity, 1] }[this.level] || [120, 0.98];
+          pace = gap > rb[0] ? rb[1] : gap < -60 ? 1.03 : 1;
         }
         // ゴール後はゆっくり流す
         input = driveAI(e.driver, e.kart, e.loc, this.track, others, e.finished ? 0.6 : pace, dt);

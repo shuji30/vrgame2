@@ -3,9 +3,9 @@
 export const KART = {
   radius: 0.95,
   wheelbase: 1.6,
-  // 各ギアの上限速度 (m/s)。6 速で約 106 km/h
-  gearTop: [0, 8.5, 13, 17.5, 22, 26, 29.5],
-  baseAccel: 7.5,
+  // 各ギアの上限速度 (m/s)。6 速で約 119 km/h
+  gearTop: [0, 9.5, 14.5, 19.5, 24.5, 29, 33],
+  baseAccel: 8.5,
   brakeDecel: 16,
   handbrakeDecel: 2.5,
   drag: 0.0012,
@@ -20,7 +20,7 @@ export const KART = {
   shiftTime: 0.15,
   boostAccel: 5,
   // タイヤが出せる横加速度の上限 (m/s²)。旋回の速さをこれで制限する
-  maxLat: 15,
+  maxLat: 16.5,
   driftLatMul: 1.6,
 };
 
