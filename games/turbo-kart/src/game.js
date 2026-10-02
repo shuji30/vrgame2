@@ -36,6 +36,8 @@ export class Game {
     this.race = null;
     this.models = [];
     this.cameraMode = 'chase';
+    // 自分のカートの細かい揺れをどれだけ画面に残すか（0 = 揺れなし）
+    this.shake = 0.15;
     this.chase = { pos: new THREE.Vector3(), heading: 0, init: false };
     this.recenterAt = 0;
     this.lastCount = null;
@@ -274,6 +276,17 @@ export class Game {
         x: lerp(a.x, b.x, alpha), z: lerp(a.z, b.z, alpha), heading: lerpAngle(a.heading, b.heading, alpha),
         y: lerp(a.y, b.y, alpha), pitch: lerp(a.pitch, b.pitch, alpha), roll: lerp(a.roll, b.roll, alpha),
       };
+      // サスペンション: 車体の姿勢をならして細かい凹凸を吸収する（坂・バンク・うねりは残る）
+      const v = (e.vis ||= { y: pose.y, pitch: pose.pitch, roll: pose.roll });
+      const mine = e === this.me;
+      const k = 1 - Math.exp(-dt / (mine ? 0.18 : 0.1));
+      v.y += (pose.y - v.y) * k;
+      v.pitch += (pose.pitch - v.pitch) * k;
+      v.roll += (pose.roll - v.roll) * k;
+      const keep = mine ? this.shake : 0.3;
+      pose.y = v.y + (pose.y - v.y) * keep;
+      pose.pitch = v.pitch + (pose.pitch - v.pitch) * keep;
+      pose.roll = v.roll + (pose.roll - v.roll) * keep;
       e.renderPose = pose;
       // 自分で運転しているときはハンコンの実際の回転角、それ以外（NPC・自動運転・ゴール後）は操作量
       const manualDriving = e === this.me && !this.autodrive && !e.finished && this.state === 'race';
@@ -341,8 +354,7 @@ export class Game {
       `シフトダウン: ${bind('shiftDown')}`,
       `ハンドル: ${bind('steer')}  値 ${inp.steer.toFixed(2)}`,
       `入力デバイス: ${(this.input.pads || []).map((p) => `${p.id}(#${p.index} 軸${p.axes.length}/ボタン${p.buttons.length})`).join(', ')}`,
-    ].join('
-');
+    ].join('\n');
   }
 
   boardHtml() {

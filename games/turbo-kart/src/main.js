@@ -37,6 +37,7 @@ const ui = {
 };
 
 const game = new Game({ renderer, input, ffb, ui });
+$('opt-shake').addEventListener('change', (e) => { game.shake = Number(e.target.value); });
 const calib = new CalibrationUI($('calib'), input, ffb, hid);
 game.resize(window.innerWidth, window.innerHeight);
 
@@ -49,6 +50,7 @@ try {
   if (m.npcs != null) npcSel.value = m.npcs;
   if (m.level) $('opt-level').value = m.level;
   if (m.laps) $('opt-laps').value = m.laps;
+  if (m.shake != null) $('opt-shake').value = m.shake;
 } catch {
   // 既定値
 }
@@ -59,7 +61,8 @@ $('opt-trans').addEventListener('change', (e) => {
 });
 
 function raceOptions() {
-  const o = { npcs: Number(npcSel.value), level: $('opt-level').value, laps: Number($('opt-laps').value), manual: input.config.transmission === 'manual' };
+  const o = { npcs: Number(npcSel.value), level: $('opt-level').value, laps: Number($('opt-laps').value), manual: input.config.transmission === 'manual', shake: Number($('opt-shake').value) };
+  game.shake = o.shake;
   try {
     localStorage.setItem(STORE, JSON.stringify(o));
   } catch {
