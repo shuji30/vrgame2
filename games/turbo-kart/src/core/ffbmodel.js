@@ -21,7 +21,8 @@ export class FFBModel {
   }
 
   // kart: physics の状態、wheel: 現在のハンドル位置（-1..1、ロック角基準）と beyond（ロック角比）
-  compute(kart, wheel, events, settings, dt) {
+  // ride / prevRide: 直近 2 ステップの 4 輪の高さ（surface.rideState）、rideDt: その間隔
+  compute(kart, wheel, events, settings, dt, ride = null, prevRide = null, rideDt = dt) {
     const s = { ...FFB_DEFAULTS, ...settings };
     const c = Math.cos(kart.heading), sn = Math.sin(kart.heading);
     const vF = kart.vx * c + kart.vz * sn;
@@ -34,7 +35,20 @@ export class FFBModel {
     const stiffness = Math.min(1, speed / 12) * 0.7;
     // 前輪が限界を超えると手応えが軽くなる（アンダーステア）
     const frontLoad = 1 - clamp((Math.abs(kart.lateralAccel) - 9) / 10, 0, 0.6);
-    let force = -(wheel.value - neutral) * stiffness * frontLoad * s.align;
+    // ダートは手応えが軽い
+    const surfaceAlign = kart.surface === 'dirt' ? 0.55 : kart.surface === 'grass' ? 0.6 : 1;
+    let force = -(wheel.value - neutral) * stiffness * frontLoad * s.align * surfaceAlign;
+
+    // 路面の凹凸: 左右の前輪の高さの差が変わるとハンドルが取られる（バンプステア）
+    let jolt = 0;
+    if (ride && prevRide && rideDt > 0) {
+      const diff = (ride.fr - ride.fl) - (prevRide.fr - prevRide.fl);
+      force += clamp((diff / rideDt) * 0.5, -0.6, 0.6) * s.road;
+      // 前輪の上下の速さ → 突き上げ
+      const vz = ((ride.fl + ride.fr) - (prevRide.fl + prevRide.fr)) / 2 / rideDt;
+      jolt = clamp(Math.abs(vz - (this.prevVz || 0)) * 0.25, 0, 1);
+      this.prevVz = vz;
+    }
 
     // 衝突
     for (const e of events) {
@@ -52,6 +66,10 @@ export class FFBModel {
     let rumble = 0, hz = 0;
     if (kart.surface === 'curb' && speed > 3) { rumble = 0.45; hz = 18 + speed; }
     else if (kart.surface === 'grass' && speed > 2) { rumble = 0.3; hz = 9 + speed * 0.5; }
+    else if (kart.surface === 'dirt' && speed > 2) { rumble = 0.32; hz = 14 + speed * 0.4; }
+    else if (kart.surface === 'rough' && speed > 2) { rumble = 0.22; hz = 8 + speed * 0.3; }
+    rumble = Math.max(rumble, jolt);
+    if (!hz && rumble > 0) hz = 20;
     rumble *= s.road * Math.min(1, speed / 10);
 
     let constant = clamp(force, -1, 1) * s.gain;

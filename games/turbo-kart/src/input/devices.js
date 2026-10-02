@@ -1,0 +1,186 @@
+// 入力: キーボード + Gamepad API（ハンコン・ペダル・サイドブレーキは別々の USB デバイスでもよい）
+// 割り当て（binding）はキャリブレーション画面で作り、localStorage に保存する
+import { mapSteer, mapPedal } from '../core/inputmap.js';
+
+const STORE = 'turbokart:input';
+
+export const ACTIONS = [
+  { key: 'steer', label: 'ハンドル', kind: 'steer' },
+  { key: 'throttle', label: 'アクセル', kind: 'pedal' },
+  { key: 'brake', label: 'ブレーキ', kind: 'pedal' },
+  { key: 'handbrake', label: 'サイドブレーキ', kind: 'pedal' },
+  { key: 'shiftUp', label: 'シフトアップ（右パドル）', kind: 'button' },
+  { key: 'shiftDown', label: 'シフトダウン（左パドル）', kind: 'button' },
+  { key: 'pause', label: 'ポーズ', kind: 'button' },
+  { key: 'recenter', label: '視点リセンター（VR）', kind: 'button' },
+  { key: 'confirm', label: '決定 / リスタート', kind: 'button' },
+  { key: 'camera', label: 'カメラ切替（PC）', kind: 'button' },
+];
+
+export function defaultConfig() {
+  return {
+    bindings: {}, // action → { kind: 'axis'|'button', pad, padIndex, control, cal }
+    steer: { wheelDeg: 900, lockDeg: 270, deadzone: 0, gamma: 1 },
+    transmission: 'auto',
+  };
+}
+
+export function loadConfig() {
+  try {
+    const c = JSON.parse(localStorage.getItem(STORE) || 'null');
+    if (c && c.bindings) return { ...defaultConfig(), ...c, steer: { ...defaultConfig().steer, ...c.steer } };
+  } catch {
+    // 壊れていたら初期値
+  }
+  return defaultConfig();
+}
+
+export function saveConfig(cfg) {
+  try {
+    localStorage.setItem(STORE, JSON.stringify(cfg));
+  } catch {
+    // 保存できない環境
+  }
+}
+
+// 接続中のパッドを軽量なスナップショットにする
+export function snapshotPads() {
+  const out = [];
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  for (const gp of pads) {
+    if (!gp || !gp.connected) continue;
+    out.push({
+      id: gp.id,
+      index: gp.index,
+      mapping: gp.mapping,
+      axes: Array.from(gp.axes),
+      buttons: gp.buttons.map((b) => b.value || (b.pressed ? 1 : 0)),
+    });
+  }
+  return out;
+}
+
+export function findPad(pads, binding) {
+  if (!binding) return null;
+  const same = pads.filter((p) => p.id === binding.pad);
+  if (!same.length) return null;
+  return same.find((p) => p.index === binding.padIndex) || same[0];
+}
+
+export class InputManager {
+  constructor() {
+    this.config = loadConfig();
+    this.keys = new Set();
+    this.kbSteer = 0;
+    this.prev = {};
+    this.source = 'keyboard';
+    window.addEventListener('keydown', (e) => {
+      if (e.target && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+      this.keys.add(e.code);
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+    });
+    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('blur', () => this.keys.clear());
+  }
+
+  save() {
+    saveConfig(this.config);
+  }
+
+  hasWheel() {
+    return !!this.config.bindings.steer;
+  }
+
+  readBinding(pads, b) {
+    const pad = findPad(pads, b);
+    if (!pad) return null;
+    if (b.kind === 'button') return pad.buttons[b.control] ?? 0;
+    return pad.axes[b.control] ?? 0;
+  }
+
+  // 毎フレーム呼ぶ。edge 系（shiftUp など）は押した瞬間だけ true
+  poll(dt) {
+    const pads = snapshotPads();
+    const B = this.config.bindings;
+    const k = this.keys;
+    const out = { steer: 0, throttle: 0, brake: 0, handbrake: 0, wheel: { value: 0, beyond: 0 }, source: 'keyboard' };
+    const held = {};
+
+    // キーボード（ハンドルはなめらかに）
+    const left = k.has('ArrowLeft') || k.has('KeyA');
+    const right = k.has('ArrowRight') || k.has('KeyD');
+    const target = (right ? 1 : 0) - (left ? 1 : 0);
+    const rate = target === 0 ? 6 : 3.5;
+    this.kbSteer += Math.max(-rate * dt, Math.min(rate * dt, target - this.kbSteer));
+    let steer = this.kbSteer;
+    let throttle = k.has('ArrowUp') || k.has('KeyW') ? 1 : 0;
+    let brake = k.has('ArrowDown') || k.has('KeyS') ? 1 : 0;
+    let handbrake = k.has('Space') ? 1 : 0;
+    held.shiftUp = k.has('KeyE');
+    held.shiftDown = k.has('KeyQ');
+    held.pause = k.has('Escape') || k.has('KeyP');
+    held.recenter = k.has('KeyR');
+    held.confirm = k.has('Enter');
+    held.camera = k.has('KeyC');
+
+    // 標準配列のゲームパッド（割り当てが無いときの既定）
+    const std = pads.find((p) => p.mapping === 'standard');
+    if (std && !B.steer) {
+      const ax = std.axes[0] ?? 0;
+      if (Math.abs(ax) > 0.12) { steer = ax; out.source = 'gamepad'; }
+      throttle = Math.max(throttle, std.buttons[7] ?? 0);
+      brake = Math.max(brake, std.buttons[6] ?? 0);
+      handbrake = Math.max(handbrake, std.buttons[1] ?? 0);
+      held.shiftUp ||= (std.buttons[5] ?? 0) > 0.5;
+      held.shiftDown ||= (std.buttons[4] ?? 0) > 0.5;
+      held.pause ||= (std.buttons[9] ?? 0) > 0.5;
+      held.recenter ||= (std.buttons[3] ?? 0) > 0.5;
+      held.confirm ||= (std.buttons[0] ?? 0) > 0.5;
+      held.camera ||= (std.buttons[8] ?? 0) > 0.5;
+    }
+
+    // ハンコンなど割り当て済みのデバイス
+    if (B.steer) {
+      const raw = this.readBinding(pads, B.steer);
+      if (raw != null) {
+        const m = mapSteer(raw, { ...B.steer.cal, ...this.config.steer });
+        steer = m.value;
+        out.wheel = m;
+        out.source = 'wheel';
+      }
+    }
+    const pedal = (name) => {
+      const b = B[name];
+      if (!b) return null;
+      const raw = this.readBinding(pads, b);
+      if (raw == null) return null;
+      return b.kind === 'button' ? (raw > 0.5 ? 1 : 0) : mapPedal(raw, b.cal || {});
+    };
+    const th = pedal('throttle');
+    if (th != null) throttle = Math.max(k.has('ArrowUp') ? 1 : 0, th);
+    const br = pedal('brake');
+    if (br != null) brake = Math.max(k.has('ArrowDown') ? 1 : 0, br);
+    const hb = pedal('handbrake');
+    if (hb != null) handbrake = Math.max(handbrake, hb);
+    for (const a of ['shiftUp', 'shiftDown', 'pause', 'recenter', 'confirm', 'camera']) {
+      const b = B[a];
+      if (!b) continue;
+      const v = this.readBinding(pads, b);
+      if (v == null) continue;
+      held[a] ||= b.kind === 'button' ? v > 0.5 : Math.abs(v - (b.cal?.rest ?? 0)) > 0.5;
+    }
+
+    out.steer = Math.max(-1, Math.min(1, steer));
+    if (out.source !== 'wheel') out.wheel = { value: out.steer, beyond: Math.abs(out.steer) };
+    out.throttle = throttle;
+    out.brake = brake;
+    out.handbrake = handbrake;
+    for (const a of Object.keys(held)) {
+      out[a] = held[a] && !this.prev[a];
+      out[a + 'Held'] = held[a];
+    }
+    this.prev = held;
+    this.pads = pads;
+    return out;
+  }
+}

@@ -2,6 +2,7 @@
 // 前にカートがいれば横へずらして抜きにかかる。各 NPC は腕前と好みのライン取りが少しずつ違う
 import { locate, pointAt, maxCurvatureAhead, wrapAngle, wrapS } from './track.js';
 import { forwardSpeed, KART } from './physics.js';
+import { surfaceParams, bankSlope } from './surface.js';
 
 const MAX_LAT = 13; // 想定する最大横加速度 (m/s²)
 
@@ -19,20 +20,20 @@ export function createDriver(rng, level = 'normal') {
 }
 
 // others: 他のカート（{ kart, loc } の配列）。pace: ラバーバンド補正 (≈1)
-export function driveAI(driver, kart, loc, track, others, pace = 1) {
+export function driveAI(driver, kart, loc, track, others, pace = 1, dt = 1 / 60) {
   const v = forwardSpeed(kart);
   const sp = Math.abs(v);
   const hw = track.halfWidth;
 
   // 引っかかったら少し下がって向きを直す
   if (driver.reverseTimer > 0) {
-    driver.reverseTimer -= 1 / 60;
+    driver.reverseTimer -= dt;
     const target = pointAt(track, loc.s + 6, 0);
     const err = wrapAngle(Math.atan2(target.z - kart.z, target.x - kart.x) - kart.heading);
     return { steer: -Math.sign(err), throttle: 0, brake: 1, handbrake: 0 };
   }
-  if (sp < 1.5) driver.stuck += 1 / 60;
-  else driver.stuck = Math.max(0, driver.stuck - 2 / 60);
+  if (sp < 1.5) driver.stuck += dt;
+  else driver.stuck = Math.max(0, driver.stuck - 2 * dt);
   if (driver.stuck > 2) {
     driver.stuck = 0;
     driver.reverseTimer = 1.2;
@@ -56,7 +57,7 @@ export function driveAI(driver, kart, loc, track, others, pace = 1) {
     }
     if (ds > 0 && ds < 4 + sp * 0.25 && dl < 2.1) follow = Math.min(follow, forwardSpeed(o.kart));
   }
-  driver.avoid += ((block * 2.6) - driver.avoid) * 0.05;
+  driver.avoid += ((block * 2.6) - driver.avoid) * Math.min(1, 3 * dt);
   offset = Math.max(-hw + 1.2, Math.min(hw - 1.2, offset + driver.avoid));
 
   const look = 5 + sp * 0.55;
@@ -65,9 +66,17 @@ export function driveAI(driver, kart, loc, track, others, pace = 1) {
   const steer = Math.max(-1, Math.min(1, err * 2.4));
 
   // 先のカーブに合わせた目標速度
-  const kBrake = Math.abs(maxCurvatureAhead(track, loc.s, 18 + sp * 1.1));
+  const reach = 18 + sp * 1.1;
+  const kBrake = Math.abs(maxCurvatureAhead(track, loc.s, reach));
   const top = KART.gearTop[KART.gearTop.length - 1];
-  let vTarget = kBrake > 1e-4 ? Math.sqrt(MAX_LAT / kBrake) : top;
+  // 先の路面（ダートは滑る）とバンク（速く曲がれる）を考慮した横加速度
+  let lat = Infinity;
+  for (let d = 0; d <= reach; d += 6) {
+    const p = surfaceParams(track, loc.s + d);
+    const bank = Math.abs(Math.sin(Math.atan(bankSlope(track, loc.s + d))));
+    lat = Math.min(lat, MAX_LAT * (p.maxLat / KART.maxLat) + 9.8 * bank * 0.8);
+  }
+  let vTarget = kBrake > 1e-4 ? Math.sqrt(lat / kBrake) : top;
   vTarget = Math.min(vTarget, top) * driver.skill * pace;
   if (kart.surface === 'grass') vTarget = Math.min(vTarget, 12);
   // 抜けないうちは前のカートに合わせて少し控える

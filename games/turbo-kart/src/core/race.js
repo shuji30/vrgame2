@@ -3,16 +3,24 @@ import { locate, pointAt, wrapS } from './track.js';
 import { createKart, stepKart, forwardSpeed, KART } from './physics.js';
 import { createDriver, driveAI } from './ai.js';
 import { mulberry32 } from './rng.js';
+import { rideState, surfaceParams } from './surface.js';
+
+const G = 9.8;
 
 export const NPC_NAMES = ['Blaze', 'Nova', 'Rex', 'Luna', 'Turbo', 'Pixel', 'Viper', 'Mocha', 'Comet', 'Ziggy', 'Echo', 'Rio', 'Kiki', 'Bolt'];
 export const KART_COLORS = [0xff3b3b, 0x2f8cff, 0x2fd06a, 0xffc42e, 0xb05cff, 0xff7a1f, 0x18d6d6, 0xff5ab4, 0xf2f2f2, 0x6b6b7a, 0x9be03a, 0x3a4bff, 0xc98a4a, 0x00a37a];
 const COUNTDOWN = 3;
 
+// スタートラインの位置（弧長）
+export function startS(track) {
+  return track.def.startS || 0;
+}
+
 // 出走位置: スタートラインの後方に 2 列で並べる
 export function gridSlot(track, i) {
   const row = Math.floor(i / 2);
   const side = i % 2 === 0 ? -1 : 1;
-  const s = wrapS(track, -8 - row * 7 - (side > 0 ? 3.5 : 0));
+  const s = wrapS(track, startS(track) - 8 - row * 7 - (side > 0 ? 3.5 : 0));
   const p = pointAt(track, s, side * track.halfWidth * 0.45);
   return { x: p.x, z: p.z, heading: p.heading, s };
 }
@@ -51,6 +59,8 @@ export class Race {
         events: [],
       };
     });
+    for (const e of this.karts) this.applyTerrain(e);
+    for (const e of this.karts) e.prevS = undefined;
     this.updateProgress();
   }
 
@@ -75,6 +85,7 @@ export class Race {
         e.kart.vx = 0;
         e.kart.vz = 0;
         e.kart.yawRate = 0;
+        this.applyTerrain(e);
         continue;
       }
       if (e.type === 'npc') {
@@ -86,11 +97,16 @@ export class Race {
           pace = gap > 60 ? 0.95 : gap < -60 ? 1.04 : 1;
         }
         // ゴール後はゆっくり流す
-        input = driveAI(e.driver, e.kart, e.loc, this.track, others, e.finished ? 0.6 : pace);
+        input = driveAI(e.driver, e.kart, e.loc, this.track, others, e.finished ? 0.6 : pace, dt);
+      } else if (e.type === 'player' && e.finished) {
+        // ゴール後は自動でクールダウン走行
+        if (!e.driver) e.driver = createDriver(this.rng, 'easy');
+        input = driveAI(e.driver, e.kart, e.loc, this.track, this.karts.filter((o) => o !== e), 0.6, dt);
       } else {
         input = inputs.get(e.index) || e.input;
       }
       e.input = input;
+      this.applyTerrain(e);
       const r = stepKart(e.kart, input, dt, { manual: e.manual });
       if (r.miniTurbo) e.events.push({ type: 'miniTurbo', amount: r.miniTurbo });
     }
@@ -104,13 +120,31 @@ export class Race {
     this.updateProgress();
   }
 
+  // 路面の種類・坂・バンクをカートに反映し、描画/FFB 用の姿勢 (ride) を更新する
+  applyTerrain(e) {
+    const t = this.track;
+    const k = e.kart;
+    const ride = rideState(t, e.loc, k.heading, t.heading[e.loc.i]);
+    const p = surfaceParams(t, e.loc.s);
+    k.gripBase = p.grip;
+    k.maxLatBase = p.maxLat;
+    k.rollingExtra = p.rolling;
+    k.slopeAccel = -G * Math.sin(ride.pitch);
+    k.bankAccel = -G * Math.sin(ride.roll);
+    k.latBonus = G * Math.abs(Math.sin(ride.roll)) * 0.9;
+    e.prevRide = e.ride || ride;
+    e.ride = ride;
+    e.surfaceType = p.type;
+  }
+
   collideWalls(e) {
     const t = this.track;
     const k = e.kart;
     e.loc = locate(t, k.x, k.z, e.loc.i);
     const lat = e.loc.lateral;
     const abs = Math.abs(lat);
-    k.surface = abs > t.halfWidth ? 'grass' : abs > t.halfWidth - 0.9 ? 'curb' : 'road';
+    const type = e.surfaceType || 'tarmac';
+    k.surface = abs > t.halfWidth ? 'grass' : abs > t.halfWidth - 0.9 && type !== 'dirt' ? 'curb' : type;
     const limit = t.halfWidth + t.runoff - KART.radius;
     if (abs > limit) {
       const i = e.loc.i;
@@ -179,7 +213,8 @@ export class Race {
   updateProgress() {
     const L = this.track.length;
     for (const e of this.karts) {
-      const s = e.loc.s;
+      // スタートラインからの距離
+      const s = wrapS(this.track, e.loc.s - startS(this.track));
       const prev = e.prevS ?? s;
       e.prevS = s;
       if (s > L * 0.33 && s < L * 0.66) e.halfway = true;

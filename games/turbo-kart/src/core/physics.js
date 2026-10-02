@@ -39,7 +39,14 @@ export function createKart(x, z, heading) {
     reverseHold: 0,
     driftTime: 0,
     boost: 0,
-    surface: 'road',
+    surface: 'tarmac', // tarmac | rough | dirt | curb | grass
+    // 路面と地形から毎ステップ与えられる値（race.js が設定）
+    gripBase: KART.grip,
+    maxLatBase: KART.maxLat,
+    rollingExtra: 0,
+    slopeAccel: 0, // 坂による前後方向の加速度
+    bankAccel: 0, // 傾きによる横方向の加速度（右が正）
+    latBonus: 0, // バンクで増える横グリップ
     // FFB と演出用
     slip: 0,
     lateralAccel: 0,
@@ -79,6 +86,7 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
   const throttle = clamp01(input.throttle);
   const brake = clamp01(input.brake);
   const hb = clamp01(input.handbrake);
+  k.handbrakeInput = hb;
   const grass = k.surface === 'grass';
 
   // 変速
@@ -124,7 +132,8 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
   } else if (engineOn && vF > -P.reverseTop) {
     drive -= throttle * P.reverseAccel;
   }
-  let resist = hb * P.handbrakeDecel + P.drag * vF * vF + P.rolling;
+  drive += k.slopeAccel || 0;
+  let resist = hb * P.handbrakeDecel + P.drag * vF * vF + P.rolling + (k.rollingExtra || 0);
   if (!k.reversing) resist += brake * P.brakeDecel;
   if (grass) resist += 1.0 + 0.012 * vF * vF;
   vF += drive * dt;
@@ -138,7 +147,8 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
   let yawTarget = (vF * Math.tan(k.steerAngle)) / P.wheelbase;
   const drift = hb > 0.3 && sp > 5;
   if (drift) yawTarget *= 1.35;
-  const yawLimit = (P.maxLat * (drift ? P.driftLatMul : 1)) / Math.max(sp, 1);
+  const maxLat = (grass ? Math.min(P.maxLat, 10) : k.maxLatBase ?? P.maxLat) + (k.latBonus || 0);
+  const yawLimit = (maxLat * (drift ? P.driftLatMul : 1)) / Math.max(sp, 1);
   yawTarget = Math.max(-yawLimit, Math.min(yawLimit, yawTarget));
   k.yawRate += (yawTarget - k.yawRate) * Math.min(1, dt * 10);
   const dh = k.yawRate * dt;
@@ -149,7 +159,10 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
   const c2 = Math.cos(k.heading), s2 = Math.sin(k.heading);
   vF = wx * c2 + wz * s2;
   vL = wx * -s2 + wz * c2;
-  let grip = hb > 0.3 ? P.driftGrip : grass ? P.grassGrip : P.grip;
+  const baseGrip = grass ? P.grassGrip : k.gripBase ?? P.grip;
+  // 坂やバンクの重力の横成分
+  vL += (k.bankAccel || 0) * dt;
+  let grip = hb > 0.3 ? Math.min(P.driftGrip, baseGrip) : baseGrip;
   // 滑り角が大きくなるほどタイヤが粘り、スピンしにくくする（ドリフトを維持できる）
   const slipNow = Math.atan2(Math.abs(vL), Math.max(1, Math.abs(vF)));
   grip += Math.max(0, slipNow - 0.4) * 25;
