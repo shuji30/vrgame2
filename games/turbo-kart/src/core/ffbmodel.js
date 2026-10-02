@@ -5,7 +5,7 @@ import { KART } from './physics.js';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 export const FFB_DEFAULTS = {
-  gain: 0.6, // 全体の強さ（ダイレクトドライブは低めから）
+  gain: 0.3, // 全体の強さ（ダイレクトドライブを考えて低めから）
   align: 1.0, // セルフアライニングトルク
   damper: 0.25,
   road: 0.5, // 縁石・芝の振動
