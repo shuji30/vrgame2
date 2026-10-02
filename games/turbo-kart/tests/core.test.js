@@ -151,7 +151,7 @@ test('FFB: 速度が出るとセンターへ戻す力、ロック超えで押し
   assert.ok(inv.constant > 0.1);
   const lock = m.compute(k, { value: 1, beyond: 1.3 }, [], {}, 1 / 60);
   assert.ok(lock.constant < moving.constant);
-  const hit = new FFBModel().compute(k, { value: 0, beyond: 0 }, [{ type: 'wall', strength: 6, side: 1 }], {}, 1 / 60);
+  const hit = new FFBModel().compute(k, { value: 0, beyond: 0 }, [{ type: 'wall', strength: 6, side: 1 }], { gain: 0.6 }, 1 / 60);
   assert.ok(hit.constant < -0.2, '右の壁に当たると左へ');
   for (const v of [still, moving, lock, hit]) assert.ok(Math.abs(v.constant) <= 1);
 });
