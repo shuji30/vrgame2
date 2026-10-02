@@ -126,3 +126,12 @@ test('segmentDistance: 交差・平行・離れた線分', async () => {
   const far = segmentDistance({ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 3, y: 0, z: 0 }, { x: 4, y: 0, z: 0 });
   assert.ok(Math.abs(far.dist - 2) < 1e-9);
 });
+
+test('ScoreKeeper: エネルギーは半分から始まり、斬るたびに回復して満タンで止まる', () => {
+  const s = new ScoreKeeper(100);
+  assert.equal(s.energy, 0.5);
+  s.good(100);
+  assert.ok(s.energy > 0.5);
+  for (let i = 0; i < 60; i++) s.good(100);
+  assert.equal(s.energy, 1);
+});
