@@ -5,14 +5,16 @@ import { detectChange, mapSteer, mapPedal } from '../core/inputmap.js';
 const $ = (root, sel) => root.querySelector(sel);
 
 export class CalibrationUI {
-  constructor(root, input, ffb) {
+  constructor(root, input, ffb, hid = null) {
     this.root = root;
     this.input = input;
     this.ffb = ffb;
+    this.hid = hid;
     this.learning = null;
     this.raf = 0;
     this.build();
     ffb.onStatus(() => this.renderFFBStatus());
+    hid?.onChange(() => { this.renderHid(); this.renderFFBStatus(); });
   }
 
   get cfg() {
@@ -32,6 +34,10 @@ export class CalibrationUI {
     r.addEventListener('click', (e) => {
       const t = e.target.closest('button');
       if (!t) return;
+      if (t.dataset.hid === 'add') {
+        this.hid?.request().catch(() => {}).finally(() => this.renderHid());
+        return;
+      }
       if (t.dataset.learn) this.startLearn(t.dataset.learn);
       else if (t.dataset.clear) { delete this.cfg.bindings[t.dataset.clear]; this.commit(); }
       else if (t.dataset.test) this.ffb.test(t.dataset.test);
@@ -61,6 +67,7 @@ export class CalibrationUI {
       el.addEventListener('input', () => {
         const k = el.dataset.ffb;
         if (k === 'enabled') this.ffb.setEnabled(el.checked);
+        else if (el.tagName === 'SELECT') { this.ffb.stop(); this.ffb.settings[k] = el.value; this.renderFFBStatus(); }
         else this.ffb.settings[k] = el.type === 'checkbox' ? el.checked : Number(el.value);
         this.ffb.save();
         this.syncLabels();
@@ -91,6 +98,7 @@ export class CalibrationUI {
     for (const el of this.root.querySelectorAll('[data-show]')) {
       const [group, key] = el.dataset.show.split('.');
       const v = Number(group === 'steer' ? this.cfg.steer[key] : this.ffb.settings[key]);
+      if (Number.isNaN(v)) continue;
       if (key === 'wheelDeg' || key === 'lockDeg') el.textContent = `${v}°`;
       else if (key === 'gamma') el.textContent = v.toFixed(2);
       else el.textContent = `${Math.round(v * 100)}%`;
@@ -115,14 +123,31 @@ export class CalibrationUI {
     }
   }
 
+  renderHid() {
+    const el = $(this.root, '[data-hid=list]');
+    if (!el) return;
+    if (!this.hid?.supported) {
+      el.innerHTML = '<p class="muted">このブラウザは WebHID に対応していません（PC の Chrome / Edge を使ってください）</p>';
+      $(this.root, '[data-hid=add]').disabled = true;
+      return;
+    }
+    const list = this.hid.list();
+    el.innerHTML = list.length
+      ? list.map((st) => `<div class="pad"><b>${escapeHtml(st.name)}</b>入力: 軸 ${st.parser.axes.length} / ボタン ${st.parser.buttons.length}　FFB: ${st.pid?.ok ? '<span style="color:var(--ok)">対応（HID PID）</span>' : 'なし'}${st.pid?.error ? ` <span class="muted">${escapeHtml(st.pid.error)}</span>` : ''}</div>`).join('')
+      : '<p class="muted">まだ追加されていません</p>';
+  }
+
   renderFFBStatus() {
     const st = this.ffb.status;
     const el = $(this.root, '[data-ffb-status]');
     if (!el) return;
-    el.className = st.connected ? 'ok' : 'ng';
-    el.textContent = st.connected
-      ? `ブリッジ接続中 — ${st.selected ? `出力先: ${st.selected}` : st.error || 'FFB デバイスなし'}`
-      : 'ブリッジ未接続（PC で ffb-bridge/start.bat を起動してください）';
+    const target = this.ffb.outputName;
+    el.className = target ? 'ok' : 'ng';
+    el.textContent = target
+      ? `FFB 出力先: ${target}`
+      : st.connected
+        ? `ブリッジ接続中 — ${st.error || 'FFB デバイスなし'}`
+        : 'FFB の出力先がありません（下の「USB 機器を追加」でハンコンを追加するか、デバイスブリッジを起動してください）';
     const sel = $(this.root, '[data-ffb-device]');
     const haptic = st.devices.filter((d) => d.haptic);
     sel.innerHTML = haptic.length
@@ -134,6 +159,7 @@ export class CalibrationUI {
     this.root.hidden = false;
     this.syncForm();
     this.renderFFBStatus();
+    this.renderHid();
     const loop = () => {
       this.frame();
       this.raf = requestAnimationFrame(loop);

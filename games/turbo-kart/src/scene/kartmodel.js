@@ -85,7 +85,7 @@ export class KartModel {
     // ハンドル（運転者の正面）
     this.steerGroup = new THREE.Group();
     this.steerGroup.position.set(0.22, 0.74, 0);
-    this.steerGroup.rotation.z = 0.55; // 手前に傾ける
+    this.steerGroup.rotation.z = -0.15; // ほぼ垂直。下側をわずかに手前に
     const column = new THREE.Mesh(G.column, dark);
     column.rotation.z = Math.PI / 2;
     column.position.set(0.1, -0.02, 0);

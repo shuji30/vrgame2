@@ -33,6 +33,11 @@ let bridgePads = () => [];
 export function setBridgePads(fn) {
   bridgePads = fn;
 }
+// WebHID（ブラウザが直接読む）デバイス
+let hidPads = () => [];
+export function setHidPads(fn) {
+  hidPads = fn;
+}
 
 export function defaultConfig() {
   return {
@@ -63,7 +68,10 @@ export function saveConfig(cfg) {
 // 接続中のパッドを軽量なスナップショットにする（ブラウザ + ブリッジ）
 export function snapshotPads() {
   const out = [];
-  const extra = bridgePads() || [];
+  const hid = hidPads() || [];
+  for (const p of hid) out.push({ ...p, mapping: '', hid: true });
+  const hidNames = hid.map((p) => p.id.slice(5).toLowerCase());
+  const extra = (bridgePads() || []).filter((p) => !hidNames.some((n) => n && p.id.toLowerCase().startsWith(n)));
   for (const p of extra) {
     out.push({ id: `SDL: ${p.id}`, index: 1000 + p.index, mapping: '', axes: p.axes, buttons: p.buttons, bridge: true });
   }
@@ -73,6 +81,7 @@ export function snapshotPads() {
     if (IGNORE.test(gp.id) || (gp.buttons.length === 0 && gp.axes.length >= 10)) continue;
     // ブリッジ側にも同じ機器があればそちらを使う
     if (extra.some((p) => gp.id.startsWith(p.id))) continue;
+    if (hidNames.some((n) => n && gp.id.toLowerCase().startsWith(n))) continue;
     out.push({
       id: gp.id,
       index: gp.index,

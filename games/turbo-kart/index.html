@@ -166,9 +166,8 @@
         操作（キーボード）: ↑ アクセル / ↓ ブレーキ・後退 / ←→ ハンドル / Space サイドブレーキ / E・Q シフト /
         C カメラ切替 / Esc ポーズ / R VR 視点リセンター<br>
         ハンコンは PC の Chrome / Edge で使えます（VR は SteamVR / Pimax / Quest Link などの PC VR）。
-        ハンコン・ペダル・サイドブレーキ・シフターを確実に認識させ、FFB を出すには、PC で
-        <a href="https://github.com/shuji30/vrgame2/tree/main/ffb-bridge">デバイスブリッジ</a>（<code>ffb-bridge/start.bat</code>）を起動してください。
-      </p>
+        「ハンコン / FFB 設定」→「USB 機器を追加」でブラウザから直接つなげます（インストール不要・初回のみ許可）。
+        Fanatec・Thrustmaster・Logitech の FFB は <a href="https://github.com/shuji30/vrgame2/tree/main/ffb-bridge">デバイスブリッジ</a> を使ってください。</p>
       <p class="note"><a href="../../">◀ ゲーム選択に戻る</a></p>
     </div>
   </section>
@@ -200,7 +199,14 @@
           <h2>フォースフィードバック</h2>
           <p id="ffb-status" data-ffb-status class="ng"></p>
           <label><input type="checkbox" data-ffb="enabled"> FFB を使う</label>
-          <label class="field">出力するデバイス <select data-ffb-device></select></label>
+          <label class="field">出力方法
+            <select data-ffb="output">
+              <option value="auto">自動（ブラウザ直接 → ブリッジの順）</option>
+              <option value="webhid">ブラウザ直接（WebHID）のみ</option>
+              <option value="bridge">デバイスブリッジのみ</option>
+            </select></label>
+          <label class="field">最大出力（ブラウザ直接のとき） <span data-show="ffb.maxForce"></span><input type="range" min="0.05" max="1" step="0.05" data-ffb="maxForce"></label>
+          <label class="field">ブリッジで出力するデバイス <select data-ffb-device></select></label>
           <label class="field">全体の強さ <span data-show="ffb.gain"></span><input type="range" min="0" max="1" step="0.05" data-ffb="gain"></label>
           <label class="field">セルフアライニング（手応え） <span data-show="ffb.align"></span><input type="range" min="0" max="1.5" step="0.05" data-ffb="align"></label>
           <label class="field">路面（凹凸・縁石・ダート） <span data-show="ffb.road"></span><input type="range" min="0" max="1.5" step="0.05" data-ffb="road"></label>
@@ -215,6 +221,13 @@
           <p class="note">⚠ ダイレクトドライブは強力です。テストはハンドルから手を離さず、周囲に物がない状態で。強さは低めから上げてください。</p>
         </div>
       </div>
+
+      <h2>ブラウザで直接接続（WebHID・インストール不要）</h2>
+      <p class="note">PC の Chrome / Edge で使えます。最初に 1 回だけ機器を選んで許可すると、次回からは自動でつながります。
+        ホイールベース・ペダル・サイドブレーキ・シフターを 1 台ずつ追加してください。標準の FFB 規格（HID PID）に対応したハンコン
+        （CAMMUS・MOZA・Simagic・Simucube など）は、ブラウザだけで FFB も出せます。Fanatec・Thrustmaster・Logitech の FFB にはデバイスブリッジが必要です。</p>
+      <div class="actions"><button data-hid="add">＋ USB 機器を追加</button></div>
+      <div class="pads" data-hid="list"></div>
 
       <h2>接続中のデバイス（生の値）</h2>
       <div class="pads" data-calib="pads"></div>

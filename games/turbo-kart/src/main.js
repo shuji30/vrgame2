@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Game } from './game.js';
-import { InputManager, setBridgePads } from './input/devices.js';
+import { InputManager, setBridgePads, setHidPads } from './input/devices.js';
+import { HIDManager } from './input/webhid.js';
 import { CalibrationUI } from './input/calibration.js';
 import { FFBBridge } from './ffb.js';
 
@@ -16,7 +17,10 @@ $('app').appendChild(renderer.domElement);
 
 const input = new InputManager();
 const ffb = new FFBBridge();
+const hid = new HIDManager();
+ffb.hid = hid;
 setBridgePads(() => ffb.inputPads());
+setHidPads(() => hid.pads());
 
 const screens = { menu: $('menu'), calib: $('calib') };
 const ui = {
@@ -32,7 +36,7 @@ const ui = {
 };
 
 const game = new Game({ renderer, input, ffb, ui });
-const calib = new CalibrationUI($('calib'), input, ffb);
+const calib = new CalibrationUI($('calib'), input, ffb, hid);
 game.resize(window.innerWidth, window.innerHeight);
 
 // メニュー
@@ -128,6 +132,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden && !game.xrOn) game.pause(true);
 });
 window.addEventListener('beforeunload', () => ffb.stop());
+window.addEventListener('pagehide', () => ffb.stop());
 
 renderer.setAnimationLoop(() => {
   game.update();

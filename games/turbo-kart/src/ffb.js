@@ -8,7 +8,10 @@ const STORE = 'turbokart:ffb';
 
 export class FFBBridge {
   constructor() {
-    this.settings = { ...FFB_DEFAULTS, enabled: true, url: URL_DEFAULT, device: null };
+    // output: 'auto'（WebHID の FFB 対応機器があればそれ、なければブリッジ）| 'webhid' | 'bridge'
+    // maxForce: WebHID で出すときの上限（ブリッジは --max で制限）
+    this.settings = { ...FFB_DEFAULTS, enabled: true, url: URL_DEFAULT, device: null, output: 'auto', maxForce: 0.3 };
+    this.hid = null;
     try {
       Object.assign(this.settings, JSON.parse(localStorage.getItem(STORE) || '{}'));
       if (this.settings.url === 'ws://127.0.0.1:8765') this.settings.url = URL_DEFAULT;
@@ -134,9 +137,30 @@ export class FFBBridge {
     if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(msg));
   }
 
+  // WebHID 側の FFB 出力先（なければ null）
+  webTarget() {
+    if (!this.hid || this.settings.output === 'bridge') return null;
+    return this.hid.pidDevice(this.settings.hidDevice)?.pid || null;
+  }
+
+  get outputName() {
+    const w = this.webTarget();
+    if (w) return `WebHID: ${w.device.productName}`;
+    if (this.settings.output !== 'webhid' && this.status.connected && this.status.selected) return `ブリッジ: ${this.status.selected}`;
+    return null;
+  }
+
   // 毎フレーム呼ぶ（送信は 60Hz に間引く）
   update(out) {
     if (!this.settings.enabled) return;
+    const web = this.webTarget();
+    if (web) {
+      const mx = Math.max(0, Math.min(1, this.settings.maxForce ?? 0.3));
+      if (!web.ready) web.start();
+      web.apply({ constant: out.constant * mx, damper: out.damper * mx, rumble: out.rumble * mx, rumbleHz: out.rumbleHz });
+      return;
+    }
+    if (this.settings.output === 'webhid') return;
     const now = performance.now();
     if (now - this.lastSend < 15) return;
     this.lastSend = now;
@@ -145,10 +169,32 @@ export class FFBBridge {
 
   stop() {
     this.send({ t: 'stop' });
+    this.webTarget()?.stop();
   }
 
   test(effect) {
     if (!this.settings.enabled) return;
+    const web = this.webTarget();
+    if (web) {
+      // 1 秒間だけテストの力を出す
+      const g = this.settings.gain;
+      const out = { constant: 0, damper: 0, rumble: 0, rumbleHz: 0 };
+      if (effect === 'left') out.constant = -0.5 * g;
+      else if (effect === 'right') out.constant = 0.5 * g;
+      else if (effect === 'rumble') { out.rumble = 0.6 * g; out.rumbleHz = 25; }
+      else if (effect === 'center') out.damper = 0.8 * g;
+      const end = performance.now() + 1000;
+      clearInterval(this.testTimer);
+      this.testTimer = setInterval(() => {
+        if (performance.now() > end) {
+          clearInterval(this.testTimer);
+          web.stop();
+          return;
+        }
+        this.update(out);
+      }, 16);
+      return;
+    }
     this.send({ t: 'test', effect, gain: this.settings.gain });
   }
 }
