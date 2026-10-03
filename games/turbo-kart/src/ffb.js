@@ -160,7 +160,7 @@ export class FFBBridge {
     if (web) {
       const mx = Math.max(0, Math.min(1, this.settings.maxForce ?? 0.6));
       if (!web.ready) web.start();
-      web.apply({ constant: out.constant * mx, damper: out.damper * mx, rumble: out.rumble * mx, rumbleHz: out.rumbleHz });
+      web.apply({ constant: out.constant * mx, damper: out.damper * mx, spring: (out.spring || 0) * mx, rumble: out.rumble * mx, rumbleHz: out.rumbleHz });
       return;
     }
     if (this.settings.output === 'webhid') return;

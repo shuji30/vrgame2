@@ -93,3 +93,19 @@ test('WebHID FFB: 止めた後にもう一度出すと、有効化し直して�
   assert.ok(after.some((s) => s.id === 10 && s.data[1] === 1), '開始していない');
   assert.ok(after.some((s) => s.id === 5), '力を送っていない');
 });
+
+test('WebHID FFB: センタリング（ばね）はスプリングのエフェクトで送る', async () => {
+  const dev = cammus();
+  const cond = { reportId: 3, items: [item([PID(0x22)], 8, 1, 1, 40), item([PID(0x23)], 8, 1, 0, 1), item([PID(0x60)], 16, 1, -10000, 10000),
+    item([PID(0x61)], 16, 1, -10000, 10000), item([PID(0x62)], 16, 1, -10000, 10000), item([PID(0x63)], 16, 1, 0, 10000), item([PID(0x64)], 16, 1, 0, 10000), item([PID(0x65)], 8, 1, 0, 255)] };
+  dev.collections[0].outputReports.push(cond);
+  const p = new PIDForce(dev);
+  await p.start();
+  assert.ok(p.blocks.spring, 'ばねのエフェクトを用意');
+  await p.apply({ constant: 0, damper: 0, spring: 0.6, rumble: 0, rumbleHz: 0 });
+  const sp = dev.sent.filter((s) => s.id === 3 && s.data[0] === p.blocks.spring).at(-1);
+  assert.ok(sp, 'ばねの強さを送っていない');
+  const coef = (sp.data[4] | (sp.data[5] << 8)) << 16 >> 16;
+  assert.equal(coef, 6000);
+  assert.ok(dev.sent.some((s) => s.id === 10 && s.data[0] === p.blocks.spring && s.data[1] === 1), 'ばねを開始していない');
+});

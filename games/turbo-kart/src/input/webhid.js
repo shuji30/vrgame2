@@ -393,9 +393,12 @@ export class PIDForce {
       this.blocks.constant = await this.allocate(P.ET_CONSTANT, 1);
       if (this.r.condition) this.blocks.damper = await this.allocate(P.ET_DAMPER, 2);
       if (this.r.periodic) this.blocks.sine = await this.allocate(P.ET_SINE, 3);
+      // ばね（センタリング・スタート前に中央へ戻す力）。計算はハンコン側で行うのでなめらか
+      if (this.r.condition) this.blocks.spring = await this.allocate(P.ET_SPRING, 4);
       await this.setup(P.ET_CONSTANT, this.blocks.constant, 1000);
       if (this.blocks.damper) await this.setup(P.ET_DAMPER, this.blocks.damper, 1000);
       if (this.blocks.sine) await this.setup(P.ET_SINE, this.blocks.sine, 1000);
+      if (this.blocks.spring) await this.setup(P.ET_SPRING, this.blocks.spring, 1000);
       this.note(`エフェクト設定完了 ${JSON.stringify(this.blocks)}`);
       this.ready = true;
       this.error = null;
@@ -425,14 +428,20 @@ export class PIDForce {
         await this.send(this.r.constant, new Map([[pid(P.EFFECT_BLOCK_INDEX), { raw: B.constant }], [pid(P.MAGNITUDE), { n: c }]]));
         this.last.c = c;
       }
+      const condition = (idx, k) => this.send(this.r.condition, new Map([
+        [pid(P.EFFECT_BLOCK_INDEX), { raw: idx }], [pid(P.PARAM_BLOCK_OFFSET), { raw: 0 }],
+        [pid(P.CP_OFFSET), { n: 0 }], [pid(P.POS_COEF), { n: k }], [pid(P.NEG_COEF), { n: k }],
+        [pid(P.POS_SAT), { n: 1 }], [pid(P.NEG_SAT), { n: 1 }], [pid(P.DEAD_BAND), { raw: 0 }],
+      ]));
       const d = Math.round(out.damper * 100) / 100;
       if (B.damper && d !== this.last.d) {
-        await this.send(this.r.condition, new Map([
-          [pid(P.EFFECT_BLOCK_INDEX), { raw: B.damper }], [pid(P.PARAM_BLOCK_OFFSET), { raw: 0 }],
-          [pid(P.CP_OFFSET), { n: 0 }], [pid(P.POS_COEF), { n: d }], [pid(P.NEG_COEF), { n: d }],
-          [pid(P.POS_SAT), { n: 1 }], [pid(P.NEG_SAT), { n: 1 }], [pid(P.DEAD_BAND), { raw: 0 }],
-        ]));
+        await condition(B.damper, d);
         this.last.d = d;
+      }
+      const sp = Math.round((out.spring || 0) * 100) / 100;
+      if (B.spring && sp !== this.last.sp) {
+        await condition(B.spring, sp);
+        this.last.sp = sp;
       }
       const r = Math.round(out.rumble * 100) / 100;
       const hz = Math.max(1, Math.round(out.rumbleHz || 20));
@@ -448,7 +457,7 @@ export class PIDForce {
       // （ブラウザが固まったり閉じたりしても力が出っぱなしにならない）
       if (now - this.lastStart > 300) {
         this.lastStart = now;
-        for (const idx of [B.constant, B.damper, B.sine]) {
+        for (const idx of [B.constant, B.damper, B.sine, B.spring]) {
           if (!idx) continue;
           await this.send(this.r.operation, new Map([[pid(P.EFFECT_BLOCK_INDEX), { raw: idx }], [pid(P.LOOP_COUNT), { raw: 1 }]]), new Set([pid(P.OP_START)]));
         }
@@ -484,7 +493,7 @@ export class PIDForce {
     this.busy = true;
     try {
       await this.send(this.r.constant, new Map([[pid(P.EFFECT_BLOCK_INDEX), { raw: this.blocks.constant }], [pid(P.MAGNITUDE), { n: 0 }]]));
-      for (const idx of [this.blocks.constant, this.blocks.damper, this.blocks.sine]) {
+      for (const idx of [this.blocks.constant, this.blocks.damper, this.blocks.sine, this.blocks.spring]) {
         if (!idx) continue;
         await this.send(this.r.operation, new Map([[pid(P.EFFECT_BLOCK_INDEX), { raw: idx }], [pid(P.LOOP_COUNT), { raw: 1 }]]), new Set([pid(P.OP_STOP)]));
       }
