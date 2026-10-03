@@ -283,6 +283,24 @@ export class PIDForce {
     if (this.log.length > 40) this.log.shift();
   }
 
+  // 診断表示用: 選択式の項目（配列）の記述をそのまま出す（機種ごとの記述の違いを調べるため）
+  describeArrays() {
+    const out = [];
+    for (const key of ['setEffect', 'operation', 'control']) {
+      const r = this.r[key];
+      if (!r) continue;
+      const parts = r.items.map((it) => {
+        const kind = it.isConstant ? 'C' : it.isArray ? 'A' : 'V';
+        const us = it.isRange
+          ? `range ${(it.usageMinimum >>> 0).toString(16)}-${(it.usageMaximum >>> 0).toString(16)}`
+          : (it.usages || []).map((u) => (u >>> 0).toString(16)).join(',');
+        return `${kind}${it.reportSize}x${it.reportCount}[${it.logicalMinimum}..${it.logicalMaximum}]{${us}}`;
+      });
+      out.push(`${key}#${r.reportId}: ${parts.join(' ')}`);
+    }
+    return out;
+  }
+
   // 診断表示用: 見つかったレポートと、初期化の結果
   diagnose() {
     const has = (k) => (this.r[k] ? `${k}#${this.r[k].reportId}` : `${k}:なし`);
@@ -291,7 +309,7 @@ export class PIDForce {
       blocks: JSON.stringify(this.blocks),
       ready: this.ready,
       error: this.error,
-      log: this.log.slice(-24),
+      log: [...this.describeArrays(), ...this.log.slice(-24)],
     };
   }
 
