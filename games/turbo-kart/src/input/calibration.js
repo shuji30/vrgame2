@@ -133,7 +133,7 @@ export class CalibrationUI {
     }
     const list = this.hid.list();
     el.innerHTML = list.length
-      ? list.map((st) => `<div class="pad"><b>${escapeHtml(st.name)}</b>入力: 軸 ${st.parser.axes.length} / ボタン ${st.parser.buttons.length}　FFB: ${st.pid?.ok ? '<span style="color:var(--ok)">対応（HID PID）</span>' : 'なし'}${st.pid?.error ? ` <span class="muted">${escapeHtml(st.pid.error)}</span>` : ''}</div>`).join('')
+      ? list.map((st) => `<div class="pad"><b>${escapeHtml(st.name)}</b>入力: 軸 ${st.parser.axes.length} / ボタン ${st.parser.buttons.length}　FFB: ${st.pid?.ok ? '<span style="color:var(--ok)">対応（HID PID）</span>' : st.pid ? 'PID の記述はあるが必要なレポートが不足' : 'なし'}${st.pid?.error ? ` <span class="muted">${escapeHtml(st.pid.error)}</span>` : ''}${st.pid ? pidDiag(st.pid) : ''}</div>`).join('')
       : '<p class="muted">まだ追加されていません</p>';
   }
 
@@ -301,4 +301,12 @@ export class CalibrationUI {
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// WebHID の FFB 診断（うまく力が出ないときに、どこまで進んだかを確認する）
+function pidDiag(p) {
+  const d = p.diagnose();
+  return `<details style="margin-top:4px"><summary class="muted">FFB 診断</summary><pre style="white-space:pre-wrap;font-size:11px;margin:4px 0">${escapeHtml(
+    [`レポート: ${d.reports}`, `エフェクト番号: ${d.blocks}`, `準備: ${d.ready ? 'OK' : 'まだ'}`, d.error ? `エラー: ${d.error}` : '', ...d.log].filter(Boolean).join('\n'),
+  )}</pre></details>`;
 }

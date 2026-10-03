@@ -151,7 +151,7 @@ export class ReportParser {
 const P = {
   EFFECT_BLOCK_INDEX: 0x22, PARAM_BLOCK_OFFSET: 0x23, EFFECT_TYPE: 0x25,
   ET_CONSTANT: 0x26, ET_SINE: 0x31, ET_SPRING: 0x40, ET_DAMPER: 0x41,
-  DURATION: 0x50, SAMPLE_PERIOD: 0x51, GAIN: 0x52, TRIGGER_BUTTON: 0x53, TRIGGER_REPEAT: 0x54,
+  DURATION: 0x50, SAMPLE_PERIOD: 0x51, GAIN: 0x52, TRIGGER_BUTTON: 0x53, TRIGGER_REPEAT: 0x54, DIRECTION_ENABLE: 0x56,
   START_DELAY: 0xa7, CP_OFFSET: 0x60, POS_COEF: 0x61, NEG_COEF: 0x62, POS_SAT: 0x63, NEG_SAT: 0x64, DEAD_BAND: 0x65,
   OFFSET: 0x6f, MAGNITUDE: 0x70, PHASE: 0x71, PERIOD: 0x72,
   EFFECT_OPERATION: 0x78, OP_START: 0x79, OP_STOP: 0x7b, LOOP_COUNT: 0x7c,
@@ -230,6 +230,9 @@ export class PIDForce {
     this.ok = !!(this.r.setEffect && this.r.constant && this.r.operation);
     this.blocks = {};
     this.ready = false;
+    this.starting = null; // 初期化中（同時に何度も初期化しないように）
+    this.nextTry = 0;
+    this.log = []; // 診断用: 初期化の各段階の結果
     this.busy = false;
     this.last = {};
     this.lastStart = -Infinity;
@@ -238,6 +241,23 @@ export class PIDForce {
 
   async send(r, values, select) {
     await this.device.sendReport(r.reportId, buildReport(r, values, select));
+  }
+
+  note(msg) {
+    this.log.push(msg);
+    if (this.log.length > 30) this.log.shift();
+  }
+
+  // 診断表示用: 見つかったレポートと、初期化の結果
+  diagnose() {
+    const has = (k) => (this.r[k] ? `${k}#${this.r[k].reportId}` : `${k}:なし`);
+    return {
+      reports: ['setEffect', 'constant', 'periodic', 'condition', 'operation', 'control', 'gain', 'create', 'blockLoad'].map(has).join(' '),
+      blocks: JSON.stringify(this.blocks),
+      ready: this.ready,
+      error: this.error,
+      log: this.log.slice(-12),
+    };
   }
 
   async control(op) {
@@ -253,9 +273,11 @@ export class PIDForce {
         const dv = await this.device.receiveFeatureReport(blockLoad.reportId);
         // 先頭はレポート ID。次がエフェクト番号（多くの機器で 1 バイト）
         const idx = dv.getUint8(blockLoad.reportId ? 1 : 0);
+        this.note(`エフェクト作成 type=0x${type.toString(16)} → 番号 ${idx}（応答 ${[...new Uint8Array(dv.buffer)].slice(0, 6).join(',')}）`);
         if (idx > 0) return idx;
-      } catch {
+      } catch (e) {
         // 非対応なら固定番号で試す
+        this.note(`エフェクト作成に失敗（固定番号 ${fallback} を使う）: ${e.message || e}`);
       }
     }
     return fallback;
@@ -270,17 +292,28 @@ export class PIDForce {
       [pid(P.START_DELAY), { raw: 0 }],
       [pid(P.GAIN), { n: 1 }],
       [pid(P.TRIGGER_BUTTON), { raw: 0 }],
+      [pid(P.DIRECTION_ENABLE), { raw: 1 }], // 方向（極座標）を使う。立てないと力を出さない機種がある
       [U(PAGE.desktop, 0x30), { raw: 1 }], // Axes Enable: X
       [U(PAGE.ordinal, 0x01), { n: 0.25 }], // Direction: 90°（X 軸方向）
     ]);
     await this.send(this.r.setEffect, v, new Set([pid(type)]));
   }
 
-  async start() {
-    if (this.ready || !this.ok) return this.ready;
+  // 初期化。毎フレーム呼ばれても、実行中なら同じ処理を待つだけ（並行して何度も初期化すると番号が食い違う）。
+  // 失敗したら 2 秒おいてから再挑戦する
+  start() {
+    if (this.ready || !this.ok) return Promise.resolve(this.ready);
+    if (this.starting) return this.starting;
+    if (performance.now() < this.nextTry) return Promise.resolve(false);
+    this.starting = this.doStart().finally(() => { this.starting = null; });
+    return this.starting;
+  }
+
+  async doStart() {
     try {
-      await this.control(P.DC_RESET).catch(() => {});
+      await this.control(P.DC_RESET).catch((e) => this.note(`リセット失敗: ${e.message || e}`));
       await this.control(P.DC_ENABLE);
+      this.note('アクチュエーター有効');
       if (this.r.gain) await this.send(this.r.gain, new Map([[pid(P.DEVICE_GAIN), { n: 1 }]]));
       this.blocks.constant = await this.allocate(P.ET_CONSTANT, 1);
       if (this.r.condition) this.blocks.damper = await this.allocate(P.ET_DAMPER, 2);
@@ -288,10 +321,13 @@ export class PIDForce {
       await this.setup(P.ET_CONSTANT, this.blocks.constant, 1000);
       if (this.blocks.damper) await this.setup(P.ET_DAMPER, this.blocks.damper, 1000);
       if (this.blocks.sine) await this.setup(P.ET_SINE, this.blocks.sine, 1000);
+      this.note(`エフェクト設定完了 ${JSON.stringify(this.blocks)}`);
       this.ready = true;
       this.error = null;
     } catch (e) {
       this.error = String(e.message || e);
+      this.note(`初期化に失敗: ${this.error}`);
+      this.nextTry = performance.now() + 2000;
     }
     return this.ready;
   }
@@ -338,6 +374,7 @@ export class PIDForce {
       }
     } catch (e) {
       this.error = String(e.message || e);
+      this.note(`送信に失敗: ${this.error}`);
     } finally {
       this.busy = false;
     }
@@ -345,6 +382,7 @@ export class PIDForce {
 
   // 初期化からやり直す（FFB リセット）
   async reset() {
+    if (this.starting) await this.starting;
     await this.stop();
     try { await this.control(P.DC_RESET); } catch { /* 非対応 */ }
     this.ready = false;
