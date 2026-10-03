@@ -174,6 +174,8 @@ export class Hud {
 
   update(race, me, { vr = false, manual = false, dt = 0, party = false } = {}) {
     const k = me.kart;
+    this.party = party;
+    this.coinFlash = Math.max(0, (this.coinFlash || 0) - dt);
     this.el.coins.hidden = !party || vr;
     // コイン 1 枚で最高速 +0.6%（10 枚まで）
     if (party) this.el.coins.innerHTML = `🪙 ${me.coins || 0} <small>最高速 +${((me.coins || 0) * COIN_BONUS * 100).toFixed(1)}%</small>`;
@@ -271,6 +273,14 @@ export class Hud {
     ctx.fillText(`LAP ${Math.max(1, Math.min(race.laps, me.lap))}/${race.laps}`, 316, 100);
     ctx.font = '22px system-ui, sans-serif';
     ctx.fillText(fmtTime(Math.max(0, race.time)), 316, 140);
+    // コイン（パーティー）: 枚数と最高速の上乗せ。拾った直後は金色に光る
+    if (this.party) {
+      const flash = this.coinFlash > 0;
+      ctx.textAlign = 'left';
+      ctx.font = `bold ${flash ? 30 : 24}px system-ui, sans-serif`;
+      ctx.fillStyle = flash ? '#ffe14a' : '#ffd23f';
+      ctx.fillText(`🪙 ${me.coins || 0}  +${((me.coins || 0) * COIN_BONUS * 100).toFixed(1)}%`, 24, 30);
+    }
     // 下の帯: このレースの最速ラップ / コースレコード / 自己ベスト
     const f = fastestLap(race);
     const rec = this.courseRecord;

@@ -172,3 +172,15 @@ Effects.prototype.confetti = function confetti(model, count = 220) {
     this.confettiPool.emit(p, v, CONFETTI[n % CONFETTI.length], 2.5 + Math.random() * 1.5);
   }
 };
+
+const GOLD = new THREE.Color(0xffd23f);
+// コインを拾ったときのキラキラ（車の前の目の高さに出すので、車内視点・VR でも見える）
+Effects.prototype.coinSparkle = function coinSparkle(model) {
+  const g = model.group;
+  const eye = model.eye || new THREE.Vector3(0, 1, 0);
+  for (let n = 0; n < 24; n++) {
+    const p = this.tmp.set(eye.x + 1.6 + Math.random() * 0.6, eye.y - 0.2 + Math.random() * 0.5, (Math.random() - 0.5) * 1.2).applyMatrix4(g.matrixWorld);
+    const v = this.tmpV.set((Math.random() - 0.5) * 2, 1 + Math.random() * 2, (Math.random() - 0.5) * 2);
+    this.sparks.emit(p, v, GOLD, 0.35 + Math.random() * 0.25);
+  }
+};

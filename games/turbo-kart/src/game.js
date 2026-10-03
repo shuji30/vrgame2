@@ -549,7 +549,11 @@ export class Game {
           if (party && ev.strength > 2.5) this.audio.boing(ev.strength);
         }
         if (ev.type === 'boostPad' || ev.type === 'miniTurbo') this.audio.whoosh();
-        if (ev.type === 'coin') this.audio.coin();
+        if (ev.type === 'coin') {
+          this.audio.coin();
+          this.hud.coinFlash = 0.6;
+          this.fx.coinSparkle(this.models[me.index]);
+        }
         if (ev.type === 'itemBox') this.audio.itemBox();
         if (ev.type === 'itemGot') { this.audio.jackpot(); me.itemFlash = 1.6; }
         if (ev.type === 'useItem') { this.audio.whoosh(); me.msg = { text: useMessage(ev), t: 1.4 }; }
