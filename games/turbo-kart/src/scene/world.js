@@ -1,6 +1,6 @@
 // コースの見た目: 起伏のある地形・路面（ターマック / 荒れたターマック / ダート）・縁石・タイヤバリア・木・山
 import * as THREE from 'three';
-import { pointAt, locate, wrapS } from '../core/track.js';
+import { pointAt, locate, wrapS, curvatureAt } from '../core/track.js';
 import { roadHeight, surfaceType } from '../core/surface.js';
 import { mulberry32 } from '../core/rng.js';
 import { toon, skyDome, clouds } from './style.js';
@@ -76,12 +76,10 @@ function surfaceRanges(track) {
 
 const BASE = -0.8; // 遠くの地面の基準高さ
 
-// 地形の高さ: コースの近くは路面に合わせ、離れるほど基準の丘へなじませる
-export function terrainHeight(track, x, z) {
-  const l = locate(track, x, z);
+// 1 つの区間に対する地形の高さ（路面に合わせ、離れるほど基準の丘へなじませる）
+function heightNear(track, l, hills) {
   const wall = track.halfWidth + track.runoff;
   const d = Math.abs(l.lateral);
-  const hills = BASE + 2.5 * Math.sin(x * 0.012 + 1) * Math.sin(z * 0.01 + 0.4) + 1.2 * Math.sin(x * 0.031 - z * 0.023);
   if (d <= wall + 1.5) return roadHeight(track, l.s, Math.sign(l.lateral) * Math.min(d, wall)) - 0.25;
   const edge = roadHeight(track, l.s, Math.sign(l.lateral) * wall) - 0.25;
   const k = Math.min(1, (d - wall - 1.5) / 28);
@@ -89,17 +87,34 @@ export function terrainHeight(track, x, z) {
   return edge + (hills - edge) * sm;
 }
 
+// 地形の高さ。立体交差のように近くに別の区間があるときは低い方に合わせる（上の道は橋になる）
+export function terrainHeight(track, x, z) {
+  const hills = BASE + 2.5 * Math.sin(x * 0.012 + 1) * Math.sin(z * 0.01 + 0.4) + 1.2 * Math.sin(x * 0.031 - z * 0.023);
+  const l = locate(track, x, z);
+  let h = heightNear(track, l, hills);
+  const reach = track.halfWidth + track.runoff + 30;
+  let best = Infinity, bi = -1;
+  for (let i = 0; i < track.N; i += 2) {
+    const ds = Math.abs(i - l.i);
+    if (Math.min(ds, track.N - ds) < 120) continue;
+    const d = (track.x[i] - x) ** 2 + (track.z[i] - z) ** 2;
+    if (d < best) { best = d; bi = i; }
+  }
+  if (bi >= 0 && best < reach * reach) h = Math.min(h, heightNear(track, locate(track, x, z, bi), hills));
+  return h;
+}
+
 export function buildWorld(scene, track) {
   const group = new THREE.Group();
   scene.add(group);
   scene.background = new THREE.Color(0x9fd9ff);
-  scene.fog = new THREE.Fog(0xc8efff, 220, 900);
-  scene.add(skyDome());
-
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x6fbf3a, 1.6));
+  scene.fog = new THREE.Fog(0xc8efff, 260, 1100);
+  // コースを切り替えるときに丸ごと外せるよう、空と光も group に入れる
+  group.add(skyDome(1600));
+  group.add(new THREE.HemisphereLight(0xffffff, 0x6fbf3a, 1.6));
   const sun = new THREE.DirectionalLight(0xfff4dc, 2.4);
   sun.position.set(80, 140, 40);
-  scene.add(sun);
+  group.add(sun);
 
   const hw = track.halfWidth;
   const wall = hw + track.runoff;
@@ -204,6 +219,22 @@ export function buildWorld(scene, track) {
     group.add(new THREE.Mesh(ribbon(track, { lat0: hw, lat1: wall, segs: 2, dy: 0.005, vScale: 4, from: r.from, to: r.to }), side));
   }
 
+  // 高架（立体交差の上の道など）の橋脚
+  const pillarGeo = new THREE.CylinderGeometry(0.6, 0.8, 1, 10);
+  const pillarMat = toon({ color: 0xc9c2b8 });
+  for (let s0 = 0; s0 < track.length; s0 += 9) {
+    for (const lat of [-hw + 1.5, hw - 1.5]) {
+      const p = pointAt(track, s0, lat);
+      const top = roadHeight(track, s0, lat);
+      const ground = terrainHeight(track, p.x, p.z);
+      if (top - ground < 2.5) continue;
+      const pl = new THREE.Mesh(pillarGeo, pillarMat);
+      pl.scale.y = top - ground;
+      pl.position.set(p.x, (top + ground) / 2, p.z);
+      group.add(pl);
+    }
+  }
+
   // スタートラインのチェッカー（路面に沿わせる）
   const checker = canvasTexture(32, 128, (ctx, w, h) => {
     for (let i = 0; i < 4; i++) for (let j = 0; j < 16; j++) {
@@ -240,7 +271,7 @@ export function buildWorld(scene, track) {
         ctx.font = 'bold 40px system-ui, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('THUNDER RING  ·  START / FINISH', w / 2, h / 2 + 2);
+        ctx.fillText(`${track.def.name.toUpperCase()}  ·  START / FINISH`, w / 2, h / 2 + 2);
       }, false),
     }),
   );
@@ -366,8 +397,13 @@ export function buildWorld(scene, track) {
   }, false);
   const boardMat = toon({ map: boardTex, side: THREE.DoubleSide });
   const boardGeo = new THREE.PlaneGeometry(6, 1.5);
-  for (const [from, to, side] of [[20, 200, 1], [20, 200, -1], [430, 620, 1], [1080, 1200, 1], [1080, 1200, -1]]) {
-    for (let s0 = from; s0 < to; s0 += 7) {
+  // 直線区間（前後 25m がほぼまっすぐ）に看板を並べる
+  const straight = (s0) => { for (let d = -25; d <= 25; d += 5) if (Math.abs(curvatureAt(track, s0 + d)) > 1 / 300) return false; return true; };
+  let boards = 0;
+  for (let s0 = 0; s0 < track.length && boards < 240; s0 += 7) {
+    if (!straight(s0)) continue;
+    for (const side of [-1, 1]) {
+      boards++;
       const p = pointAt(track, s0, side * (wall + 1.3));
       const b = new THREE.Mesh(boardGeo, boardMat);
       b.position.set(p.x, roadHeight(track, s0, side * wall) + 1.1, p.z);
@@ -380,9 +416,11 @@ export function buildWorld(scene, track) {
   const flagGeo = new THREE.PlaneGeometry(1.4, 0.9);
   const poleGeo = new THREE.CylinderGeometry(0.05, 0.05, 4.5, 6);
   const poleMat = toon({ color: 0xeeeeee });
-  for (let s0 = 220; s0 < 410; s0 += 12) {
-    const p = pointAt(track, s0, -(wall + 2));
-    const y = roadHeight(track, s0, -wall);
+  const flagSpots = [];
+  for (const b of track.def.banks || []) for (let s0 = b.from + 6; s0 < b.to - 6; s0 += 12) flagSpots.push([s0, b.turn === 'R' ? -1 : 1]);
+  for (const [s0, side] of flagSpots) {
+    const p = pointAt(track, s0, side * (wall + 2));
+    const y = roadHeight(track, s0, side * wall);
     const pole = new THREE.Mesh(poleGeo, poleMat);
     pole.position.set(p.x, y + 2.25, p.z);
     const flag = new THREE.Mesh(flagGeo, toon({ color: petals[Math.floor(rng() * petals.length)], side: THREE.DoubleSide }));
@@ -396,7 +434,7 @@ export function buildWorld(scene, track) {
   const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
   for (let i = 0; i < 18; i++) {
     const a = (i / 18) * Math.PI * 2;
-    const r = 560 + rng() * 120;
+    const r = Math.max(maxX - minX, maxZ - minZ) / 2 + 380 + rng() * 120;
     const h = 60 + rng() * 90;
     const m = new THREE.Mesh(new THREE.ConeGeometry(90 + rng() * 60, h, 5), mountMat);
     m.position.set(cx + Math.cos(a) * r, h / 2 - 5, cz + Math.sin(a) * r);

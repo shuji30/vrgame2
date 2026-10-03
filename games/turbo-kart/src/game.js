@@ -26,10 +26,8 @@ export class Game {
     this.ui = ui;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(75, 16 / 9, 0.05, 1500);
-    this.track = buildTrack(TRACKS[0]);
-    buildWorld(this.scene, this.track);
     this.hud = new Hud(ui.hud);
-    this.hud.setTrack(this.track);
+    this.setTrack(TRACKS[0].id);
     this.ffbModel = new FFBModel();
     this.fx = new Effects(this.scene);
     this.audio = new KartAudio();
@@ -45,6 +43,24 @@ export class Game {
     this.recenterAt = 0;
     this.lastCount = null;
     this.showAttract();
+  }
+
+  // コースを切り替える（地形・路面・装飾を作り直す）
+  setTrack(id) {
+    const def = TRACKS.find((t) => t.id === id) || TRACKS[0];
+    if (this.trackId === def.id) return;
+    if (this.race) this.clearRace();
+    if (this.world) {
+      this.scene.remove(this.world);
+      this.world.traverse((o) => {
+        o.geometry?.dispose?.();
+        if (o.material) for (const m of [].concat(o.material)) { m.map?.dispose?.(); m.dispose?.(); }
+      });
+    }
+    this.trackId = def.id;
+    this.track = buildTrack(def);
+    this.world = buildWorld(this.scene, this.track);
+    this.hud.setTrack(this.track);
   }
 
   get xrOn() {
@@ -70,8 +86,9 @@ export class Game {
     this.race = null;
   }
 
-  // opts: { npcs, laps, level, manual, attract }
+  // opts: { npcs, laps, level, manual, attract, vehicle, track }
   startRace(opts) {
+    if (opts.track) this.setTrack(opts.track);
     this.clearRace();
     this.opts = opts;
     const entries = [];

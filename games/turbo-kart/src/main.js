@@ -4,6 +4,7 @@ import { InputManager, setBridgePads, setHidPads } from './input/devices.js';
 import { HIDManager } from './input/webhid.js';
 import { CalibrationUI } from './input/calibration.js';
 import { FFBBridge } from './ffb.js';
+import { TRACKS } from './core/tracks.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -37,6 +38,25 @@ const ui = {
 };
 
 const game = new Game({ renderer, input, ffb, ui });
+// コースの選択（選ぶと背景のデモ走行もそのコースになる）
+const trackSel = $('opt-track');
+const TRACK_DESC = {
+  'thunder-ring': 'デイトナ風バンク・シケイン・ダート・アップダウンのオリジナルコース',
+  'eight-hills': '立体交差のある 8 の字。S 字・ヘアピン・スプーン・130R 風の高速コーナー',
+  'speed-temple': '長いストレートとシケイン、パラボリカ風の大きな最終コーナー',
+  'forest-ring': 'オー・ルージュ風の急な上り、長いストレート、高低差の大きい森のコース',
+  'river-park': '反時計回り。シケインとヘアピン、アップダウンの続くテクニカルコース',
+};
+for (const t of TRACKS) trackSel.add(new Option(`${t.name}${t.sub && t.sub !== 'オリジナル' ? `（${t.sub}）` : ''}`, t.id));
+const describeTrack = () => {
+  const t = game.track;
+  $('track-desc').textContent = `${t.def.name} — ${TRACK_DESC[t.def.id] || ''}（1 周 ${(t.length / 1000).toFixed(2)}km）`;
+};
+trackSel.addEventListener('change', () => {
+  game.setTrack(trackSel.value);
+  game.showAttract();
+  describeTrack();
+});
 $('opt-shake').addEventListener('change', (e) => { game.shake = Number(e.target.value); });
 const calib = new CalibrationUI($('calib'), input, ffb, hid);
 game.resize(window.innerWidth, window.innerHeight);
@@ -52,9 +72,15 @@ try {
   if (m.laps) $('opt-laps').value = m.laps;
   if (m.shake != null) $('opt-shake').value = m.shake;
   if (m.vehicle) $('opt-vehicle').value = m.vehicle;
+  if (m.track && TRACKS.some((t) => t.id === m.track)) {
+    trackSel.value = m.track;
+    game.setTrack(m.track);
+    game.showAttract();
+  }
 } catch {
   // 既定値
 }
+describeTrack();
 $('opt-trans').value = input.config.transmission;
 $('opt-trans').addEventListener('change', (e) => {
   input.config.transmission = e.target.value;
@@ -62,7 +88,7 @@ $('opt-trans').addEventListener('change', (e) => {
 });
 
 function raceOptions() {
-  const o = { npcs: Number(npcSel.value), level: $('opt-level').value, laps: Number($('opt-laps').value), manual: input.config.transmission === 'manual', shake: Number($('opt-shake').value), vehicle: $('opt-vehicle').value };
+  const o = { npcs: Number(npcSel.value), level: $('opt-level').value, laps: Number($('opt-laps').value), manual: input.config.transmission === 'manual', shake: Number($('opt-shake').value), vehicle: $('opt-vehicle').value, track: trackSel.value };
   game.shake = o.shake;
   try {
     localStorage.setItem(STORE, JSON.stringify(o));

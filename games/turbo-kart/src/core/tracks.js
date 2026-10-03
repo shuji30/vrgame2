@@ -2,10 +2,13 @@
 // elevation: 高さのキー [s, 高さ m]（間はなめらかにつなぐ）
 // banks: バンク区間（turn: 'R' | 'L' はカーブの向き。外側が高くなる）
 // sections: 路面の種類（tarmac 以外の区間）
+import { GENERATED_TRACKS } from './tracks-gen.js';
+
 export const TRACKS = [
   {
     id: 'thunder-ring',
     name: 'Thunder Ring',
+    sub: 'オリジナル',
     startS: 90, // スタートラインはメインストレートの中ほど（グリッドがバンクにかからないように）
     halfWidth: 6.5, // 舗装路の半幅
     runoff: 4, // 舗装の外側の芝の幅（その外が壁）
@@ -27,4 +30,6 @@ export const TRACKS = [
       { s: 1150, lateral: 0 },
     ],
   },
+  // 実在コースの雰囲気を再現したレイアウト（tools/designs.mjs から生成）
+  ...GENERATED_TRACKS,
 ];

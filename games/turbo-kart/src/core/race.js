@@ -183,6 +183,8 @@ export class Race {
     for (let a = 0; a < ks.length; a++) {
       for (let b = a + 1; b < ks.length; b++) {
         const A = ks[a].kart, B = ks[b].kart;
+        // 立体交差の上と下にいる車はぶつからない
+        if (Math.abs((ks[a].ride?.y ?? 0) - (ks[b].ride?.y ?? 0)) > 3) continue;
         const dx = B.x - A.x, dz = B.z - A.z;
         const d2 = dx * dx + dz * dz;
         if (d2 >= R * R || d2 < 1e-8) continue;
