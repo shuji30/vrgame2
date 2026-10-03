@@ -347,9 +347,29 @@ export class Hud {
       ctx.font = 'bold 40px system-ui, sans-serif';
       ctx.fillText(extra.rankText, W / 2, H - 150);
     }
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.font = 'bold 34px system-ui, sans-serif';
-    ctx.fillText(extra.online ? '決定 / ポーズ: ロビーへ戻る' : '決定: 次のコース ・ アイテム: もう一度 ・ ポーズ: やめる', W / 2, H - 70);
+    if (extra.online) {
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.font = 'bold 34px system-ui, sans-serif';
+      ctx.fillText('決定 / ポーズ: ロビーへ戻る', W / 2, H - 70);
+    } else {
+      // 3 つの選択肢（ハンドルで選んでアクセルで決める）
+      const labels = [`▶ 次のコース`, '↻ もう一度', '✕ やめる'];
+      const bw = 290, gap = 24, x0 = (W - (bw * 3 + gap * 2)) / 2, by = H - 108;
+      labels.forEach((l, i) => {
+        const on = i === (extra.sel || 0);
+        ctx.fillStyle = on ? '#ff8a1f' : 'rgba(255,255,255,0.1)';
+        ctx.beginPath();
+        ctx.roundRect(x0 + i * (bw + gap), by, bw, 64, 16);
+        ctx.fill();
+        if (on) { ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 5; ctx.stroke(); }
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 32px system-ui, sans-serif';
+        ctx.fillText(l, x0 + i * (bw + gap) + bw / 2, by + 33);
+      });
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.font = '24px system-ui, sans-serif';
+      ctx.fillText(`ハンドルで選んで、アクセルを踏み込むと決定${extra.next ? `（次は ${extra.next}）` : ''}`, W / 2, H - 22);
+    }
     this.results.commit();
   }
 

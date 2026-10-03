@@ -29,6 +29,8 @@ export function centeringForce(wheel, gain = 0.5) {
 const lerp = (a, b, t) => a + (b - a) * t;
 const ev0 = (events, type) => events.some((e) => e.type === type);
 
+const RESULT_ACTS = ['next', 'again', 'quit'];
+
 function nextTrackName(id) {
   const i = TRACKS.findIndex((t) => t.id === id);
   return TRACKS[(i + 1) % TRACKS.length].name;
@@ -365,6 +367,30 @@ export class Game {
     if (this.xrOn) this.renderer.xr.getSession()?.end();
   }
 
+  // 結果画面の操作: ハンドル（左右）かパドルで選び、アクセルを踏み込むか決定ボタンで決める。
+  // アイテムボタンはすぐにもう一度。ゴール直後の踏みっぱなしで進まないよう、1.5 秒たってアクセルを戻してから
+  resultsInput(inp) {
+    if (this.online) {
+      if (inp.confirm) this.toMenu();
+      return;
+    }
+    const n = RESULT_ACTS.length;
+    const dir = inp.steer > 0.5 ? 1 : inp.steer < -0.5 ? -1 : 0;
+    if (dir && dir !== this.selDir) this.resultSel = (this.resultSel + dir + n) % n;
+    this.selDir = dir;
+    if (inp.shiftUp) this.resultSel = (this.resultSel + 1) % n;
+    if (inp.shiftDown) this.resultSel = (this.resultSel + n - 1) % n;
+    if ((inp.throttle || 0) < 0.2) this.throttleArmed = true;
+    const pedal = this.throttleArmed && (inp.throttle || 0) > 0.85 && performance.now() - this.resultsAt > 1500;
+    if (inp.item) return this.restart();
+    if (inp.confirm || pedal) {
+      const act = RESULT_ACTS[this.resultSel];
+      if (act === 'next') this.nextCourse();
+      else if (act === 'again') this.restart();
+      else this.toMenu();
+    }
+  }
+
   // 結果画面から次のコースへ（オンラインはロビーへ戻る）
   nextCourse() {
     if (this.online) return this.toMenu();
@@ -395,12 +421,8 @@ export class Game {
       else if (this.state === 'paused') this.pause(false);
       else if (this.state === 'results') this.toMenu();
     }
-    if (inp.confirm) {
-      if (this.state === 'results') this.nextCourse();
-      else if (this.state === 'paused' && this.xrOn) this.toMenu();
-    }
-    // 結果画面: アイテムボタン（Shift）でもう一度
-    if (inp.item && this.state === 'results') this.restart();
+    if (this.state === 'results') this.resultsInput(inp);
+    else if (inp.confirm && this.state === 'paused' && this.xrOn) this.toMenu();
     if (inp.recenter) this.recenter();
     if (inp.camera && !this.xrOn && this.me) this.setCameraMode({ chase: 'cockpit', cockpit: 'eye', eye: 'chase' }[this.cameraMode] || 'chase');
     if (inp.debug) this.showDebug = !this.showDebug;
@@ -589,6 +611,10 @@ export class Game {
 
       if (me.finished && !this.finishedShown) {
         this.finishedShown = true;
+        this.resultsAt = performance.now();
+        this.resultSel = 0;
+        this.throttleArmed = false;
+        this.selDir = 0;
         this.onFinish?.(me);
         this.state = 'results';
         this.ui.showResults(true);
@@ -597,9 +623,10 @@ export class Game {
       // VR: ゴール後は目の前にリザルトを出す（順位やランキングが変わるので 0.5 秒ごとに描き直す）
       const showVR = vr && this.state === 'results';
       this.hud.results.mesh.visible = showVR;
-      if (showVR && performance.now() - this.resultsDrawnAt > 500) {
+      if (showVR && (performance.now() - this.resultsDrawnAt > 500 || this.resultSel !== this.drawnSel)) {
+        this.drawnSel = this.resultSel;
         this.resultsDrawnAt = performance.now();
-        this.hud.drawResults(race, me, { rankText: this.rankText, online: !!this.online });
+        this.hud.drawResults(race, me, { rankText: this.rankText, online: !!this.online, sel: this.resultSel, next: nextTrackName(this.trackId) });
       }
     }
   }
@@ -716,11 +743,9 @@ export class Game {
       ${this.rankHtml || ''}
       ${this.online ? '<p class="muted">決定ボタン / Enter・ポーズボタン / Esc でロビーへ戻る</p>' : `
       <div class="actions">
-        <button class="primary" data-act="next">▶ 次のコース（${nextTrackName(this.trackId)}）</button>
-        <button data-act="again">↻ もう一度</button>
-        <button data-act="quit">✕ やめる</button>
+        ${RESULT_ACTS.map((a, i) => `<button class="${i === 0 ? 'primary' : ''}${i === this.resultSel ? ' sel' : ''}" data-act="${a}">${a === 'next' ? `▶ 次のコース（${nextTrackName(this.trackId)}）` : a === 'again' ? '↻ もう一度' : '✕ やめる'}</button>`).join('')}
       </div>
-      <p class="muted">決定ボタン / Enter: 次のコース ・ アイテムボタン / Shift: もう一度 ・ ポーズボタン / Esc: やめる</p>`}`;
+      <p class="muted">ハンドル / ← →: 選ぶ ・ アクセルを踏み込む / 決定 / Enter: 決める ・ ポーズ / Esc: やめる</p>`}`;
   }
 
   updateCamera(dt) {
