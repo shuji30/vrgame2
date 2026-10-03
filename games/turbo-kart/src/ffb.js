@@ -179,6 +179,11 @@ export class FFBBridge {
   async reset() {
     this.stop();
     this.lastOut = null;
+    // 出力先が無いとき（ブリッジ未接続で、WebHID の FFB 窓口も未許可）は、機器の選択画面を出して
+    // FFB 用の窓口（HID PID）を許可してもらう（ボタンを押した操作の中なので選択画面を出せる）
+    if (!this.webTarget() && !this.status.connected && this.hid?.supported && this.settings.output !== 'bridge') {
+      try { await this.hid.request(); } catch { /* 選択されなかった */ }
+    }
     const web = this.webTarget();
     if (web) {
       await web.reset();

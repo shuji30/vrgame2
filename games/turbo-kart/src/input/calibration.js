@@ -1,3 +1,4 @@
+import { describeDevice } from './webhid.js';
 // キャリブレーション画面（HTML）。割り当て学習・範囲測定・ハンドル設定・FFB 設定とテスト
 import { ACTIONS, snapshotPads, findPad, defaultConfig } from './devices.js';
 import { detectChange, mapSteer, mapPedal } from '../core/inputmap.js';
@@ -133,7 +134,7 @@ export class CalibrationUI {
     }
     const list = this.hid.list();
     el.innerHTML = list.length
-      ? list.map((st) => `<div class="pad"><b>${escapeHtml(st.name)}</b>入力: 軸 ${st.parser.axes.length} / ボタン ${st.parser.buttons.length}　FFB: ${st.pid?.ok ? '<span style="color:var(--ok)">対応（HID PID）</span>' : st.pid ? 'PID の記述はあるが必要なレポートが不足' : 'なし'}${st.pid?.error ? ` <span class="muted">${escapeHtml(st.pid.error)}</span>` : ''}${st.pid ? pidDiag(st.pid) : ''}</div>`).join('')
+      ? list.map((st) => `<div class="pad"><b>${escapeHtml(st.name)}</b>入力: 軸 ${st.parser.axes.length} / ボタン ${st.parser.buttons.length}　FFB: ${st.pid?.ok ? '<span style="color:var(--ok)">対応（HID PID）</span>' : st.pid ? 'PID の記述はあるが必要なレポートが不足' : 'なし'}${st.pid?.error ? ` <span class="muted">${escapeHtml(st.pid.error)}</span>` : ''}${st.pid ? pidDiag(st.pid) : ''}<details style="margin-top:2px"><summary class="muted">機器の情報</summary><pre style="white-space:pre-wrap;font-size:11px;margin:4px 0">${escapeHtml(describeDevice(st.device))}</pre></details></div>`).join('')
       : '<p class="muted">まだ追加されていません</p>';
   }
 

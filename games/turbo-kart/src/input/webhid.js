@@ -9,6 +9,8 @@ const FILTERS = [
   { usagePage: 0x01, usage: 0x05 }, // Gamepad
   { usagePage: 0x01, usage: 0x08 }, // Multi-axis
   { usagePage: 0x02 }, // Simulation controls
+  // FFB（USB HID PID）。入力とは別の窓口（インターフェース）に分かれているハンコンがある
+  { usagePage: 0x0f },
 ];
 const AXIS_USAGES = new Set([
   U(1, 0x30), U(1, 0x31), U(1, 0x32), U(1, 0x33), U(1, 0x34), U(1, 0x35), U(1, 0x36), U(1, 0x37), U(1, 0x38),
@@ -166,10 +168,31 @@ function reportUsages(r) {
   return s;
 }
 
+// FFB（PID）の記述があるか: PID のコレクション、または出力・機能レポートの中に PID の項目がある
 export function hasPID(device) {
   let found = false;
-  walk(device.collections, (c) => { if (c.usagePage === PAGE.pid) found = true; });
+  walk(device.collections, (c) => {
+    if (c.usagePage === PAGE.pid) found = true;
+    for (const r of [...(c.outputReports || []), ...(c.featureReports || [])]) {
+      for (const it of r.items || []) if (fieldUsages(it).some((u) => u >>> 16 === PAGE.pid)) found = true;
+    }
+  });
   return found;
+}
+
+// 診断用: 窓口（最上位コレクション）とレポートの概要
+export function describeDevice(device) {
+  const tops = (device.collections || []).map((c) => `0x${c.usagePage.toString(16)}:0x${c.usage.toString(16)}`).join(', ');
+  let inR = 0, outR = 0, featR = 0, pidItems = 0;
+  walk(device.collections, (c) => {
+    inR += (c.inputReports || []).length;
+    outR += (c.outputReports || []).length;
+    featR += (c.featureReports || []).length;
+    for (const r of [...(c.outputReports || []), ...(c.featureReports || [])]) {
+      for (const it of r.items || []) if (fieldUsages(it).some((u) => u >>> 16 === PAGE.pid)) pidItems++;
+    }
+  });
+  return `窓口 ${tops || 'なし'} / 入力レポート ${inR} / 出力レポート ${outR} / 機能レポート ${featR} / FFB(PID) の項目 ${pidItems}（VID 0x${(device.vendorId || 0).toString(16)} PID 0x${(device.productId || 0).toString(16)}）`;
 }
 
 // レポートの書き込み: values は usage → 正規化値 {n} / 生値 {raw}、select は配列項目で選ぶ usage
@@ -452,7 +475,7 @@ export class HIDManager {
     const top = device.collections[0];
     const kind = top ? `${top.usagePage}:${top.usage}` : '?';
     const name = device.productName || 'HID device';
-    const st = { parser: new ReportParser(device), pid: hasPID(device) ? new PIDForce(device) : null, name, key: `${name} [${kind}]`, index: this.next++ };
+    const st = { device, parser: new ReportParser(device), pid: hasPID(device) ? new PIDForce(device) : null, name, key: `${name} [${kind}]`, index: this.next++ };
     device.addEventListener('inputreport', (ev) => st.parser.handle(ev));
     this.devices.set(device, st);
     this.emit();
