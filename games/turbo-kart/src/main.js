@@ -60,6 +60,7 @@ const TRACK_DESC = {
   'speed-temple': '長いストレートとシケイン、パラボリカ風の大きな最終コーナー',
   'forest-ring': 'オー・ルージュ風の急な上り、長いストレート、高低差の大きい森のコース',
   'river-park': '反時計回り。シケインとヘアピン、アップダウンの続くテクニカルコース',
+  speedway: 'デイトナ風のトライオーバル。31° のバンクを全開で。前の車の真後ろにつくとスリップストリームで速くなる',
 };
 for (const t of TRACKS) trackSel.add(new Option(`${t.name}${t.sub && t.sub !== 'オリジナル' ? `（${t.sub}）` : ''}`, t.id));
 const describeTrack = () => {

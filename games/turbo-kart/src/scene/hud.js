@@ -92,6 +92,7 @@ export class Hud {
       fastest: root.querySelector('[data-hud=fastest]'),
       record: root.querySelector('[data-hud=record]'),
       pb: root.querySelector('[data-hud=pb]'),
+      draft: root.querySelector('[data-hud=draft]'),
       speed: root.querySelector('[data-hud=speed]'),
       gear: root.querySelector('[data-hud=gear]'),
       rpm: root.querySelector('[data-hud=rpm]'),
@@ -176,6 +177,7 @@ export class Hud {
     this.el.coins.hidden = !party || vr;
     // コイン 1 枚で最高速 +0.6%（10 枚まで）
     if (party) this.el.coins.innerHTML = `🪙 ${me.coins || 0} <small>最高速 +${((me.coins || 0) * COIN_BONUS * 100).toFixed(1)}%</small>`;
+    this.el.draft.textContent = (me.kart.draft || 0) > 0.25 ? `💨 スリップストリーム ${'▮'.repeat(Math.ceil(me.kart.draft * 4))}` : '';
     const withItems = !!race.items;
     this.el.item.hidden = !withItems || vr;
     if (withItems) {

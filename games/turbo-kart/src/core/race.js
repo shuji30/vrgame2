@@ -109,6 +109,7 @@ export class Race {
     const racing = this.state !== 'countdown';
 
     const player = this.player;
+    if (racing) this.updateDraft();
     for (const e of this.karts) {
       if (e.type === 'remote') {
         // 他プレイヤー（とホストが走らせる NPC）はネットワークから受け取った位置へ追従する
@@ -191,6 +192,26 @@ export class Race {
       e.input = { ...e.input, steer: n.st || 0, throttle: n.th || 0 };
     }
     this.applyTerrain(e);
+  }
+
+  // スリップストリーム: 25m 以内の前の車の真後ろ（横のずれが車幅程度）にいると draft が 0..1 になる
+  updateDraft() {
+    const t = this.track;
+    const w = this.spec.width ?? 1.4;
+    for (const e of this.karts) {
+      let best = 0;
+      for (const o of this.karts) {
+        if (o === e) continue;
+        let d = wrapS(t, o.loc.s - e.loc.s);
+        if (d > t.length / 2) d -= t.length;
+        if (d < 2 || d > 25) continue;
+        if (Math.abs(o.loc.lateral - e.loc.lateral) > w * 1.1) continue;
+        best = Math.max(best, 1 - d / 25);
+      }
+      // 速いほど効く（低速ではほとんど効かない）
+      const v = Math.hypot(e.kart.vx, e.kart.vz);
+      e.kart.draft = best * Math.min(1, v / 25);
+    }
   }
 
   // 路面の種類・坂・バンクをカートに反映し、描画/FFB 用の姿勢 (ride) を更新する

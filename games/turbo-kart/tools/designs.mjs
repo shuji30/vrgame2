@@ -78,4 +78,17 @@ export const DESIGNS = {
     banks: [],
     sections: [['acque', 'alta', 'rough']],
   },
+  'speedway': { // デイトナ風（反時計回りのトライオーバル。ターン 1-2・3-4 は 31°、トライオーバルは 18° のバンク）
+    name: 'Coastal Speedway', sub: 'デイトナ風', halfWidth: 9,
+    cmds: [
+      ['mark', 'start'], ['L', 300, 20], ['mark', 'triEnd'], ['S', 140, 'adj'],
+      ['mark', 't1'], ['L', 115, 160], ['mark', 't2End'], ['S', 520, 'adj'],
+      ['mark', 't3'], ['L', 115, 160, 'auto'], ['mark', 't4End'], ['S', 140],
+      ['mark', 'tri2'], ['L', 300, 20], ['mark', 'loopEnd'],
+    ],
+    elevation: [['start', 0], ['t1', 0], ['t3', 0]],
+    // バンクの立ち上がり（約 50m）がカーブの手前から始まるよう、少し前から指定する
+    banks: [['t1', 't2End', 31, 'L'], ['t3', 't4End', 31, 'L'], ['tri2', 'triEnd', 18, 'L']],
+    sections: [],
+  },
 };

@@ -224,7 +224,7 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
     else if (r < 0.5 && k.gear > 1) shift(k, -1);
   }
   // topBonus: パーティーモードのコインによる最高速の上乗せ（操作感は変えず、伸びだけ増える）
-  const top = k.gear > 0 ? P.gearTop[k.gear] * (k.boost > 0 ? 1.15 : 1) * (1 + (k.topBonus || 0)) * (k.topMul ?? 1) : P.reverseTop;
+  const top = k.gear > 0 ? P.gearTop[k.gear] * (k.boost > 0 ? 1.15 : 1) * (1 + (k.topBonus || 0)) * (k.topMul ?? 1) * (1 + 0.04 * (k.draft || 0)) : P.reverseTop;
   k.rpm = k.gear > 0 ? Math.max(0, vF) / P.gearTop[k.gear] : k.gear === 0 ? throttle * 0.9 : Math.abs(vF) / P.reverseTop;
 
   // 自動変速時は停止中にブレーキを踏み続けると後退
@@ -260,7 +260,8 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
   drive += k.slopeAccel || 0;
   // 補助あり（キーボード等）のサイドブレーキはドリフト用。ブレーキとしての減速は弱める
   const hbDecel = input.assist !== false ? P.handbrakeDecel * 0.3 : P.handbrakeDecel;
-  let resist = hb * hbDecel + P.drag * vF * vF + P.rolling + (k.rollingExtra || 0);
+  // スリップストリーム（前の車の真後ろ）: 空気抵抗が減る（k.draft 0..1、race.js が設定）
+  let resist = hb * hbDecel + P.drag * vF * vF * (1 - 0.35 * (k.draft || 0)) + P.rolling + (k.rollingExtra || 0);
   if (!k.reversing) resist += brake * P.brakeDecel;
   if (grass) resist += 0.5 + 0.006 * vF * vF;
   vF += drive * dt;
