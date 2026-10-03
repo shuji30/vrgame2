@@ -438,7 +438,7 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
   const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.3, 0.4, 2.4, 7), M({ color: real ? 0x5a4330 : 0x8a5a2b }, 'cloth'), treeCount);
   // 写実モードは葉の塊をでこぼこにして、作り物っぽさを減らす
   const ballGeo = real ? lumpy(new THREE.IcosahedronGeometry(2.6, 3), 0.55, 1.3) : new THREE.IcosahedronGeometry(2.6, 1);
-  const coneGeo = real ? lumpy(new THREE.ConeGeometry(2.3, 6, 14, 6), 0.35, 2.1) : new THREE.ConeGeometry(2.3, 6, 8);
+  const coneGeo = real ? lumpy(new THREE.CylinderGeometry(0.01, 2.3, 6, 14, 6), 0.35, 2.1) : new THREE.ConeGeometry(2.3, 6, 8);
   const balls = new THREE.InstancedMesh(ballGeo, M({ color: 0xffffff }, 'cloth'), treeCount);
   const cones = new THREE.InstancedMesh(coneGeo, M({ color: 0xffffff }, 'cloth'), treeCount);
   const faces = []; // パーティー: 顔を付ける木（位置・大きさ・コースの方向）
@@ -746,7 +746,8 @@ function lumpy(geo, amount, freq) {
 
 // 稜線が不規則な山（円錐の頂点を角度と高さに応じて揺らし、頂上を丸める）
 function ridgeMountain(r, h, rng) {
-  const g = new THREE.ConeGeometry(r, h, 72, 16);
+  // ConeGeometry は高さを分割すると三角形が半分欠けるので、先端がごく細い円柱で作る
+  const g = new THREE.CylinderGeometry(0.01, r, h, 72, 16);
   const p = g.attributes.position;
   const ph = [rng() * 6.28, rng() * 6.28, rng() * 6.28];
   for (let i = 0; i < p.count; i++) {
