@@ -59,9 +59,14 @@ function prepareKey(src) {
   const dir = join(homedir(), '.ssh');
   mkdirSync(dir, { recursive: true });
   const dst = join(dir, 'turbokart_deploy_key');
+  const user = process.env.USERNAME;
+  // 前回コピーした鍵と同じならそのまま使う（読み取り専用にしてあるので上書きできない）
+  if (existsSync(dst) && readFileSync(dst).equals(readFileSync(src))) return dst;
+  if (existsSync(dst) && process.platform === 'win32') {
+    spawnSync('icacls', [dst, '/grant:r', `${user}:F`], { encoding: 'utf8' });
+  }
   copyFileSync(src, dst);
   if (process.platform === 'win32') {
-    const user = process.env.USERNAME;
     const r = spawnSync('icacls', [dst, '/inheritance:r', '/grant:r', `${user}:R`], { encoding: 'utf8' });
     if (r.status !== 0) console.warn(`鍵の権限を変更できませんでした: ${r.stderr || r.stdout}`);
   }
