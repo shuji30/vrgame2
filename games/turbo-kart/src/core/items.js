@@ -16,7 +16,7 @@ export const ITEMS = {
   ink: { name: 'スミ雲', emoji: '💨' },
 };
 
-export const ITEM_ROULETTE = 1.0;
+export const ITEM_ROULETTE = 1.6; // ルーレットが回って止まるまで（HUD の動きと合わせる）
 const BOX_RESPAWN = 1.2; // 集団の後ろの車も取れるよう短め
 const SPIN_TIME = 1.1;
 const STAR_TIME = 8;

@@ -207,6 +207,41 @@ export class KartAudio {
     });
   }
 
+  // ルーレットのカチッという音
+  tick() {
+    if (!this.running) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'square';
+    o.frequency.value = 1800;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.06, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+    o.connect(g).connect(this.master);
+    o.start(t);
+    o.stop(t + 0.04);
+  }
+
+  // ルーレットが止まって当たり（ファンファーレ）
+  jackpot() {
+    if (!this.running) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    [[523, 0], [659, 0.08], [784, 0.16], [1047, 0.24], [1047, 0.36]].forEach(([f, d]) => {
+      const o = ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t + d);
+      g.gain.exponentialRampToValueAtTime(0.16, t + d + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, t + d + 0.22);
+      o.connect(g).connect(this.master);
+      o.start(t + d);
+      o.stop(t + d + 0.24);
+    });
+  }
+
   // アイテムボックスを割った音（キラキラ）
   itemBox() {
     if (!this.running) return;

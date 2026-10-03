@@ -114,6 +114,8 @@ export class Hud {
     }
     if (race.time < 1) return 'GO!';
     if (me?.finished) return `FINISH!  ${me.position}位`;
+    // ルーレット中は真ん中に大きく
+    if (this.item?.spin) return `🎰 ${this.item.icon}`;
     // アイテムを取った直後は名前を大きく出す
     if (me?.itemFlash > 0 && me.item && ITEMS[me.item]) return `${ITEMS[me.item].emoji} ${ITEMS[me.item].name} ゲット！`;
     if (me?.lapFlash > 0) return me.lap === race.laps ? 'FINAL LAP' : `LAP ${me.lap}`;
@@ -141,10 +143,14 @@ export class Hud {
   // アイテム枠に出す絵文字（ルーレット中は次々に変わる）と個数
   itemIcon(me, dt) {
     if (me.roulette > 0) {
+      // スロットのように、だんだんゆっくりになる（約 1.6 秒で止まる）
       this.rouletteT += dt;
-      const keys = Object.keys(ITEMS);
-      return { icon: ITEMS[keys[Math.floor(this.rouletteT * 14) % keys.length]].emoji, count: '', spin: true };
+      const t = Math.min(this.rouletteT, 1.6);
+      this.rouletteIdx = Math.floor(18 * t - 4.5 * t * t);
+      const keys = Object.keys(ITEMS).filter((k) => k !== 'mushroom3');
+      return { icon: ITEMS[keys[this.rouletteIdx % keys.length]].emoji, count: '', spin: true };
     }
+    this.rouletteT = 0;
     if (me.item) return { icon: ITEMS[me.item].emoji, count: me.item === 'mushroom3' ? `×${me.itemCount}` : '', spin: false };
     return { icon: '', count: '', spin: false };
   }
@@ -182,6 +188,7 @@ export class Hud {
       this.el.center.textContent = center;
       this.el.center.classList.toggle('big', /^\d$|GO/.test(center));
       this.el.center.classList.toggle('small', center.includes('ゲット'));
+      this.el.center.classList.toggle('roul', center.startsWith('🎰'));
       const ctx = this.mapCtx;
       const S = this.el.map.width;
       ctx.clearRect(0, 0, S, S);

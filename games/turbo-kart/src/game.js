@@ -471,7 +471,7 @@ export class Game {
         if (ev.type === 'boostPad' || ev.type === 'miniTurbo') this.audio.whoosh();
         if (ev.type === 'coin') this.audio.coin();
         if (ev.type === 'itemBox') this.audio.itemBox();
-        if (ev.type === 'itemGot') { this.audio.up(); me.itemFlash = 1.6; }
+        if (ev.type === 'itemGot') { this.audio.jackpot(); me.itemFlash = 1.6; }
         if (ev.type === 'useItem') this.audio.whoosh();
         if (ev.type === 'hit') this.audio.boing(4);
         if (ev.type === 'shieldBreak') this.audio.thump(6);
@@ -503,6 +503,9 @@ export class Game {
       this.hud.dash.mesh.visible = vr || this.cameraMode === 'cockpit';
       this.hud.banner.mesh.visible = vr;
       this.hud.update(race, me, { vr, manual: me.manual, dt, party });
+      // ルーレットの絵柄が変わるたびにカチッと鳴らす
+      if (me.roulette > 0 && this.hud.rouletteIdx !== this.lastRouletteIdx) this.audio.tick();
+      this.lastRouletteIdx = me.roulette > 0 ? this.hud.rouletteIdx : null;
 
       // FFB
       if (this.state === 'race' && race.state === 'countdown') {
