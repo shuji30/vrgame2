@@ -107,7 +107,8 @@ export class Hud {
     this.lastPos = null;
     this.mapCtx = this.el.map.getContext('2d');
     // VR 用
-    this.dash = new CanvasPlane(0.42, 0.2, 512);
+    // 下の帯に「最速 / 記録 / 自己ベスト」を出すため少し縦長
+    this.dash = new CanvasPlane(0.42, 0.25, 512);
     this.banner = new CanvasPlane(2.4, 0.9, 1024);
     this.lastDash = 0;
     this.bannerText = null;
@@ -266,13 +267,23 @@ export class Hud {
     ctx.fillText(`LAP ${Math.max(1, Math.min(race.laps, me.lap))}/${race.laps}`, 316, 100);
     ctx.font = '22px system-ui, sans-serif';
     ctx.fillText(fmtTime(Math.max(0, race.time)), 316, 140);
+    // 下の帯: このレースの最速ラップ / コースレコード / 自己ベスト
     const f = fastestLap(race);
-    if (f) {
-      ctx.font = '16px system-ui, sans-serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.75)';
-      ctx.fillText(`最速 ${fmtTime(f.time)}`, 24, 34);
-      ctx.fillStyle = '#fff';
-    }
+    const rec = this.courseRecord;
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillRect(14, 258, W - 28, 40);
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 21px system-ui, sans-serif';
+    const cols = [
+      ['🏁', f ? fmtTime(f.time) : '--:--.--', '#ffffff'],
+      ['🏆', rec ? fmtTime(rec.ms / 1000) : '--:--.--', '#ffd23f'],
+      ['👤', this.personalBest ? fmtTime(this.personalBest) + (this.pbNew ? '🆕' : '') : '--:--.--', '#7cff6a'],
+    ];
+    cols.forEach(([icon, txt, color], i) => {
+      ctx.fillStyle = color;
+      ctx.fillText(`${icon} ${txt}`, 24 + i * 162, 279);
+    });
+    ctx.fillStyle = '#fff';
     drawMinimap(ctx, this.track, this.shape, race, 400, 150, 100);
     // アイテム（VR ではハンドルの計器に表示）
     if (this.item?.icon) {
