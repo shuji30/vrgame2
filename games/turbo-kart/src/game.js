@@ -15,6 +15,13 @@ import { createDriver, driveAI } from './core/ai.js';
 
 const STEP = 1 / 120; // 物理の固定刻み
 
+// ハンドルを中央へ戻す力。wheel: -1..1（右が正）、正の力は右へ回す
+export function centeringForce(wheel, gain = 0.5) {
+  const g = Math.max(0.2, gain);
+  const pull = Math.max(-0.7, Math.min(0.7, -wheel * 1.6)) * g;
+  return { constant: Math.abs(wheel) < 0.01 ? 0 : pull, damper: 0.45 * g, spring: 0.6 * g, rumble: 0, rumbleHz: 0 };
+}
+
 const lerp = (a, b, t) => a + (b - a) * t;
 const lerpAngle = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 
@@ -396,7 +403,10 @@ export class Game {
       this.hud.update(race, me, { vr, manual: me.manual, dt });
 
       // FFB
-      if (this.state === 'race' && !me.finished) {
+      if (this.state === 'race' && race.state === 'countdown') {
+        // スタート前はハンドルを中央へ戻す（角度に比例して引き戻し、ダンパーで揺れを抑える）
+        this.ffb.update(centeringForce(inp.wheel.value, this.ffb.settings.gain));
+      } else if (this.state === 'race' && !me.finished) {
         const out = this.ffbModel.compute(me.kart, inp.wheel, events, this.ffb.settings, dt, me.ride, me.prevRide, STEP);
         this.ffb.update(out);
       } else if (this.state !== 'paused') {
