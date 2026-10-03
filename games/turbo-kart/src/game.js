@@ -559,6 +559,7 @@ export class Game {
         if (ev.type === 'useItem') { this.audio.whoosh(); me.msg = { text: useMessage(ev), t: 1.4 }; }
         if (ev.type === 'hit') { this.audio.boing(4); me.msg = { text: '💥 スピン！', t: 1.2 }; }
         if (ev.type === 'shrunk') me.msg = { text: '⚡ カミナリで ちぢんだ！', t: 1.6 };
+        if (ev.type === 'rescue') me.msg = { text: '🛟 コースに戻します', t: 1.6 };
         if (ev.type === 'shieldBreak') { this.audio.thump(6); me.msg = { text: '🛡️ バリアが守った！', t: 1.4 }; }
         if (ev.type === 'ink') { this.screenFx.ink(); me.msg = { text: '💨 スミ雲をかけられた！', t: 1.4 }; }
       }

@@ -2,7 +2,7 @@
 // theme: 'party'（明るいトゥーン、顔のある木・風船・信号機マスコット・コイン）
 //        'real'（写実的: PBR の路面、ガードレール、グランドスタンド、太陽の影）
 import * as THREE from 'three';
-import { pointAt, locate, wrapS, curvatureAt } from '../core/track.js';
+import { pointAt, locate, wrapS, curvatureAt, wallAt } from '../core/track.js';
 import { roadHeight, surfaceType } from '../core/surface.js';
 import { mulberry32 } from '../core/rng.js';
 import { coinLayout } from '../core/coins.js';
@@ -71,8 +71,9 @@ function wallStrip(track, { lat, y0, y1, baseLat = lat, from = 0, to = track.len
   const uv = new Float32Array((n + 1) * 2 * 2);
   for (let i = 0; i <= n; i++) {
     const s = from + (i * len) / n;
-    const p = pointAt(track, s, lat);
-    const y = roadHeight(track, s, baseLat);
+    // lat / baseLat は数値か、s ごとの関数（急なカーブの内側で壁が手前に来る場合）
+    const p = pointAt(track, s, typeof lat === 'function' ? lat(s) : lat);
+    const y = roadHeight(track, s, typeof baseLat === 'function' ? baseLat(s) : baseLat);
     pos.set([p.x, y + y0, p.z, p.x, y + y1, p.z], i * 6);
     uv.set([s / 4, 0, s / 4, 1], i * 4);
   }
@@ -421,9 +422,9 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
     for (const side of [-1, 1]) {
       for (let i = 0; i < per; i++) {
         const s = i * spacing;
-        const lat = side * (wall + 0.45);
-        const p = pointAt(track, s, lat);
-        m4.makeTranslation(p.x, roadHeight(track, s, side * wall) + 0.45, p.z);
+        const w = wallAt(track, s, side);
+        const p = pointAt(track, s, side * (w + 0.45));
+        m4.makeTranslation(p.x, roadHeight(track, s, side * w) + 0.45, p.z);
         tires.setMatrixAt(n, m4);
         tires.setColorAt(n, col.set(Math.floor(i / 3) % 2 ? 0xe8262c : 0xf2f2f2));
         n++;
@@ -788,9 +789,10 @@ function sponsorBoard(ctx, w, h, sp) {
 function buildArmco(group, track, wall) {
   const steel = new THREE.MeshStandardMaterial({ color: 0xb9bec4, metalness: 0.85, roughness: 0.35, side: THREE.DoubleSide });
   for (const side of [-1, 1]) {
-    const lat = side * (wall + 0.3);
+    const lat = (s) => side * (wallAt(track, s, side) + 0.3);
+    const baseLat = (s) => side * wallAt(track, s, side);
     for (const [y0, y1] of [[0.45, 0.75], [0.85, 1.15]]) {
-      const m = new THREE.Mesh(wallStrip(track, { lat, y0, y1, baseLat: side * wall }), steel);
+      const m = new THREE.Mesh(wallStrip(track, { lat, y0, y1, baseLat }), steel);
       m.castShadow = m.receiveShadow = true;
       group.add(m);
     }
@@ -803,8 +805,9 @@ function buildArmco(group, track, wall) {
   for (const side of [-1, 1]) {
     for (let i = 0; i < per; i++) {
       const s = i * spacing;
-      const p = pointAt(track, s, side * (wall + 0.45));
-      m4.makeTranslation(p.x, roadHeight(track, s, side * wall) + 0.65, p.z);
+      const w = wallAt(track, s, side);
+      const p = pointAt(track, s, side * (w + 0.45));
+      m4.makeTranslation(p.x, roadHeight(track, s, side * w) + 0.65, p.z);
       posts.setMatrixAt(n++, m4);
     }
   }

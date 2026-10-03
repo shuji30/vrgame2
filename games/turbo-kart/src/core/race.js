@@ -1,5 +1,5 @@
 // レース全体: 全カートの物理・衝突・周回・順位（描画やネットワークには依存しない）
-import { locate, pointAt, wrapS } from './track.js';
+import { locate, pointAt, wrapS, wallAt } from './track.js';
 import { createKart, stepKart, forwardSpeed, KART, VEHICLES, realSpec } from './physics.js';
 import { SURFACES } from './surface.js';
 import { createDriver, driveAI } from './ai.js';
@@ -159,6 +159,7 @@ export class Race {
         if (input.useItemBack) this.items.use(e, true);
         input = this.items.overrideInput(e, input);
       }
+      if (e.type === 'player' && !e.finished) this.checkStuck(e, dt);
       e.input = input;
       this.applyTerrain(e);
       const r = stepKart(e.kart, input, dt, { manual: e.manual });
@@ -256,7 +257,8 @@ export class Race {
     const abs = Math.abs(lat);
     const type = e.surfaceType || 'tarmac';
     k.surface = abs > t.halfWidth ? 'grass' : abs > t.halfWidth - 0.9 && type !== 'dirt' ? 'curb' : type;
-    const limit = t.halfWidth + t.runoff - this.spec.radius;
+    // 壁の位置はカーブの内側で手前になる（track.wallR / wallL）
+    const limit = wallAt(t, e.loc.s, Math.sign(lat) || 1) - this.spec.radius;
     if (abs > limit) {
       const i = e.loc.i;
       // コースの右方向
@@ -273,8 +275,24 @@ export class Race {
         k.vz *= 0.9;
         e.events.push({ type: 'wall', strength: vn, side: sign });
       }
+      e.wallT = 0.6; // 壁に触れている（自動復帰の判定用）
       e.loc = locate(t, k.x, k.z, e.loc.i);
     }
+  }
+
+  // 自動復帰: 壁ぎわやコース外で 3 秒以上ほとんど動けなければ、同じ地点のコース中央に進行方向を向けて戻す
+  checkStuck(e, dt) {
+    const k = e.kart;
+    e.wallT = Math.max(0, (e.wallT || 0) - dt);
+    const slow = Math.hypot(k.vx, k.vz) < 1.5;
+    const trapped = e.wallT > 0 || Math.abs(e.loc.lateral) > this.track.halfWidth;
+    e.stuckT = slow && trapped ? (e.stuckT || 0) + dt : 0;
+    if (e.stuckT < 3) return;
+    e.stuckT = 0;
+    const p = pointAt(this.track, e.loc.s, 0);
+    Object.assign(k, { x: p.x, z: p.z, heading: p.heading, vx: 0, vz: 0, yawRate: 0 });
+    e.loc = locate(this.track, k.x, k.z, e.loc.i);
+    e.events.push({ type: 'rescue' });
   }
 
   // 車同士の衝突。車体は向きに沿った細長いカプセル（幅 = spec.width、長さ = spec.length）

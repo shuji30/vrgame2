@@ -47,12 +47,41 @@ export function buildTrack(def) {
     const a = (i - 2 + N) % N, b = (i + 2) % N;
     curv[i] = wrapAngle(heading[b] - heading[a]) / (4 * DS);
   }
+  // 壁までの距離（中心線から、右 = wallR / 左 = wallL）。急なカーブの内側は、壁の線が自分と交差して
+  // 袋小路にならないよう、カーブの半径の 8 割より手前に置く。前後 15m の最小値でなめらかにつなぐ
+  const base = def.halfWidth + def.runoff;
+  const rawR = new Float64Array(N), rawL = new Float64Array(N);
+  for (let i = 0; i < N; i++) {
+    const k = curv[i];
+    // 道の端から少なくとも 2m は空ける（大きい車でも道幅を使い切れるように）
+    const inner = Math.abs(k) > 1e-4 ? Math.max(def.halfWidth + 2, 0.8 / Math.abs(k)) : Infinity;
+    rawR[i] = k > 0 ? Math.min(base, inner) : base; // 曲率が正なら中心は右側（右が内側）
+    rawL[i] = k < 0 ? Math.min(base, inner) : base;
+  }
+  const win = Math.round(15 / DS);
+  const smooth = (raw) => {
+    const out = new Float64Array(N);
+    for (let i = 0; i < N; i++) {
+      let m = raw[i];
+      for (let d = -win; d <= win; d++) m = Math.min(m, raw[(i + d + N) % N]);
+      out[i] = m;
+    }
+    return out;
+  };
   return {
     def, N, ds: DS, length,
     x, z, tx, tz, heading, curv,
     halfWidth: def.halfWidth,
     runoff: def.runoff,
+    wallR: smooth(rawR),
+    wallL: smooth(rawL),
   };
+}
+
+// s の位置の壁までの距離（side: +1 = 右、-1 = 左）
+export function wallAt(track, s, side) {
+  const i = Math.floor(wrapS(track, s) / track.ds) % track.N;
+  return (side > 0 ? track.wallR : track.wallL)?.[i] ?? track.halfWidth + track.runoff;
 }
 
 export function wrapAngle(a) {

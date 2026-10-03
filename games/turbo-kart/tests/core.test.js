@@ -228,3 +228,31 @@ test('FFB: 普通のコーナー（横 1G 前後）でもしっかり重い。�
   const slow = new FFBModel().compute(k, { value: 0.1, beyond: 0.1 }, [], { gain: 1 }, 1 / 60);
   assert.ok(fast.constant < slow.constant, '右へ速く回すと左向きの抵抗');
 });
+
+test('壁: 急なカーブの内側では壁が手前（袋小路にならない）。壁ぎわで 3 秒動けなければコース中央に戻す', async () => {
+  const { wallAt } = await import('../src/core/track.js');
+  for (const def of TRACKS) {
+    const t = buildTrack(def);
+    for (let i = 0; i < t.N; i++) {
+      const k = Math.abs(t.curv[i]);
+      if (k < 1e-4) continue;
+      const side = t.curv[i] > 0 ? 1 : -1; // 内側
+      assert.ok(wallAt(t, i * t.ds, side) <= Math.max(t.halfWidth + 2, 0.8 / k) + 1e-9, `${def.id} s=${i * t.ds}`);
+    }
+  }
+  const t = buildTrack(TRACKS[0]);
+  const race = new Race(t, [{ name: 'P', type: 'player' }], {});
+  race.time = 1;
+  race.state = 'racing';
+  const e = race.karts[0];
+  // 壁ぎわで止まったまま
+  const p = pointAt(t, 600, t.halfWidth + t.runoff - 1);
+  Object.assign(e.kart, { x: p.x, z: p.z, vx: 0, vz: 0 });
+  let rescued = false;
+  for (let i = 0; i < 60 * 4; i++) {
+    race.step(1 / 60, new Map([[0, { steer: 0, throttle: 0, brake: 0, handbrake: 0 }]]));
+    if (e.events.some((x) => x.type === 'rescue')) rescued = true;
+  }
+  assert.ok(rescued, '自動復帰しない');
+  assert.ok(Math.abs(e.loc.lateral) < 1, `中央に戻っていない ${e.loc.lateral}`);
+});
