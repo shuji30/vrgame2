@@ -14,6 +14,8 @@ import { Effects, driftTier } from './scene/fx.js';
 import { createDriver, driveAI } from './core/ai.js';
 import { applyRendererTheme } from './scene/theme.js';
 import { CHARACTERS } from './scene/characters.js';
+import { ItemView } from './scene/itemview.js';
+import { ScreenFx } from './scene/screenfx.js';
 
 const STEP = 1 / 120; // 物理の固定刻み
 
@@ -43,6 +45,7 @@ export class Game {
     this.setTrack(TRACKS[0].id);
     this.ffbModel = new FFBModel();
     this.fx = new Effects(this.scene);
+    this.screenFx = new ScreenFx(this.camera); // スミ雲・カミナリの光（カメラの前に置く板。VR でも見える）
     this.audio = new KartAudio();
     this.clock = new THREE.Clock();
     this.acc = 0;
@@ -96,6 +99,8 @@ export class Game {
 
   clearRace() {
     for (const m of this.models) this.scene.remove(m.group);
+    this.itemView?.dispose();
+    this.itemView = null;
     this.models = [];
     if (this.cockpit) this.cockpit.removeFromParent();
     this.race = null;
@@ -140,6 +145,8 @@ export class Game {
       seed: on ? on.seed : (Math.random() * 1e9) | 0,
       manual: opts.manual && playerIndex >= 0 ? [playerIndex] : [],
       coins: theme === 'party',
+      // アイテムはパーティーモードのオフラインのみ（オンラインは次の更新で同期する）
+      items: theme === 'party' && !on,
     });
     // オンラインはホストが決めたスタート時刻に合わせてカウントダウンを始める
     if (on) this.race.time = -Math.max(1, on.countdown);
@@ -151,6 +158,8 @@ export class Game {
       this.scene.add(m.group);
       return m;
     });
+    this.itemView = this.race.items ? new ItemView(this.scene, this.race) : null;
+    this.screenFx?.clear();
     this.me = playerIndex >= 0 ? this.race.karts[playerIndex] : null;
     this.snapshot();
     this.acc = 0;
@@ -348,10 +357,13 @@ export class Game {
 
     const race = this.race;
     const events = [];
+    const raceEvents = []; // レース全体の出来事（カミナリなど）
     if (this.online && this.state !== 'menu') this.syncNet(dt);
     // 押した瞬間の入力は、物理の更新が来るまで保持する（高リフレッシュレートで取りこぼさない）
     if (inp.shiftUp) this.pendingUp = true;
     if (inp.shiftDown) this.pendingDown = true;
+    if (inp.item) this.pendingItem = true;
+    if (inp.itemBack) this.pendingItemBack = true;
     if (this.state !== 'paused') {
       this.acc += dt;
       let first = true;
@@ -369,15 +381,17 @@ export class Game {
             inputs.set(this.me.index, {
               steer: inp.steer, throttle: inp.throttle, brake: inp.brake, handbrake: inp.handbrake,
               shiftUp: first && !!this.pendingUp, shiftDown: first && !!this.pendingDown, hGear: inp.hGear,
+              useItem: first && !!this.pendingItem, useItemBack: first && !!this.pendingItemBack,
               // ハンコンは補助なしの素の挙動、キーボード・ゲームパッドは操作補助あり
               assist: inp.source !== 'wheel',
               stability: this.input.config.stability !== false,
             });
-            if (first) this.pendingUp = this.pendingDown = false;
+            if (first) this.pendingUp = this.pendingDown = this.pendingItem = this.pendingItemBack = false;
           }
         }
         race.step(STEP, inputs);
         if (this.me) events.push(...this.me.events);
+        raceEvents.push(...race.events);
         this.acc -= STEP;
         first = false;
         steps++;
@@ -416,6 +430,10 @@ export class Game {
       // 自分で運転しているときはハンコンの実際の回転角、それ以外（NPC・自動運転・ゴール後）は操作量
       const manualDriving = e === this.me && !this.autodrive && !e.finished && this.state === 'race';
       const steer = manualDriving ? inp.wheel.value : e.input.steer || 0;
+      // アイテムが当たったスピンと、カミナリでちぢむ効果（見た目だけ）。自分の車内視点・VR では酔わないよう回さない
+      const inside = e === this.me && (this.xrOn || this.cameraMode !== 'chase');
+      if (e.spin > 0 && !inside) pose.heading += (1 - e.spin / (e.spinMax || 1.1)) * Math.PI * 2;
+      this.models[i].group.scale.setScalar(e.shrink > 0 && !inside ? 0.6 : 1);
       this.models[i].update(pose, e.kart, steer, dt, this.input.config.steer.lockDeg);
     });
 
@@ -428,6 +446,11 @@ export class Game {
       for (const ev of e.events) if (ev.type === 'miniTurbo') this.fx.burst(m, e.lastTier || 1);
     });
     this.fx.update(dt);
+    this.screenFx.update(dt);
+    if (this.itemView) {
+      const inside = this.me && (this.xrOn || this.cameraMode !== 'chase');
+      this.itemView.update(dt, this.models, inside ? this.me.index : -1);
+    }
 
     // コースの動く飾り（風船・コイン・信号機）と、写実モードの影の追従
     const focusE = this.me || race.karts.find((e) => e.position === 1) || race.karts[0];
@@ -447,6 +470,18 @@ export class Game {
         }
         if (ev.type === 'boostPad' || ev.type === 'miniTurbo') this.audio.whoosh();
         if (ev.type === 'coin') this.audio.coin();
+        if (ev.type === 'itemBox') this.audio.itemBox();
+        if (ev.type === 'itemGot') this.audio.up();
+        if (ev.type === 'useItem') this.audio.whoosh();
+        if (ev.type === 'hit') this.audio.boing(4);
+        if (ev.type === 'shieldBreak') this.audio.thump(6);
+        if (ev.type === 'ink') this.screenFx.ink();
+      }
+      for (const ev of raceEvents) {
+        if (ev.type === 'lightning') {
+          this.audio.thunder();
+          this.screenFx.flash();
+        }
       }
       if (party && this.hud.popPosition(race, me) > 0) this.audio.up();
       if (party && ev0(events, 'finish')) this.fx.confetti(this.models[me.index]);
@@ -470,6 +505,8 @@ export class Game {
         this.ffb.update(centeringForce(inp.wheel.value, this.ffb.settings.gain));
       } else if (this.state === 'race' && !me.finished) {
         const out = this.ffbModel.compute(me.kart, inp.wheel, events, this.ffb.settings, dt, me.ride, me.prevRide, STEP);
+        // スピン中はハンドルが暴れないよう力を弱める
+        if (me.spin > 0) out.constant *= 0.3;
         this.ffb.update(out);
       } else if (this.state !== 'paused') {
         this.ffb.update({ constant: 0, damper: 0.2 * this.ffb.settings.gain, spring: 0.3 * this.ffb.settings.gain, rumble: 0, rumbleHz: 0 });
@@ -494,10 +531,14 @@ export class Game {
     race.karts.forEach((e, i) => {
       for (const ev of e.events) {
         if ((ev.type === 'wall' && ev.strength > 3) || (ev.type === 'bump' && ev.strength > 2.5)) e.dizzy = 1.2;
+        if (ev.type === 'hit') e.cryT = 1.8;
       }
       e.dizzy = Math.max(0, (e.dizzy || 0) - dt);
+      e.cryT = Math.max(0, (e.cryT || 0) - dt);
       let face = 'normal';
-      if (e.dizzy > 0) face = 'dizzy';
+      if (e.cryT > 0) face = 'cry';
+      else if (e.dizzy > 0 || e.spin > 0) face = 'dizzy';
+      else if (e.star > 0) face = 'happy';
       else if (e.finished) face = e.position <= 3 ? 'happy' : 'cry';
       else if (race.state === 'racing' && e.position === 1) face = 'happy';
       this.models[i].setExpression(face);

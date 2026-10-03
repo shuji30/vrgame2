@@ -1,6 +1,7 @@
 // HUD: PC は HTML、VR はカートに付いたダッシュボード（Canvas）と前方の案内パネル
 import * as THREE from 'three';
 import { forwardSpeed, MAX_GEAR } from '../core/physics.js';
+import { ITEMS } from '../core/items.js';
 
 export function fmtTime(t) {
   if (t == null || !isFinite(t)) return '--:--.--';
@@ -88,7 +89,9 @@ export class Hud {
       board: root.querySelector('[data-hud=board]'),
       coins: root.querySelector('[data-hud=coins]'),
       pop: root.querySelector('[data-hud=pop]'),
+      item: root.querySelector('[data-hud=item]'),
     };
+    this.rouletteT = 0;
     this.lastPos = null;
     this.mapCtx = this.el.map.getContext('2d');
     // VR 用
@@ -132,10 +135,32 @@ export class Hud {
     return d;
   }
 
+  // アイテム枠に出す絵文字（ルーレット中は次々に変わる）と個数
+  itemIcon(me, dt) {
+    if (me.roulette > 0) {
+      this.rouletteT += dt;
+      const keys = Object.keys(ITEMS);
+      return { icon: ITEMS[keys[Math.floor(this.rouletteT * 14) % keys.length]].emoji, count: '', spin: true };
+    }
+    if (me.item) return { icon: ITEMS[me.item].emoji, count: me.item === 'mushroom3' ? `×${me.itemCount}` : '', spin: false };
+    return { icon: '', count: '', spin: false };
+  }
+
   update(race, me, { vr = false, manual = false, dt = 0, party = false } = {}) {
     const k = me.kart;
     this.el.coins.hidden = !party || vr;
     if (party) this.el.coins.textContent = `🪙 ${me.coins || 0}`;
+    const withItems = !!race.items;
+    this.el.item.hidden = !withItems || vr;
+    if (withItems) {
+      const it = this.itemIcon(me, dt);
+      this.item = it;
+      this.el.item.firstElementChild.textContent = it.icon;
+      this.el.item.lastElementChild.textContent = it.count;
+      this.el.item.classList.toggle('spin', it.spin);
+    } else {
+      this.item = null;
+    }
     const kmh = Math.round(Math.abs(forwardSpeed(k)) * 3.6);
     const lapTime = me.started && !me.finished ? race.time - me.lapStart : null;
     const center = this.centerText(race, me);
@@ -208,6 +233,16 @@ export class Hud {
     ctx.font = '22px system-ui, sans-serif';
     ctx.fillText(fmtTime(Math.max(0, race.time)), 316, 140);
     drawMinimap(ctx, this.track, this.shape, race, 400, 150, 100);
+    // アイテム（VR ではハンドルの計器に表示）
+    if (this.item?.icon) {
+      ctx.textAlign = 'center';
+      ctx.font = '52px system-ui, sans-serif';
+      ctx.fillText(this.item.icon, 462, 58);
+      if (this.item.count) {
+        ctx.font = 'bold 22px system-ui, sans-serif';
+        ctx.fillText(this.item.count, 492, 96);
+      }
+    }
     this.dash.commit();
   }
 

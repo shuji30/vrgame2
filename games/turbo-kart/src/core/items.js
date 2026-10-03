@@ -17,7 +17,7 @@ export const ITEMS = {
 };
 
 export const ITEM_ROULETTE = 1.0;
-const BOX_RESPAWN = 3;
+const BOX_RESPAWN = 1.2; // 集団の後ろの車も取れるよう短め
 const SPIN_TIME = 1.1;
 const STAR_TIME = 8;
 const SHRINK_TIME = 5;
@@ -154,6 +154,7 @@ export class ItemSystem {
     if (e.type === 'remote') return false;
     const k = e.kart;
     e.spin = Math.max(e.spin, time);
+    e.spinMax = Math.max(e.spin, e.spinMax || 0);
     k.vx *= keep;
     k.vz *= keep;
     k.yawRate = 0;
@@ -181,6 +182,7 @@ export class ItemSystem {
       const k = e.kart;
       // 効果の時間
       e.spin = Math.max(0, e.spin - dt);
+      if (e.spin === 0) e.spinMax = 0;
       e.ink = Math.max(0, e.ink - dt);
       if (e.star > 0) {
         e.star = Math.max(0, e.star - dt);

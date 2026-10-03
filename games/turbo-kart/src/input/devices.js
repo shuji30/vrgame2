@@ -16,6 +16,8 @@ export const ACTIONS = [
   { key: 'confirm', label: '決定 / リスタート', kind: 'button' },
   { key: 'camera', label: 'カメラ切替（PC）', kind: 'button' },
   { key: 'ffbReset', label: 'FFB リセット', kind: 'button' },
+  { key: 'item', label: 'アイテムを使う（パーティー）', kind: 'button' },
+  { key: 'itemBack', label: 'アイテムを後ろへ投げる（パーティー）', kind: 'button' },
   { key: 'gear1', label: 'H シフター 1 速', kind: 'button', group: 'shifter' },
   { key: 'gear2', label: 'H シフター 2 速', kind: 'button', group: 'shifter' },
   { key: 'gear3', label: 'H シフター 3 速', kind: 'button', group: 'shifter' },
@@ -161,6 +163,8 @@ export class InputManager {
     held.camera = k.has('KeyC');
     held.debug = k.has('KeyI');
     held.ffbReset = k.has('KeyF');
+    held.item = k.has('ShiftLeft') || k.has('ShiftRight');
+    held.itemBack = k.has('KeyX');
 
     // 標準配列のゲームパッド（割り当てが無いときの既定）
     const std = pads.find((p) => p.mapping === 'standard');
@@ -176,6 +180,8 @@ export class InputManager {
       held.recenter ||= (std.buttons[3] ?? 0) > 0.5;
       held.confirm ||= (std.buttons[0] ?? 0) > 0.5;
       held.camera ||= (std.buttons[8] ?? 0) > 0.5;
+      held.item ||= (std.buttons[0] ?? 0) > 0.5;
+      held.itemBack ||= (std.buttons[2] ?? 0) > 0.5;
     }
 
     // ハンコンなど割り当て済みのデバイス
@@ -201,7 +207,7 @@ export class InputManager {
     if (br != null) brake = Math.max(k.has('ArrowDown') ? 1 : 0, br);
     const hb = pedal('handbrake');
     if (hb != null) handbrake = Math.max(handbrake, hb);
-    for (const a of ['shiftUp', 'shiftDown', 'pause', 'recenter', 'confirm', 'camera', 'ffbReset']) {
+    for (const a of ['shiftUp', 'shiftDown', 'pause', 'recenter', 'confirm', 'camera', 'ffbReset', 'item', 'itemBack']) {
       const b = B[a];
       if (!b) continue;
       const v = this.readBinding(pads, b);

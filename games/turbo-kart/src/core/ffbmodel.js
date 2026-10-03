@@ -60,6 +60,8 @@ export class FFBModel {
     // 衝突
     for (const e of events) {
       if (e.type === 'wall' && e.strength > 0.5) this.impulse += clamp(e.strength / 8, 0, 1) * -e.side;
+      // アイテムが当たってスピン: ハンドルが取られる衝撃（スピン中の力は弱めるので一度だけ）
+      if (e.type === 'hit') this.impulse += 0.7 * (Math.random() < 0.5 ? -1 : 1);
       if (e.type === 'bump' && e.strength > 1) {
         // ぶつかった向き（相手がいる側）からハンドルを取られる。n は自分から相手への向き
         const side = (e.nx ?? 0) * -sn + (e.nz ?? 0) * c; // 正 = 相手が右側

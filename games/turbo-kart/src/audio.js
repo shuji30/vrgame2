@@ -207,6 +207,44 @@ export class KartAudio {
     });
   }
 
+  // アイテムボックスを割った音（キラキラ）
+  itemBox() {
+    if (!this.running) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    [1568, 2093, 2637, 3136].forEach((f, i) => {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t + i * 0.035);
+      g.gain.exponentialRampToValueAtTime(0.08, t + i * 0.035 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.035 + 0.15);
+      o.connect(g).connect(this.master);
+      o.start(t + i * 0.035);
+      o.stop(t + i * 0.035 + 0.17);
+    });
+  }
+
+  // カミナリ（低いノイズの轟き）
+  thunder() {
+    if (!this.running) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(1800, t);
+    f.frequency.exponentialRampToValueAtTime(120, t + 1.2);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.5, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 1.4);
+    src.connect(f).connect(g).connect(this.master);
+    src.start(t);
+    src.stop(t + 1.5);
+  }
+
   silence() {
     if (this.ctx) this.update(null, 0, 0, false);
   }
