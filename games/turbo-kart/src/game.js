@@ -471,7 +471,7 @@ export class Game {
         if (ev.type === 'boostPad' || ev.type === 'miniTurbo') this.audio.whoosh();
         if (ev.type === 'coin') this.audio.coin();
         if (ev.type === 'itemBox') this.audio.itemBox();
-        if (ev.type === 'itemGot') this.audio.up();
+        if (ev.type === 'itemGot') { this.audio.up(); me.itemFlash = 1.6; }
         if (ev.type === 'useItem') this.audio.whoosh();
         if (ev.type === 'hit') this.audio.boing(4);
         if (ev.type === 'shieldBreak') this.audio.thump(6);
@@ -486,6 +486,11 @@ export class Game {
       if (party && this.hud.popPosition(race, me) > 0) this.audio.up();
       if (party && ev0(events, 'finish')) this.fx.confetti(this.models[me.index]);
       if (me.lapFlash > 0) me.lapFlash -= dt;
+      if (me.itemFlash > 0) me.itemFlash -= dt;
+      // アイテムを使うボタン: 割り当てがあればその名前、ハンコンで未設定なら自動で使う
+      const itemBind = this.input.config.bindings.item;
+      me.autoItem = !!race.items && inp.source === 'wheel' && !itemBind;
+      this.hud.itemKey = itemBind ? 'アイテムボタン' : inp.source === 'wheel' ? '自動' : inp.source === 'gamepad' ? 'A ボタン' : 'Shift';
       // カウントダウンの音
       if (race.state === 'countdown') {
         const n = Math.ceil(-race.time);

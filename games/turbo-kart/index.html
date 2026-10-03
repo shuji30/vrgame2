@@ -64,12 +64,16 @@
       background: rgba(0, 0, 0, 0.35); }
     .hud-center { position: absolute; left: 0; right: 0; top: 26%; text-align: center; font-size: 48px; font-weight: 900; font-style: italic; }
     .hud-center.big { font-size: 140px; }
+    .hud-center.small { font-size: 34px; }
     .hud-coins { margin-top: 6px; font-size: 26px; font-weight: 900; color: #ffd23f; text-shadow: 0 2px 0 #7a4a00; }
     .hud-pop { position: absolute; left: 150px; top: 18px; font-size: 44px; font-weight: 900; font-style: italic; color: #7cff6a; text-shadow: 0 3px 0 #1a5a10; opacity: 0; pointer-events: none; }
     .hud-item { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); width: 84px; height: 84px; border-radius: 18px;
       background: rgba(10,12,24,0.55); border: 3px solid rgba(255,255,255,0.7); display: grid; place-items: center; }
     .hud-item b { font-size: 50px; line-height: 1; }
     .hud-item small { position: absolute; right: 6px; bottom: 2px; font-size: 18px; font-weight: 900; }
+    .hud-item i { position: absolute; top: 90px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-style: normal; font-size: 14px; font-weight: 800;
+      padding: 2px 8px; border-radius: 8px; background: rgba(10,12,24,0.6); }
+    .hud-item i:empty { display: none; }
     .hud-item.spin b { animation: roul 0.12s linear infinite; }
     @keyframes roul { from { transform: translateY(-6px); opacity: 0.6; } to { transform: translateY(6px); opacity: 1; } }
     .hud-pop.down { color: #ff6a6a; text-shadow: 0 3px 0 #5a1010; }
@@ -159,7 +163,7 @@
     </div>
     <div class="hud-center" data-hud="center"></div>
     <div class="hud-pop" data-hud="pop"></div>
-    <div class="hud-item" data-hud="item" hidden><b></b><small></small></div>
+    <div class="hud-item" data-hud="item" hidden><b></b><small></small><i data-hud="itemhint"></i></div>
     <canvas class="hud-map" data-hud="map" width="170" height="170"></canvas>
     <div class="hud-br">
       <span class="hud-speed" data-hud="speed">0</span><span class="hud-unit"> km/h</span>

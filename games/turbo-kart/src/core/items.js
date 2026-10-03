@@ -234,6 +234,8 @@ export class ItemSystem {
       }
       e.shrink = Math.max(0, e.shrink - dt);
       k.topMul = e.shrink > 0 ? 0.85 : 1;
+      // アイテムボタンを割り当てていないハンコンのプレイヤーは、NPC と同じ判断で自動で使う
+      if (e.autoItem && e.type === 'player' && e.item && !e.finished && !(e.useLock > 0)) this.aiUse(e, dt);
       if (client) continue; // 抽選・箱・NPC の判断はホストが行う
       // ルーレット
       if (e.roulette > 0) {

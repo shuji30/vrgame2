@@ -90,6 +90,7 @@ export class Hud {
       coins: root.querySelector('[data-hud=coins]'),
       pop: root.querySelector('[data-hud=pop]'),
       item: root.querySelector('[data-hud=item]'),
+      itemHint: root.querySelector('[data-hud=itemhint]'),
     };
     this.rouletteT = 0;
     this.lastPos = null;
@@ -113,6 +114,8 @@ export class Hud {
     }
     if (race.time < 1) return 'GO!';
     if (me?.finished) return `FINISH!  ${me.position}位`;
+    // アイテムを取った直後は名前を大きく出す
+    if (me?.itemFlash > 0 && me.item && ITEMS[me.item]) return `${ITEMS[me.item].emoji} ${ITEMS[me.item].name} ゲット！`;
     if (me?.lapFlash > 0) return me.lap === race.laps ? 'FINAL LAP' : `LAP ${me.lap}`;
     return '';
   }
@@ -157,6 +160,8 @@ export class Hud {
       this.item = it;
       this.el.item.firstElementChild.textContent = it.icon;
       this.el.item.lastElementChild.textContent = it.count;
+      // 使うボタンの案内
+      this.el.itemHint.textContent = me.item && !it.spin ? (this.itemKey === '自動' ? '自動で使います' : `${this.itemKey || 'Shift'} で使う`) : '';
       this.el.item.classList.toggle('spin', it.spin);
     } else {
       this.item = null;
@@ -176,6 +181,7 @@ export class Hud {
       this.el.rpm.classList.toggle('red', k.rpm > 0.92);
       this.el.center.textContent = center;
       this.el.center.classList.toggle('big', /^\d$|GO/.test(center));
+      this.el.center.classList.toggle('small', center.includes('ゲット'));
       const ctx = this.mapCtx;
       const S = this.el.map.width;
       ctx.clearRect(0, 0, S, S);
