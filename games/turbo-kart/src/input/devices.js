@@ -45,6 +45,7 @@ export function defaultConfig() {
     bindings: {}, // action → { kind: 'axis'|'button', pad, padIndex, control, cal }
     steer: { wheelDeg: 900, lockDeg: 270, deadzone: 0, gamma: 1 },
     transmission: 'auto',
+    stability: true, // ハンコンのスピン防止
   };
 }
 

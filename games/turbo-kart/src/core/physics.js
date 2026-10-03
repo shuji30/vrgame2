@@ -36,6 +36,7 @@ export const KART = {
   steerLock: 0.42, // ハンコンでのフルロック時の前輪の切れ角 (rad)
   steerHigh: 0.1, // キーボード等の補助ありで高速時に絞る切れ角 (rad)
   assistSpeed: 35, // この速度で steerHigh まで絞る (m/s)
+  wheelHigh: 0.55, // ハンコンで assistSpeed のときの切れ角の倍率（車速感応）
   downforce: 0, // ダウンフォース係数 (N/(m/s)²)
   aeroFront: 0.45,
   modelRadius: 0.95,
@@ -54,7 +55,7 @@ export const VEHICLES = {
     reverseAccel: 3, reverseTop: 7, handbrakeDecel: 2,
     mu: 1.9, maxLat: 18.6, tireB: 12, rearGrip: 1.08,
     downforce: 1.3, aeroFront: 0.42,
-    steerLock: 0.32, steerHigh: 0.05, assistSpeed: 60, shiftTime: 0.1, boostAccel: 6,
+    steerLock: 0.32, steerHigh: 0.05, assistSpeed: 60, wheelHigh: 0.8, shiftTime: 0.1, boostAccel: 6,
   },
   // フォーミュラ: 軽量・強烈なダウンフォース。約 320km/h
   formula: {
@@ -65,15 +66,17 @@ export const VEHICLES = {
     reverseAccel: 3, reverseTop: 7, handbrakeDecel: 2,
     mu: 2.15, maxLat: 21, tireB: 13, rearGrip: 1.1,
     downforce: 3.0, aeroFront: 0.44,
-    steerLock: 0.3, steerHigh: 0.04, assistSpeed: 70, shiftTime: 0.06, boostAccel: 7,
+    steerLock: 0.3, steerHigh: 0.04, assistSpeed: 70, wheelHigh: 0.8, shiftTime: 0.06, boostAccel: 7,
   },
 };
 export const VEHICLE_ORDER = ['kart', 'gt3', 'formula'];
 
-// 操舵の上限（前輪の切れ角 rad）。補助ありは高速で絞る
+// 操舵の上限（前輪の切れ角 rad）。補助ありは高速で大きく絞る。
+// ハンコンも高速では少しだけ絞る（車速感応ステアリング。数度の手ぶれで限界を超えないように）
 export function steerLimit(speed, assist = true, spec = KART) {
   const lock = spec.steerLock;
-  return assist ? lock + (spec.steerHigh - lock) * Math.min(1, Math.abs(speed) / spec.assistSpeed) : lock;
+  const r = Math.min(1, Math.abs(speed) / spec.assistSpeed);
+  return assist ? lock + (spec.steerHigh - lock) * r : lock * (1 - (1 - (spec.wheelHigh ?? 1)) * r);
 }
 
 // タイヤの横力（Pacejka のマジックフォーミュラ）。alpha: スリップ角、D: 最大の力
@@ -83,6 +86,8 @@ export function tireForce(alpha, D, B = KART.tireB, C = KART.tireC, E = KART.tir
 }
 
 export const MAX_GEAR = KART.gearTop.length - 1;
+// スピン防止（ハンコン用）が効き始める後輪の滑り角 (rad)
+const STAB_SLIP = 0.16;
 const maxGear = (k) => (k.spec || KART).gearTop.length - 1;
 
 // spec: 車両の諸元（VEHICLES のいずれか。省略時はカート）
@@ -290,6 +295,16 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
         const lim = hb > 0.3 ? 0.3 : 0.15;
         const vLmax = vF * Math.tan(lim * Math.sign(ar)) + b * k.yawRate;
         if (Math.abs(vL - b * k.yawRate) > Math.abs(vLmax - b * k.yawRate)) vL += (vLmax - vL) * Math.min(1, h * 20);
+      } else if (!assist && input.stability && Math.abs(ar) > STAB_SLIP) {
+        // ハンコン用のスピン防止: 小さな滑り（カウンターで止められる範囲）には手を出さず、
+        // 後輪が大きく流れたときだけヨーを抑えて、回り切らない（180° 回転しない）ようにする
+        const over = Math.min(1, (Math.abs(ar) - STAB_SLIP) / 0.15);
+        const rMax = (mu * 9.8) / vF;
+        const rT = Math.max(-rMax, Math.min(rMax, (vF * Math.tan(d)) / L));
+        k.yawRate += (rT - k.yawRate) * Math.min(1, h * 12 * over);
+        const lim = hb > 0.3 ? 0.5 : 0.35;
+        const vLmax = vF * Math.tan(lim * Math.sign(ar)) + b * k.yawRate;
+        if (Math.abs(vL - b * k.yawRate) > Math.abs(vLmax - b * k.yawRate)) vL += (vLmax - vL) * Math.min(1, h * 10);
       }
     }
     k.heading += k.yawRate * h;

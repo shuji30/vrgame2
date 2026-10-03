@@ -98,6 +98,11 @@ $('opt-trans').addEventListener('change', (e) => {
   input.config.transmission = e.target.value;
   input.save();
 });
+$('opt-stability').value = input.config.stability === false ? '0' : '1';
+$('opt-stability').addEventListener('change', (e) => {
+  input.config.stability = e.target.value === '1';
+  input.save();
+});
 
 function raceOptions() {
   const o = { npcs: Number(npcSel.value), level: $('opt-level').value, laps: Number($('opt-laps').value), manual: input.config.transmission === 'manual', shake: Number($('opt-shake').value), vehicle: $('opt-vehicle').value, track: trackSel.value };

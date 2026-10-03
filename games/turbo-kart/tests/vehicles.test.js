@@ -49,3 +49,20 @@ test('ダウンフォース: フォーミュラは速いほど大きな横 G で
   const slow = maxAy(20), fast = maxAy(55);
   assert.ok(fast > slow * 1.3, `20m/s: ${slow.toFixed(1)}  55m/s: ${fast.toFixed(1)}`);
 });
+
+test('ハンコン: 高速の直進中にハンドルを急に切っても、スピン防止ありなら回り切らない', () => {
+  for (const id of VEHICLE_ORDER) {
+    const P = VEHICLES[id];
+    const k = createKart(0, 0, 0, P);
+    k.vx = P.gearTop.at(-1) * 0.9;
+    k.gear = P.gearTop.length - 1;
+    let maxSlip = 0;
+    for (let t = 0; t < 4; t += 1 / 120) {
+      const steer = t > 0.5 && t < 0.75 ? 0.4 : 0;
+      stepKart(k, { steer, throttle: 0.6, assist: false, stability: true }, 1 / 120, { manual: true });
+      const vel = Math.atan2(k.vz, k.vx);
+      maxSlip = Math.max(maxSlip, Math.abs(Math.atan2(Math.sin(vel - k.heading), Math.cos(vel - k.heading))));
+    }
+    assert.ok(maxSlip < 0.6, `${id}: 横滑り ${(maxSlip * 57.3).toFixed(0)}°`);
+  }
+});

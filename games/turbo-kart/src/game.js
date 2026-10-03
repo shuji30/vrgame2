@@ -323,6 +323,7 @@ export class Game {
               shiftUp: first && !!this.pendingUp, shiftDown: first && !!this.pendingDown, hGear: inp.hGear,
               // ハンコンは補助なしの素の挙動、キーボード・ゲームパッドは操作補助あり
               assist: inp.source !== 'wheel',
+              stability: this.input.config.stability !== false,
             });
             if (first) this.pendingUp = this.pendingDown = false;
           }
