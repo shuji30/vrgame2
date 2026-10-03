@@ -16,20 +16,28 @@ const COUNTDOWN = 3;
 
 // NPC 用の諸元: npcBoost（グリップ・加速・最高速の倍率）があれば上乗せする。プレイヤーの車は変えない
 const npcSpecs = new Map();
-export function npcSpec(spec) {
+// 強さごとの性能アップの効き具合（つよい = 全開、ふつう = 一部、やさしい = ほぼ無し）
+export const NPC_BOOST_LEVEL = { easy: 0.25, normal: 0.5, hard: 1 };
+
+export function npcSpec(spec, level = 'normal') {
   const b = spec.npcBoost;
   if (!b) return spec;
-  if (!npcSpecs.has(spec)) {
-    npcSpecs.set(spec, {
+  const f = NPC_BOOST_LEVEL[level] ?? NPC_BOOST_LEVEL.normal;
+  const k = (x) => 1 + ((x ?? 1) - 1) * f;
+  const key = `${level}`;
+  let m = npcSpecs.get(spec);
+  if (!m) npcSpecs.set(spec, (m = new Map()));
+  if (!m.has(key)) {
+    m.set(key, {
       ...spec,
-      mu: spec.mu * (b.mu ?? 1),
-      maxLat: spec.maxLat * (b.mu ?? 1),
-      muGrass: spec.muGrass * (b.mu ?? 1),
-      baseAccel: spec.baseAccel * (b.accel ?? 1),
-      gearTop: spec.gearTop.map((v) => v * (b.top ?? 1)),
+      mu: spec.mu * k(b.mu),
+      maxLat: spec.maxLat * k(b.mu),
+      muGrass: spec.muGrass * k(b.mu),
+      baseAccel: spec.baseAccel * k(b.accel),
+      gearTop: spec.gearTop.map((v) => v * k(b.top)),
     });
   }
-  return npcSpecs.get(spec);
+  return m.get(key);
 }
 
 // スタートラインの位置（弧長）
@@ -63,7 +71,7 @@ export class Race {
     this.karts = entries.map((e, i) => {
       const g = gridSlot(track, i);
       // NPC の車は、車種によっては見えない性能アップ（spec.npcBoost）を持つ
-      const kart = createKart(g.x, g.z, g.heading, e.type === 'npc' ? npcSpec(this.spec) : this.spec);
+      const kart = createKart(g.x, g.z, g.heading, e.type === 'npc' ? npcSpec(this.spec, level) : this.spec);
       return {
         ...e,
         index: i,
