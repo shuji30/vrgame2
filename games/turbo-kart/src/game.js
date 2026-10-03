@@ -589,7 +589,7 @@ export class Game {
       // アイテムを使うボタン: 割り当てがあればその名前、ハンコンで未設定なら自動で使う
       const itemBind = this.input.config.bindings.item;
       me.autoItem = !!race.items && inp.source === 'wheel' && !itemBind;
-      this.hud.itemKey = itemBind ? 'アイテムボタン' : inp.source === 'wheel' ? '自動' : inp.source === 'gamepad' ? 'A ボタン' : 'Shift';
+      this.hud.itemKey = itemBind || this.input.touch?.active ? 'アイテムボタン' : inp.source === 'wheel' ? '自動' : inp.source === 'gamepad' ? 'A ボタン' : 'Shift';
       // カウントダウンの音
       if (race.state === 'countdown') {
         const n = Math.ceil(-race.time);
@@ -766,6 +766,14 @@ export class Game {
     // 上から（2D）: 真上の高い所から狭い視野で見下ろす（ラリーX 風。北が常に上、進む向きを少し先読み）。霧は消す
     const top = !!this.me && this.cameraMode === 'top' && !this.xrOn;
     this.scene.fog = top ? null : this.worldFog;
+    // 上からの視点は、雲を消し、描画の奥行きを路面の前後だけに絞る（広すぎると遠くの路面と縁石の前後が決まらずちらつく）
+    if (this.world.userData.clouds) this.world.userData.clouds.visible = !top;
+    const near = top ? 200 : 0.05, far = top ? 500 : 1500;
+    if (this.camera.near !== near || this.camera.far !== far) {
+      this.camera.near = near;
+      this.camera.far = far;
+      this.camera.updateProjectionMatrix();
+    }
     if (this.insideView) return; // 車内・目線は自動で追従
     const pose = focus.renderPose;
     // 自分の車の目印（上から見たときだけ。進む向きを指す黄色い矢印）

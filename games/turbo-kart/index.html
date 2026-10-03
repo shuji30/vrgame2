@@ -80,6 +80,28 @@
     .hud-item i:empty { display: none; }
     .hud-item.spin b { animation: roul 0.12s linear infinite; }
     @keyframes roul { from { transform: translateY(-6px); opacity: 0.6; } to { transform: translateY(6px); opacity: 1; } }
+    /* スマートフォンのタッチ操作 */
+    .touch { position: absolute; inset: 0; pointer-events: none; touch-action: none; user-select: none; -webkit-user-select: none; }
+    .touch .t-stick, .touch .t-btn { pointer-events: auto; touch-action: none; }
+    .t-stick { position: absolute; left: 16px; bottom: 16px; width: 200px; height: 110px; border-radius: 55px;
+      background: rgba(255,255,255,0.12); border: 2px solid rgba(255,255,255,0.35); display: grid; place-items: center; }
+    .t-stick span { position: absolute; bottom: 6px; font-size: 12px; opacity: 0.7; }
+    .t-knob { width: 70px; height: 70px; border-radius: 50%; background: rgba(255,255,255,0.55); box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+    .t-btn { position: absolute; border-radius: 50%; border: 2px solid rgba(255,255,255,0.5); color: #fff; font-weight: 900;
+      background: rgba(0,0,0,0.3); font-size: 15px; padding: 0; }
+    .t-btn.on { background: rgba(255,210,63,0.6); }
+    .t-accel { right: 16px; bottom: 16px; width: 104px; height: 104px; background: rgba(60,200,90,0.35); }
+    .t-brake { right: 132px; bottom: 16px; width: 84px; height: 84px; background: rgba(230,60,60,0.35); }
+    .t-item { right: 30px; bottom: 136px; width: 76px; height: 76px; font-size: 13px; }
+    .t-pause { left: 16px; top: 46%; width: 48px; height: 48px; border-radius: 12px; font-size: 20px; }
+    body.touch-ui .hud-map, body.touch-ui .ffb-box { display: none; }
+    /* 縦向きの細い画面: ブレーキはアクセルの真上、アイテムはアクセルの左（スティックと重ならない） */
+    @media (max-width: 520px) {
+      .t-stick { width: 140px; }
+      .t-brake { right: 26px; bottom: 132px; }
+      .t-item { right: 132px; bottom: 26px; width: 64px; height: 64px; font-size: 12px; }
+    }
+    body.touch-ui .hud-br { bottom: auto; top: 12px; right: 12px; transform: scale(0.75); transform-origin: top right; }
     .hud-pop.down { color: #ff6a6a; text-shadow: 0 3px 0 #5a1010; }
     .hud-pop.show { animation: pop 1s ease-out; }
     @keyframes pop { 0% { opacity: 0; transform: scale(0.4) translateY(10px); } 20% { opacity: 1; transform: scale(1.3); } 40% { transform: scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translateY(-14px); } }

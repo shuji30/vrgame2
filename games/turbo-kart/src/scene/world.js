@@ -552,7 +552,9 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
   }
 
   const cloudMat = real ? new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x9aa6b2, roughness: 1, transparent: true, opacity: 0.8, fog: false }) : null;
-  group.add(clouds(rng, { x: cx, z: cz }, real ? 16 : 26, cloudMat));
+  // 雲（上から見下ろす視点では消すので覚えておく）
+  group.userData.clouds = clouds(rng, { x: cx, z: cz }, real ? 16 : 26, cloudMat);
+  group.add(group.userData.clouds);
 
   if (party) group.add(coinMeshes(track, updaters));
   return group;

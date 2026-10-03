@@ -7,12 +7,14 @@ import { FFBBridge } from './ffb.js';
 import { TRACKS } from './core/tracks.js';
 import { setupOnline } from './net/lobby.js';
 import { CHARACTERS } from './scene/characters.js';
+import { TouchControls, isTouchDevice } from './input/touch.js';
 import { fetchLaps, submitLap, lapsTable } from './net/laps.js';
 
 const $ = (id) => document.getElementById(id);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// スマートフォンは描画の解像度を抑えて軽くする
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, isTouchDevice() ? 1.5 : 2));
 renderer.setSize(window.innerWidth || 16, window.innerHeight || 9);
 renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local'); // 着座。頭の位置はリセンターで運転席に合わせる
@@ -20,6 +22,11 @@ renderer.xr.setFoveation?.(1);
 $('app').appendChild(renderer.domElement);
 
 const input = new InputManager();
+// スマートフォン: 画面のスティックとボタンで遊ぶ（AT のみ）
+if (isTouchDevice()) {
+  input.touch = new TouchControls(document.getElementById('hud'));
+  input.config.transmission = 'auto';
+}
 // VR のコントローラーも入力に使う（ハンコンが無い Quest などでも運転できる）
 input.getXRSources = () => renderer.xr.getSession()?.inputSources || [];
 const ffb = new FFBBridge();

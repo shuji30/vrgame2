@@ -196,6 +196,18 @@ export class InputManager {
       }
     }
 
+    // スマートフォンのタッチ操作（main.js が this.touch を設定）
+    let touchSteer = 0;
+    if (this.touch?.active) {
+      const t = this.touch.read();
+      touchSteer = t.steer;
+      throttle = Math.max(throttle, t.throttle);
+      brake = Math.max(brake, t.brake);
+      held.item ||= t.item;
+      held.itemBack ||= t.itemBack;
+      held.pause ||= t.pause;
+    }
+
     // 標準配列のゲームパッド（割り当てが無いときの既定）
     const std = pads.find((p) => p.mapping === 'standard');
     if (std && !B.steer) {
@@ -255,6 +267,8 @@ export class InputManager {
       }
     }
 
+    // タッチのスティックに触れている間は、それを優先する
+    if (Math.abs(touchSteer) > 0.02) { steer = touchSteer; out.source = 'gamepad'; out.wheel = { value: steer, beyond: Math.abs(steer) }; }
     out.steer = Math.max(-1, Math.min(1, steer));
     if (out.source !== 'wheel') out.wheel = { value: out.steer, beyond: Math.abs(out.steer) };
     out.throttle = throttle;
