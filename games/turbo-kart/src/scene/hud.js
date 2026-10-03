@@ -2,6 +2,14 @@
 import * as THREE from 'three';
 import { forwardSpeed, MAX_GEAR } from '../core/physics.js';
 import { ITEMS } from '../core/items.js';
+import { COIN_BONUS } from '../core/coins.js';
+
+// このレースで最も速いラップ { time, name }（まだ誰も 1 周していなければ null）
+export function fastestLap(race) {
+  let best = null;
+  for (const e of race.karts) if (e.bestLap && (!best || e.bestLap < best.time)) best = { time: e.bestLap, name: e.name };
+  return best;
+}
 
 export function fmtTime(t) {
   if (t == null || !isFinite(t)) return '--:--.--';
@@ -81,6 +89,9 @@ export class Hud {
       lap: root.querySelector('[data-hud=lap]'),
       time: root.querySelector('[data-hud=time]'),
       best: root.querySelector('[data-hud=best]'),
+      fastest: root.querySelector('[data-hud=fastest]'),
+      record: root.querySelector('[data-hud=record]'),
+      pb: root.querySelector('[data-hud=pb]'),
       speed: root.querySelector('[data-hud=speed]'),
       gear: root.querySelector('[data-hud=gear]'),
       rpm: root.querySelector('[data-hud=rpm]'),
@@ -160,7 +171,8 @@ export class Hud {
   update(race, me, { vr = false, manual = false, dt = 0, party = false } = {}) {
     const k = me.kart;
     this.el.coins.hidden = !party || vr;
-    if (party) this.el.coins.textContent = `🪙 ${me.coins || 0}`;
+    // コイン 1 枚で最高速 +0.6%（10 枚まで）
+    if (party) this.el.coins.innerHTML = `🪙 ${me.coins || 0} <small>最高速 +${((me.coins || 0) * COIN_BONUS * 100).toFixed(1)}%</small>`;
     const withItems = !!race.items;
     this.el.item.hidden = !withItems || vr;
     if (withItems) {
@@ -183,6 +195,13 @@ export class Hud {
       this.el.lap.textContent = `LAP ${Math.max(1, Math.min(race.laps, me.lap))}/${race.laps}`;
       this.el.time.textContent = fmtTime(Math.max(0, race.time));
       this.el.best.textContent = `LAP ${fmtTime(lapTime)}  BEST ${fmtTime(me.bestLap)}`;
+      // このレースの最速ラップ（全員の中で）と、ランキング 1 位のコースレコード
+      const f = fastestLap(race);
+      this.el.fastest.textContent = f ? `🏁 最速ラップ ${fmtTime(f.time)}  ${f.name}` : '';
+      const rec = this.courseRecord;
+      this.el.record.textContent = rec ? `🏆 コースレコード ${fmtTime(rec.ms / 1000)}  ${rec.name}` : '';
+      // 自分の最速ラップ（このコース・車種・モードでの過去最高。今回更新したら 🆕）
+      this.el.pb.textContent = this.personalBest ? `👤 自己ベスト ${fmtTime(this.personalBest)}${this.pbNew ? '  🆕' : ''}` : '👤 自己ベスト --:--.--';
       this.el.speed.textContent = kmh;
       this.el.gear.textContent = `${gearLabel(k.gear)}${manual ? '' : ' AT'}`;
       this.el.rpm.style.width = `${Math.min(100, k.rpm * 100)}%`;
@@ -247,6 +266,13 @@ export class Hud {
     ctx.fillText(`LAP ${Math.max(1, Math.min(race.laps, me.lap))}/${race.laps}`, 316, 100);
     ctx.font = '22px system-ui, sans-serif';
     ctx.fillText(fmtTime(Math.max(0, race.time)), 316, 140);
+    const f = fastestLap(race);
+    if (f) {
+      ctx.font = '16px system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      ctx.fillText(`最速 ${fmtTime(f.time)}`, 24, 34);
+      ctx.fillStyle = '#fff';
+    }
     drawMinimap(ctx, this.track, this.shape, race, 400, 150, 100);
     // アイテム（VR ではハンドルの計器に表示）
     if (this.item?.icon) {

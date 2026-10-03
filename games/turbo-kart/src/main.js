@@ -251,6 +251,26 @@ for (const id of ['opt-track', 'opt-vehicle']) $(id).addEventListener('change', 
 for (const b of document.querySelectorAll('#opt-mode button')) b.addEventListener('click', refreshRanking);
 $('opt-name').addEventListener('change', () => { raceOptions(); refreshRanking(); });
 refreshRanking();
+// レース開始時にコースレコード（ランキング 1 位）を取ってきて HUD に出す
+// 自己ベスト（コース × 車種 × モードごと。このブラウザに保存）
+const PB_STORE = 'turbokart:pb';
+const pbKey = (k) => `${k.track}|${k.vehicle}|${k.mode}`;
+function loadPB() {
+  try { return JSON.parse(localStorage.getItem(PB_STORE) || '{}'); } catch { return {}; }
+}
+game.onPersonalBest = (sec) => {
+  const all = loadPB();
+  all[pbKey({ track: game.trackId, vehicle: game.opts.vehicle || 'kart', mode: game.theme })] = sec;
+  try { localStorage.setItem(PB_STORE, JSON.stringify(all)); } catch { /* 保存できない */ }
+};
+game.onRaceStart = async (opts) => {
+  const key = { track: game.trackId, vehicle: opts.vehicle || 'kart', mode: game.theme };
+  game.hud.personalBest = loadPB()[pbKey(key)] || null;
+  try {
+    const top = await fetchLaps(key);
+    if (game.trackId === key.track && game.theme === key.mode) game.hud.courseRecord = top?.[0] || null;
+  } catch { /* つながらない */ }
+};
 // ゴールしたら自分のベストラップを登録して、結果画面にランキングを出す（自動運転の確認中は登録しない）
 game.onFinish = async (me) => {
   if (game.autodrive || !me.bestLap) return;
@@ -259,6 +279,7 @@ game.onFinish = async (me) => {
   game.rankHtml = '<p class="muted">ランキングに登録しています…</p>';
   let r = null;
   try { r = await submitLap(key, name, me.bestLap); } catch { /* つながらない */ }
+  if (r?.top?.[0]) game.hud.courseRecord = r.top[0];
   game.rankHtml = `<h3 style="margin:14px 0 6px">🏆 ベストラップ ランキング${r?.rank ? `　<span style="color:#ffd23f">${r.rank} 位に入りました！</span>` : ''}</h3>${lapsTable(r ? r.top : null, name)}`;
   refreshRanking();
 };

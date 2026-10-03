@@ -181,6 +181,10 @@ export class Game {
     this.lastCount = null;
     this.finishedShown = false;
     this.rankHtml = '';
+    this.hud.courseRecord = null;
+    this.hud.personalBest = null;
+    this.hud.pbNew = false;
+    if (!opts.attract) this.onRaceStart?.(this.opts);
     this.chase.init = false;
     this.chase.posInit = false;
 
@@ -503,6 +507,12 @@ export class Game {
       if (party && ev0(events, 'finish')) this.fx.confetti(this.models[me.index]);
       if (me.lapFlash > 0) me.lapFlash -= dt;
       if (me.itemFlash > 0) me.itemFlash -= dt;
+      // 自己ベストを更新したらその場で表示を変えて保存する（自動運転の確認中は除く）
+      if (me.bestLap && !this.autodrive && !this.opts.attract && (!this.hud.personalBest || me.bestLap < this.hud.personalBest - 1e-6)) {
+        this.hud.personalBest = me.bestLap;
+        this.hud.pbNew = true;
+        this.onPersonalBest?.(me.bestLap);
+      }
       if (me.msg?.t > 0) me.msg.t -= dt;
       // アイテムを使うボタン: 割り当てがあればその名前、ハンコンで未設定なら自動で使う
       const itemBind = this.input.config.bindings.item;
