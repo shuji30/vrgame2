@@ -3,8 +3,8 @@
 //   node scripts/deploy.mjs --dry    … 送るファイルの一覧だけ表示
 //   node scripts/deploy.mjs --setup  … 接続先を設定し直す
 // パスワードは保存しない（SSH が聞いてくる。SSH 鍵を設定すれば聞かれなくなる）
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, copyFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
@@ -15,7 +15,7 @@ const CONFIG = join(root, 'deploy.config.json');
 const args = process.argv.slice(2);
 
 // 公開するもの / しないもの
-const INCLUDE = ['index.html', 'games', 'server'];
+const INCLUDE = ['index.html', 'version.js', 'games', 'server'];
 const EXCLUDE = [
   /(^|\/)tests\//, /(^|\/)tools\//, /analyze\.mjs$/, /(^|\/)\.snapshots\//,
   /^server\/data\//, /^server\/config\.php$/, /(^|\/)\.DS_Store$/,
@@ -104,7 +104,12 @@ async function main() {
   const dir = cfg.remoteDir.replace(/'/g, '');
   console.log(`\n${files.length} ファイルを ${target}:${dir} へ送ります…`);
   // tar で固めて ssh の標準入力へ流し、サーバー側で展開する（一度の接続で済む）
-  const tar = spawn('tar', ['-czf', '-', ...files], { cwd: root, stdio: ['ignore', 'pipe', 'inherit'] });
+  // デプロイ日時（画面の右下に表示される）。リポジトリには置かず、一時フォルダで作って一緒に送る
+  const verDir = mkdtempSync(join(tmpdir(), 'vrgame2-deploy-'));
+  const git = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' });
+  const version = { deployed: new Date().toISOString(), commit: git.status === 0 ? git.stdout.trim() : '' };
+  writeFileSync(join(verDir, 'version.json'), JSON.stringify(version) + '\n');
+  const tar = spawn('tar', ['-czf', '-', ...files, '-C', verDir, 'version.json'], { cwd: root, stdio: ['ignore', 'pipe', 'inherit'] });
   const remote = [
     `mkdir -p '${dir}'`,
     `tar -xzf - -C '${dir}'`,
@@ -114,7 +119,12 @@ async function main() {
   const key = prepareKey(cfg.identityFile);
   const sshArgs = ['-p', String(cfg.port || 22), '-o', 'StrictHostKeyChecking=accept-new'];
   if (key) sshArgs.push('-i', key, '-o', 'IdentitiesOnly=yes');
-  await run('ssh', [...sshArgs, target, remote], tar.stdout);
+  try {
+    await run('ssh', [...sshArgs, target, remote], tar.stdout);
+  } finally {
+    rmSync(verDir, { recursive: true, force: true });
+  }
+  console.log(`バージョン: ${version.deployed}${version.commit ? ` (${version.commit})` : ''}`);
 
   if (cfg.publicUrl) {
     const url = `${cfg.publicUrl}server/api.php?a=health`;
