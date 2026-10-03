@@ -71,7 +71,8 @@ export class Race {
     for (const e of this.karts) this.applyTerrain(e);
     for (const e of this.karts) e.prevS = undefined;
     this.events = []; // レース全体の出来事（カミナリ・アイテムの命中など）
-    this.items = items ? new ItemSystem(this) : null;
+    // items: true（オフライン）または 'host' / 'client'（オンライン）
+    this.items = items ? new ItemSystem(this, typeof items === 'string' ? items : 'local') : null;
     this.updateProgress();
   }
 

@@ -91,3 +91,35 @@ test('キノコ ×3 は 3 回使える。カミナリは自分以外を小さく
   assert.ok(b.shrink > 0);
   assert.equal(a.shrink, 0);
 });
+
+test('オンライン: ホストが配る状態で、参加者にアイテム・投げ物・被弾が伝わる。参加者の使用はホストで処理される', () => {
+  const host = new Race(track, [{ name: 'H', type: 'player', netId: 'h' }, { name: 'G', type: 'remote', netId: 'g' }], { items: 'host', seed: 2 });
+  const guest = new Race(track, [{ name: 'H', type: 'remote', netId: 'h' }, { name: 'G', type: 'player', netId: 'g' }], { items: 'client', seed: 2 });
+  for (const r of [host, guest]) { r.time = 1; r.state = 'racing'; }
+  const byNet = (r) => new Map(r.karts.map((e) => [e.netId, e]));
+  const sync = () => guest.items.applySnapshot(host.items.snapshot((e) => e.netId), byNet(guest), guest.karts[1]);
+  const gOnHost = host.karts[1], me = guest.karts[1];
+  // ホストで参加者にアイテムが入る → 参加者に伝わる
+  gOnHost.item = 'bounce';
+  gOnHost.itemCount = 1;
+  sync();
+  assert.equal(me.item, 'bounce');
+  // 参加者が使う → ホストへ知らせ、ホストで投げ物が出る → 参加者にも見える
+  const uses = [];
+  guest.items.onUse = (back) => uses.push(back);
+  assert.ok(guest.items.use(me, false));
+  assert.deepEqual(uses, [false]);
+  for (const b of uses) host.items.use(gOnHost, b);
+  assert.equal(host.items.objects.length, 1);
+  sync();
+  assert.equal(guest.items.objects.length, 1);
+  assert.equal(me.item, null, '使用直後は届いた状態で復活しない');
+  // ホストで参加者が被弾 → 参加者の画面で減速とスピン、次のステップで hit の出来事
+  me.kart.vx = 30;
+  host.items.spinOut(gOnHost);
+  sync();
+  assert.ok(me.spin > 0);
+  assert.ok(Math.abs(me.kart.vx) < 15);
+  guest.step(1 / 60, new Map());
+  assert.ok(me.events.some((e) => e.type === 'hit'));
+});

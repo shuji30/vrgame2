@@ -145,8 +145,8 @@ export class Game {
       seed: on ? on.seed : (Math.random() * 1e9) | 0,
       manual: opts.manual && playerIndex >= 0 ? [playerIndex] : [],
       coins: theme === 'party',
-      // アイテムはパーティーモードのオフラインのみ（オンラインは次の更新で同期する）
-      items: theme === 'party' && !on,
+      // アイテム（パーティーモード）。オンラインはホストが判定して状態を配る
+      items: theme === 'party' && (on ? (on.session.isHost ? 'host' : 'client') : true),
     });
     // オンラインはホストが決めたスタート時刻に合わせてカウントダウンを始める
     if (on) this.race.time = -Math.max(1, on.countdown);
@@ -571,6 +571,27 @@ export class Game {
         lap: e.lap, sd: e.started ? 1 : 0, f: e.finished ? 1 : 0, ft: e.finishTime, bl: e.bestLap,
       };
     };
+    // アイテム: ホストは参加者の使用を処理して状態を配り、参加者は届いた状態を写す
+    const items = race.items;
+    if (items) {
+      if (s.isHost) {
+        for (const u of s.itemUses.splice(0)) {
+          const e = byId.get(u.from);
+          if (e) items.use(e, u.back);
+        }
+        this.itemTimer = (this.itemTimer || 0) + dt;
+        if (this.itemTimer >= 0.1) {
+          this.itemTimer = 0;
+          s.sendItems(items.snapshot((e) => e.netId));
+        }
+      } else {
+        items.onUse = (back) => s.sendUse(back);
+        if (s.itemState && s.itemState !== this.lastItemState) {
+          this.lastItemState = s.itemState;
+          items.applySnapshot(s.itemState, byId, this.me);
+        }
+      }
+    }
     this.netTimer += dt;
     if (this.netTimer >= 0.05) {
       this.netTimer = 0;

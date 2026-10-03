@@ -71,8 +71,16 @@ function ahead(track, a, b) {
 }
 
 export class ItemSystem {
-  constructor(race) {
+  // mode: 'local'（オフライン）| 'host'（オンラインのホスト: 抽選・当たり判定・NPC を受け持ち、状態を配る）
+  //       | 'client'（オンラインの参加者: ホストから届いた状態を写し、自分の使用はホストへ知らせる）
+  constructor(race, mode = 'local') {
     this.race = race;
+    this.mode = mode;
+    this.onUse = null; // client: (back) => ホストへ使用を知らせる
+    this.lightnings = 0;
+    this.ltSeen = 0;
+    this.pending = [];
+    this.deferring = false;
     this.track = race.track;
     this.boxes = boxLayout(race.track).map((b) => ({ ...b, respawnAt: -Infinity }));
     this.objects = []; // { id, kind, s, lateral, vs, vl, owner, ttl, grace, bounces, target }
@@ -92,6 +100,18 @@ export class ItemSystem {
   use(e, back = false) {
     if (!e.item || e.roulette > 0 || e.spin > 0 || e.finished) return false;
     const kind = e.item;
+    if (this.mode === 'client') {
+      // 参加者: 実際の処理はホストが行う。キノコの加速だけは自分の画面ですぐに効かせる
+      if (e.type !== 'player') return false;
+      if (kind === 'mushroom' || kind === 'mushroom3') e.kart.boost = Math.max(e.kart.boost || 0, 1.3);
+      this.onUse?.(back);
+      e.events.push({ type: 'useItem', kind });
+      e.useLock = 0.4; // ホストの返事が来るまで、届いた状態で同じアイテムが復活しないように
+      if (kind === 'mushroom3' && --e.itemCount > 0) return true;
+      e.item = null;
+      e.itemCount = 0;
+      return true;
+    }
     const k = e.kart;
     const v = this.kartTrackVel(e);
     const spawn = (o) => this.objects.push({ id: this.nextId++, owner: e.index, ttl: 10, grace: 0.4, bounces: 0, ...o });
@@ -126,6 +146,7 @@ export class ItemSystem {
           o.roulette = 0;
         }
         this.race.events.push({ type: 'lightning', by: e.index });
+        this.lightnings++;
         break;
       case 'shield':
         e.shield = true;
@@ -151,7 +172,19 @@ export class ItemSystem {
       e.events.push({ type: 'shieldBreak' });
       return false;
     }
-    if (e.type === 'remote') return false;
+    e.hits = (e.hits || 0) + 1;
+    if (e.type === 'remote') {
+      // 他のプレイヤー: 減速は本人の画面で行う（状態の配信で hits が伝わる）。ここでは見た目のスピンだけ
+      e.spin = Math.max(e.spin, time);
+      e.spinMax = Math.max(e.spin, e.spinMax || 0);
+      return true;
+    }
+    this.applyHit(e, time, keep);
+    return true;
+  }
+
+  // スピンの減速と、コインを落とす処理（自分の車・NPC）
+  applyHit(e, time, keep) {
     const k = e.kart;
     e.spin = Math.max(e.spin, time);
     e.spinMax = Math.max(e.spin, e.spinMax || 0);
@@ -163,8 +196,15 @@ export class ItemSystem {
       e.coins = Math.max(0, e.coins - 3);
       k.topBonus = e.coins * COIN_BONUS;
     }
-    e.events.push({ type: 'hit' });
+    this.emit(e, { type: 'hit' });
     return true;
+  }
+
+  // 出来事を記録する。状態の配信を写している間（レースの 1 ステップの外）は次のステップまで取っておく
+  emit(e, ev) {
+    if (this.deferring) this.pending.push([e, ev]);
+    else if (e) e.events.push(ev);
+    else this.race.events.push(ev);
   }
 
   // 操作の上書き（スピン中は操作が効かない）
@@ -178,8 +218,12 @@ export class ItemSystem {
     const t = this.track;
     const time = race.time;
     const n = race.karts.length;
+    const client = this.mode === 'client';
+    // 状態の配信で起きた出来事をこのステップの出来事として出す
+    for (const [e, ev] of this.pending.splice(0)) (e ? e.events : race.events).push(ev);
     for (const e of race.karts) {
       const k = e.kart;
+      e.useLock = Math.max(0, (e.useLock || 0) - dt);
       // 効果の時間
       e.spin = Math.max(0, e.spin - dt);
       if (e.spin === 0) e.spinMax = 0;
@@ -190,6 +234,7 @@ export class ItemSystem {
       }
       e.shrink = Math.max(0, e.shrink - dt);
       k.topMul = e.shrink > 0 ? 0.85 : 1;
+      if (client) continue; // 抽選・箱・NPC の判断はホストが行う
       // ルーレット
       if (e.roulette > 0) {
         e.roulette -= dt;
@@ -202,7 +247,7 @@ export class ItemSystem {
         }
       }
       // アイテムボックス
-      if (!e.item && !e.roulette && e.type !== 'remote' && !e.finished) {
+      if (!e.item && !e.roulette && (e.type !== 'remote' || this.mode === 'host') && !e.finished) {
         for (const b of this.boxes) {
           if (b.respawnAt > time) continue;
           if (trackDist(t, e.loc.s, e.loc.lateral, b.s, b.lateral) > 1.7) continue;
@@ -220,6 +265,7 @@ export class ItemSystem {
       if (e.type === 'npc' && e.item && !e.finished) this.aiUse(e, dt);
     }
     this.stepObjects(dt);
+    if (client) return;
     // スター中の車に触れた車はスピン
     for (const a of race.karts) {
       if (!(a.star > 0)) continue;
@@ -263,14 +309,14 @@ export class ItemSystem {
       const p = pointAt(t, o.s, o.lateral);
       o.x = p.x;
       o.z = p.z;
-      if (o.ttl <= 0 || o.fly > 0) continue;
+      if (o.ttl <= 0 || o.fly > 0 || this.mode === 'client') continue;
       // 車に当たる
       for (const e of race.karts) {
         if (e.finished && e.type !== 'remote') continue;
         if (e.index === o.owner && o.grace > 0) continue;
         if (trackDist(t, e.loc.s, e.loc.lateral, o.s, o.lateral) > HIT_R) continue;
         o.ttl = 0;
-        if (e.type !== 'remote') this.spinOut(e);
+        this.spinOut(e);
         race.events.push({ type: 'itemHit', kind: o.kind, victim: e.index, x: o.x, z: o.z });
         break;
       }
@@ -284,6 +330,60 @@ export class ItemSystem {
       }
     }
     this.objects = this.objects.filter((o) => o.ttl > 0);
+  }
+
+  // ---- オンライン（ホスト → 参加者への状態の配信）----
+  // netIdOf(e): カートのネットワーク ID
+  snapshot(netIdOf) {
+    const r1 = (x) => Math.round(x * 10) / 10;
+    return {
+      k: this.race.karts.map((e) => [netIdOf(e), e.item || '', e.itemCount || 0, e.roulette > 0 ? 1 : 0, r1(e.spin), r1(e.star), r1(e.shrink), r1(e.ink), e.shield ? 1 : 0, e.hits || 0]),
+      o: this.objects.map((o) => [o.id, o.kind, Math.round(o.s * 10) / 10, Math.round(o.lateral * 100) / 100, r1(o.vs), r1(o.vl), Math.round((o.fly || 0) * 100) / 100, o.target ?? -1, r1(o.ttl)]),
+      b: this.boxes.map((b) => r1(Math.max(0, b.respawnAt - this.race.time))),
+      lt: this.lightnings,
+    };
+  }
+
+  // 参加者: ホストから届いた状態を写す。byNet: netId → カート、me: 自分のカート
+  applySnapshot(snap, byNet, me) {
+    const race = this.race;
+    this.deferring = true;
+    for (const [id, item, count, roul, spin, star, shrink, ink, shield, hits] of snap.k || []) {
+      const e = byNet.get(id);
+      if (!e) continue;
+      const mine = e === me;
+      if (!(mine && e.useLock > 0)) {
+        if (mine && !e.item && item) this.emit(e, { type: 'itemGot', kind: item });
+        e.item = item || null;
+        e.itemCount = count;
+      }
+      e.roulette = roul ? Math.max(e.roulette, 0.3) : 0;
+      e.star = star;
+      e.shrink = shrink;
+      e.shield = !!shield;
+      if (mine && ink > e.ink + 0.5) this.emit(e, { type: 'ink' });
+      e.ink = ink;
+      // 新しく当たった: 自分なら減速（スピン時間が短いのはカミナリ）、他の車は見た目のスピン
+      if (e.hitsSeen === undefined) e.hitsSeen = hits;
+      if (hits > e.hitsSeen) {
+        if (mine) this.applyHit(e, spin, spin < 0.8 ? 0.6 : 0.35);
+        else { e.spin = spin; e.spinMax = spin; }
+      }
+      e.hitsSeen = hits;
+      if (!mine) e.spin = spin;
+    }
+    // コース上の投げ物（間は自分の画面で動かして補う）
+    const prev = new Map(this.objects.map((o) => [o.id, o]));
+    this.objects = (snap.o || []).map(([id, kind, s, lateral, vs, vl, fly, target, ttl]) => {
+      const o = prev.get(id) || { id, owner: -1, grace: 0, bounces: 0 };
+      return Object.assign(o, { kind, s, lateral, vs, vl, fly, target: target >= 0 ? target : null, ttl });
+    });
+    (snap.b || []).forEach((left, i) => { if (this.boxes[i]) this.boxes[i].respawnAt = left > 0 ? race.time + left : -Infinity; });
+    if ((snap.lt || 0) > this.ltSeen) {
+      this.emit(null, { type: 'lightning' });
+      this.ltSeen = snap.lt;
+    }
+    this.deferring = false;
   }
 
   // NPC のアイテムの使い方

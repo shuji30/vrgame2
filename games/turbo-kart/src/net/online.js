@@ -175,6 +175,8 @@ export class OnlineSession {
     this.char = null; // 自分のキャラクター
     this.chars = new Map(); // id → 他の参加者のキャラクター
     this.helloSent = new Set();
+    this.itemState = null; // ホストから届いたアイテムの状態（最新）
+    this.itemUses = []; // ホスト: 参加者からのアイテム使用 [{ from, back }]
   }
 
   get self() { return this.signal.peer; }
@@ -274,6 +276,8 @@ export class OnlineSession {
   handleStart(msg) {
     this.state = 'racing';
     this.remote.clear();
+    this.itemState = null;
+    this.itemUses.length = 0;
     this.onStart?.(msg);
     this.emit();
   }
@@ -301,6 +305,12 @@ export class OnlineSession {
         this.rtt = rtt;
         break;
       }
+      case 'items': // ホストが配るアイテムの状態
+        if (id === this.host) this.itemState = m;
+        break;
+      case 'use': // 参加者がアイテムを使った
+        if (this.isHost) this.itemUses.push({ from: id, back: !!m.back });
+        break;
       case 'hello':
         if (typeof m.char === 'string') this.chars.set(id, m.char.slice(0, 16));
         break;
@@ -328,6 +338,14 @@ export class OnlineSession {
 
   sendState(st) {
     this.mesh.broadcast({ t: 's', ...st });
+  }
+
+  sendItems(snap) {
+    this.mesh.broadcast({ t: 'items', ...snap });
+  }
+
+  sendUse(back) {
+    if (this.host && this.host !== this.self) this.mesh.send(this.host, { t: 'use', back }, true);
   }
 
   sendNpcs(list) {
