@@ -18,7 +18,8 @@ const args = process.argv.slice(2);
 const INCLUDE = ['.htaccess', 'index.html', 'version.js', 'games', 'server'];
 const EXCLUDE = [
   /(^|\/)tests\//, /(^|\/)tools\//, /analyze\.mjs$/, /(^|\/)\.snapshots\//,
-  /^server\/data\//, /^server\/config\.php$/, /(^|\/)\.DS_Store$/,
+  // server/config.php（DB の接続情報など）は Git には入れないが、手元にあればサーバーへ送る
+  /^server\/data\//, /(^|\/)\.DS_Store$/,
 ];
 
 function listFiles() {

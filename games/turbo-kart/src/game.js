@@ -128,7 +128,7 @@ export class Game {
       playerIndex = entries.findIndex((e) => e.type === 'player');
     } else {
       for (let i = 0; i < n; i++) entries.push({ name: NPC_NAMES[i], color: KART_COLORS[(i + 1) % KART_COLORS.length], char: npcChars[i], type: 'npc' });
-      if (!opts.attract) entries.push({ name: 'YOU', color: KART_COLORS[0], char: this.character, type: 'player' });
+      if (!opts.attract) entries.push({ name: (opts.name || this.playerName || 'YOU').slice(0, 16), color: KART_COLORS[0], char: this.character, type: 'player' });
       playerIndex = opts.attract ? -1 : entries.length - 1;
     }
     this.online = on ? on.session : null;
@@ -156,6 +156,7 @@ export class Game {
     this.acc = 0;
     this.lastCount = null;
     this.finishedShown = false;
+    this.rankHtml = '';
     this.chase.init = false;
     this.chase.posInit = false;
 
@@ -479,6 +480,7 @@ export class Game {
 
       if (me.finished && !this.finishedShown) {
         this.finishedShown = true;
+        this.onFinish?.(me);
         this.state = 'results';
         this.ui.showResults(true);
       }
@@ -570,6 +572,7 @@ export class Game {
     }).join('');
     return `<h2>RESULT — ${this.me.position} 位</h2>
       <table><thead><tr><th>#</th><th>DRIVER</th><th>TIME</th><th>BEST LAP</th></tr></thead><tbody>${rows}</tbody></table>
+      ${this.rankHtml || ''}
       <p class="muted">${this.online ? '決定ボタン / Enter・ポーズボタン / Esc でロビーへ戻る' : '決定ボタン / Enter でもう一度 ・ ポーズボタン / Esc でメニュー'}</p>`;
   }
 

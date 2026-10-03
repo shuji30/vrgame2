@@ -7,6 +7,7 @@ import { FFBBridge } from './ffb.js';
 import { TRACKS } from './core/tracks.js';
 import { setupOnline } from './net/lobby.js';
 import { CHARACTERS } from './scene/characters.js';
+import { fetchLaps, submitLap, lapsTable } from './net/laps.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -96,6 +97,7 @@ charSel.addEventListener('change', () => { game.character = charSel.value; raceO
 try {
   const m = JSON.parse(localStorage.getItem(STORE) || '{}');
   if (m.character && CHARACTERS.some((c) => c.id === m.character)) charSel.value = game.character = m.character;
+  if (m.name) $('opt-name').value = m.name;
   if (m.mode) setMode(m.mode, false);
   if (m.mode && m.mode !== game.theme && !(m.track && TRACKS.some((t) => t.id === m.track))) {
     game.setTrack(trackSel.value, mode);
@@ -128,7 +130,8 @@ $('opt-stability').addEventListener('change', (e) => {
 });
 
 function raceOptions() {
-  const o = { npcs: Number(npcSel.value), level: $('opt-level').value, laps: Number($('opt-laps').value), manual: input.config.transmission === 'manual', shake: Number($('opt-shake').value), vehicle: $('opt-vehicle').value, track: trackSel.value, mode, character: charSel.value };
+  const o = { npcs: Number(npcSel.value), level: $('opt-level').value, laps: Number($('opt-laps').value), manual: input.config.transmission === 'manual', shake: Number($('opt-shake').value), vehicle: $('opt-vehicle').value, track: trackSel.value, mode, character: charSel.value, name: driverName() };
+  game.playerName = o.name;
   game.shake = o.shake;
   try {
     localStorage.setItem(STORE, JSON.stringify(o));
@@ -229,3 +232,33 @@ const q = new URLSearchParams(location.search);
 if (q.get('autodrive') === '1') game.autodrive = true;
 if (q.get('autostart') === '1') game.startRace(raceOptions());
 if (q.get('cam') === 'cockpit') game.setCameraMode('cockpit');
+
+// ---- ベストラップのランキング ----
+const VEHICLE_NAMES = { kart: 'カート', gt3: 'GT3', formula: 'フォーミュラ' };
+function driverName() {
+  return ($('opt-name').value || '').trim().slice(0, 16) || 'Player';
+}
+let rankReq = 0;
+async function refreshRanking() {
+  const key = { track: trackSel.value, vehicle: $('opt-vehicle').value, mode };
+  $('ranking-title').textContent = `🏆 ベストラップ ランキング（${game.track.def.name}・${VEHICLE_NAMES[key.vehicle]}・${mode === 'real' ? '本格' : 'パーティー'}）`;
+  const id = ++rankReq;
+  let top = null;
+  try { top = await fetchLaps(key); } catch { /* つながらない */ }
+  if (id === rankReq) $('ranking').innerHTML = lapsTable(top, driverName());
+}
+for (const id of ['opt-track', 'opt-vehicle']) $(id).addEventListener('change', refreshRanking);
+for (const b of document.querySelectorAll('#opt-mode button')) b.addEventListener('click', refreshRanking);
+$('opt-name').addEventListener('change', () => { raceOptions(); refreshRanking(); });
+refreshRanking();
+// ゴールしたら自分のベストラップを登録して、結果画面にランキングを出す（自動運転の確認中は登録しない）
+game.onFinish = async (me) => {
+  if (game.autodrive || !me.bestLap) return;
+  const key = { track: game.trackId, vehicle: game.opts.vehicle || 'kart', mode: game.theme };
+  const name = game.playerName || driverName();
+  game.rankHtml = '<p class="muted">ランキングに登録しています…</p>';
+  let r = null;
+  try { r = await submitLap(key, name, me.bestLap); } catch { /* つながらない */ }
+  game.rankHtml = `<h3 style="margin:14px 0 6px">🏆 ベストラップ ランキング${r?.rank ? `　<span style="color:#ffd23f">${r.rank} 位に入りました！</span>` : ''}</h3>${lapsTable(r ? r.top : null, name)}`;
+  refreshRanking();
+};

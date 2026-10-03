@@ -48,8 +48,11 @@ if (!is_dir($dataDir) && !mkdir($dataDir, 0700, true) && !is_dir($dataDir)) fail
 // データディレクトリへの直接アクセスを禁止（Apache）
 if (!is_file("$dataDir/.htaccess")) @file_put_contents("$dataDir/.htaccess", "Require all denied\nDeny from all\n");
 
+require __DIR__ . '/laps.php';
+
 if ($action === 'health') {
-    out(['ok' => true, 'version' => VERSION, 'php' => PHP_VERSION, 'writable' => is_writable($dataDir), 'time' => microtime(true)]);
+    // db: 'ok'（MySQL に接続できた）/ 'file'（DB 未設定。ファイルに保存）/ 'error'（接続できない）
+    out(['ok' => true, 'version' => VERSION, 'php' => PHP_VERSION, 'writable' => is_writable($dataDir), 'db' => laps_status($config), 'time' => microtime(true)]);
 }
 
 function code_ok(string $c): bool { return (bool)preg_match('/^[A-Z2-9]{4}$/', $c); }
@@ -117,6 +120,9 @@ function public_players(array $room): array {
 if (random_int(1, 20) === 1) {
     foreach (glob("$dataDir/room-*.json") ?: [] as $f) if (time() - filemtime($f) > ROOM_TTL) @unlink($f);
 }
+
+// ベストラップのランキング
+if ($action === 'laps' || $action === 'submitLap') laps_handle($action, $in, $config, $dataDir);
 
 $code = strtoupper((string)($in['room'] ?? ''));
 switch ($action) {

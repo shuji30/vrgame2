@@ -1,5 +1,5 @@
 # data/ と設定ファイルは外から見えないようにする
-<FilesMatch "^(config\.php|config\.sample\.php)$">
+<FilesMatch "^(config\.php|config\.sample\.php|laps\.php)$">
   Require all denied
 </FilesMatch>
 RedirectMatch 403 ^.*/server/data/.*$

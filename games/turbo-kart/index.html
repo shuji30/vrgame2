@@ -30,7 +30,7 @@
     .modes button small { display: block; font-size: 12px; font-weight: 500; opacity: 0.8; }
     .modes button.on { outline: 3px solid #ffd23f; background: linear-gradient(135deg, #ff5a3c, #ff9a2f); color: #fff; }
     .modes button[data-mode=real].on { background: linear-gradient(135deg, #2b3a55, #4a5f86); }
-    select, input[type=number] { font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line);
+    select, input[type=number], input[type=text] { font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line);
       background: rgba(255, 255, 255, 0.06); color: var(--text); }
     select option { color: #000; }
     input[type=range] { width: 100%; accent-color: var(--accent); }
@@ -74,6 +74,11 @@
     .board table { width: 100%; border-collapse: collapse; font-size: 15px; }
     .board th, .board td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--line); }
     .board tr.me td { color: var(--accent2); font-weight: 800; }
+    table.laps { width: 100%; border-collapse: collapse; font-size: 14px; }
+    table.laps th, table.laps td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; }
+    table.laps tr.me td { color: var(--accent2); font-weight: 800; }
+    .ranking { margin-top: 14px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,0.05); }
+    .ranking h3 { margin: 0 0 6px; font-size: 15px; }
     .board i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; }
     .board h2 { color: var(--text); font-size: 22px; letter-spacing: 0.04em; margin-top: 0; }
 
@@ -174,6 +179,9 @@
         <button data-mode="real">🏁 本格<small>写実的な見た目・純粋なタイムアタック</small></button>
       </div>
       <div class="grid">
+        <label class="field">ドライバー名（ランキング用）
+          <input id="opt-name" type="text" maxlength="16" placeholder="Player">
+        </label>
         <label class="field" id="char-field">キャラクター
           <select id="opt-char"></select>
         </label>
@@ -229,6 +237,7 @@
         <button id="btn-calib">ハンコン / FFB 設定</button>
         <button id="btn-online">オンライン対戦</button>
       </div>
+      <div class="ranking"><h3 id="ranking-title">🏆 ベストラップ ランキング</h3><div id="ranking"></div></div>
       <p class="note" id="input-summary"></p>
       <p class="note">
         操作（キーボード）: ↑ アクセル / ↓ ブレーキ・後退 / ←→ ハンドル / Space サイドブレーキ / E・Q シフト /
