@@ -220,7 +220,7 @@ test('FFB: 普通のコーナー（横 1G 前後）でもしっかり重い。�
   run(k, { throttle: 0.6 }, 3);
   run(k, { throttle: 0.6, steer: 0.06, assist: false }, 1.5);
   const g = Math.abs(k.lateralAccel) / 9.8;
-  const f = new FFBModel().compute(k, { value: 0.3, beyond: 0.3 }, [], { gain: 1 }, 1 / 60);
+  const f = new FFBModel().compute(k, { value: 0.3, beyond: 0.3 }, [], { gain: 1, align: 1 }, 1 / 60);
   assert.ok(Math.abs(f.constant) > 0.3, `横 ${g.toFixed(2)}G で ${f.constant.toFixed(2)}`);
   const m = new FFBModel();
   m.compute(k, { value: 0, beyond: 0 }, [], { gain: 1 }, 1 / 60);

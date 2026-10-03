@@ -6,8 +6,8 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 export const FFB_DEFAULTS = {
   gain: 0.5, // 全体の強さ
-  align: 1.0, // セルフアライニングトルク
-  damper: 0.25,
+  align: 0.6, // セルフアライニングトルク（強すぎると直線で左右に振られる）
+  damper: 0.35,
   road: 0.5, // 縁石・芝の振動
   impact: 0.8, // 衝突
   softLock: 1.0, // ロック角を超えたときの壁
