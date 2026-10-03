@@ -382,13 +382,15 @@ export class Game {
     if (inp.shiftDown) this.resultSel = (this.resultSel + n - 1) % n;
     if ((inp.throttle || 0) < 0.2) this.throttleArmed = true;
     const pedal = this.throttleArmed && (inp.throttle || 0) > 0.85 && performance.now() - this.resultsAt > 1500;
-    if (inp.item) return this.restart();
     if (inp.confirm || pedal) {
       const act = RESULT_ACTS[this.resultSel];
       if (act === 'next') this.nextCourse();
       else if (act === 'again') this.restart();
       else this.toMenu();
+      return;
     }
+    // アイテムボタン（Shift）はすぐにもう一度（VR コントローラーの A は決定と兼ねるので、決定を優先）
+    if (inp.item) this.restart();
   }
 
   // 結果画面から次のコースへ（オンラインはロビーへ戻る）

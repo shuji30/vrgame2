@@ -138,6 +138,11 @@ export class InputManager {
   }
 
   // 毎フレーム呼ぶ。edge 系（shiftUp など）は押した瞬間だけ true
+  // VR のコントローラー（XRInputSource の配列を返す関数。main.js が設定）
+  xrSources() {
+    return this.getXRSources?.() || [];
+  }
+
   poll(dt) {
     const pads = snapshotPads();
     const B = this.config.bindings;
@@ -165,6 +170,31 @@ export class InputManager {
     held.ffbReset = k.has('KeyF');
     held.item = k.has('ShiftLeft') || k.has('ShiftRight');
     held.itemBack = k.has('KeyX');
+
+    // VR コントローラー（Quest など。xr-standard 配列）: 左スティック = ハンドル、右トリガー = アクセル、
+    // 左トリガー = ブレーキ、グリップ = サイドブレーキ、A = アイテム、B = 後ろへ、X = カメラ、Y = ポーズ、スティック押し込み = リセンター
+    for (const src of this.xrSources()) {
+      const gp = src.gamepad;
+      if (!gp || gp.mapping !== 'xr-standard') continue;
+      const b = (i) => gp.buttons[i]?.value ?? 0;
+      const pressed = (i) => !!gp.buttons[i]?.pressed;
+      if (src.handedness === 'left') {
+        const ax = gp.axes[2] ?? 0;
+        if (Math.abs(ax) > 0.08 && !B.steer) { steer = Math.sign(ax) * (Math.abs(ax) - 0.08) / 0.92; out.source = 'gamepad'; }
+        brake = Math.max(brake, b(0));
+        handbrake = Math.max(handbrake, b(1));
+        held.camera ||= pressed(4);
+        held.pause ||= pressed(5);
+        held.recenter ||= pressed(3);
+      } else if (src.handedness === 'right') {
+        throttle = Math.max(throttle, b(0));
+        handbrake = Math.max(handbrake, b(1));
+        held.item ||= pressed(4);
+        held.confirm ||= pressed(4);
+        held.itemBack ||= pressed(5);
+        held.recenter ||= pressed(3);
+      }
+    }
 
     // 標準配列のゲームパッド（割り当てが無いときの既定）
     const std = pads.find((p) => p.mapping === 'standard');

@@ -20,6 +20,8 @@ renderer.xr.setFoveation?.(1);
 $('app').appendChild(renderer.domElement);
 
 const input = new InputManager();
+// VR のコントローラーも入力に使う（ハンコンが無い Quest などでも運転できる）
+input.getXRSources = () => renderer.xr.getSession()?.inputSources || [];
 const ffb = new FFBBridge();
 const hid = new HIDManager();
 ffb.hid = hid;
