@@ -113,6 +113,18 @@
     #ffb-meter { position: relative; display: block; width: 70px; height: 8px; border-radius: 4px; background: rgba(255,255,255,.18); }
     #ffb-meter b { position: absolute; top: 0; bottom: 0; left: 50%; width: 0; background: var(--ok); }
   </style>
+  <!-- 予期しないエラーを画面に出す（古いファイルが混ざったときなど、真っ暗なままにしない） -->
+  <div id="fatal" hidden style="position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:50;max-width:min(680px,calc(100vw - 32px));padding:12px 16px;border-radius:12px;background:#b3261e;color:#fff;font:14px/1.5 system-ui,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.4)"></div>
+  <script>
+    window.addEventListener('error', function (e) {
+      var el = document.getElementById('fatal');
+      if (!el || !el.hidden) return;
+      var msg = String((e && e.message) || 'error');
+      if (/WebSocket|ResizeObserver/.test(msg)) return;
+      el.hidden = false;
+      el.textContent = 'エラーが発生しました: ' + msg + '　（更新直後は Ctrl+F5 で再読み込みしてください）';
+    });
+  </script>
   <script type="importmap">
     {
       "imports": {
