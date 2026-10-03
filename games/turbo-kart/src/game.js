@@ -258,6 +258,8 @@ export class Game {
             inputs.set(this.me.index, {
               steer: inp.steer, throttle: inp.throttle, brake: inp.brake, handbrake: inp.handbrake,
               shiftUp: first && !!this.pendingUp, shiftDown: first && !!this.pendingDown, hGear: inp.hGear,
+              // ハンコンは補助なしの素の挙動、キーボード・ゲームパッドは操作補助あり
+              assist: inp.source !== 'wheel',
             });
             if (first) this.pendingUp = this.pendingDown = false;
           }
@@ -290,6 +292,13 @@ export class Game {
       pose.y = v.y + (pose.y - v.y) * keep;
       pose.pitch = v.pitch + (pose.pitch - v.pitch) * keep;
       pose.roll = v.roll + (pose.roll - v.roll) * keep;
+      // G による車体の傾き: 旋回で外側へロール、ブレーキで前に沈み、加速で後ろに沈む
+      const g = (e.gfx ||= { roll: 0, pitch: 0 });
+      const kk = 1 - Math.exp(-dt / 0.12);
+      g.roll += (Math.max(-0.1, Math.min(0.1, (e.kart.lateralAccel || 0) * 0.0035)) - g.roll) * kk;
+      g.pitch += (Math.max(-0.07, Math.min(0.07, (e.kart.longAccel || 0) * 0.0035)) - g.pitch) * kk;
+      pose.roll += g.roll;
+      pose.pitch += g.pitch;
       e.renderPose = pose;
       // 自分で運転しているときはハンコンの実際の回転角、それ以外（NPC・自動運転・ゴール後）は操作量
       const manualDriving = e === this.me && !this.autodrive && !e.finished && this.state === 'race';

@@ -4,9 +4,10 @@ const TAU = Math.PI * 2;
 const RAMP = 8; // 区間の境目をなめらかに切り替える距離 (m)
 
 export const SURFACES = {
-  tarmac: { grip: 8.5, maxLat: 24, rolling: 0, bump: 0.004 },
-  rough: { grip: 8, maxLat: 22, rolling: 0.1, bump: 0.045 },
-  dirt: { grip: 5.5, maxLat: 18, rolling: 0.3, bump: 0.03 },
+  // maxLat: タイヤが出せる横加速度 (m/s²)、B: タイヤの立ち上がり（ダートは穏やかに滑り出す）
+  tarmac: { grip: 8.5, maxLat: 28.4, rolling: 0, bump: 0.004, B: 14 },
+  rough: { grip: 8, maxLat: 26, rolling: 0.1, bump: 0.045, B: 13 },
+  dirt: { grip: 5.5, maxLat: 21, rolling: 0.3, bump: 0.03, B: 8 },
 };
 
 function smooth(x) {
@@ -40,7 +41,7 @@ export function surfaceParams(track, s) {
   const w = surfaceWeights(track, s);
   const t = 1 - Math.min(1, w.rough + w.dirt);
   const mix = (k) => SURFACES.tarmac[k] * t + SURFACES.rough[k] * w.rough + SURFACES.dirt[k] * w.dirt;
-  return { grip: mix('grip'), maxLat: mix('maxLat'), rolling: mix('rolling'), type: surfaceType(track, s) };
+  return { grip: mix('grip'), maxLat: mix('maxLat'), rolling: mix('rolling'), B: mix('B'), type: surfaceType(track, s) };
 }
 
 // 高さのキーをなめらかにつなぐ（キーでは傾きが 0 になる余弦補間。周回で閉じる）

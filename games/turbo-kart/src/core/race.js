@@ -132,9 +132,14 @@ export class Race {
     k.gripBase = p.grip;
     k.maxLatBase = p.maxLat;
     k.rollingExtra = p.rolling;
+    k.mu = p.maxLat / G;
+    k.tireB = p.B;
     k.slopeAccel = -G * Math.sin(ride.pitch);
     k.bankAccel = -G * Math.sin(ride.roll);
-    k.latBonus = G * Math.abs(Math.sin(ride.roll)) * 0.9;
+    // バンク上の荷重: 重力の法線成分 + 旋回の遠心力のうちバンクに押しつける成分
+    const turnG = Math.min(3, Math.abs(k.yawRate * (k.vx * Math.cos(k.heading) + k.vz * Math.sin(k.heading))) / G);
+    k.loadScale = Math.cos(ride.roll) + Math.abs(Math.sin(ride.roll)) * turnG;
+    k.latBonus = 0;
     e.prevRide = e.ride || ride;
     e.ride = ride;
     e.surfaceType = p.type;

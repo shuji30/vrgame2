@@ -10,7 +10,7 @@ export class FFBBridge {
   constructor() {
     // output: 'auto'（WebHID の FFB 対応機器があればそれ、なければブリッジ）| 'webhid' | 'bridge'
     // maxForce: WebHID で出すときの上限（ブリッジは --max で制限）
-    this.settings = { ...FFB_DEFAULTS, enabled: true, url: URL_DEFAULT, device: null, output: 'auto', maxForce: 0.3 };
+    this.settings = { ...FFB_DEFAULTS, enabled: true, url: URL_DEFAULT, device: null, output: 'auto', maxForce: 0.6 };
     this.hid = null;
     try {
       Object.assign(this.settings, JSON.parse(localStorage.getItem(STORE) || '{}'));
@@ -155,7 +155,7 @@ export class FFBBridge {
     if (!this.settings.enabled) return;
     const web = this.webTarget();
     if (web) {
-      const mx = Math.max(0, Math.min(1, this.settings.maxForce ?? 0.3));
+      const mx = Math.max(0, Math.min(1, this.settings.maxForce ?? 0.6));
       if (!web.ready) web.start();
       web.apply({ constant: out.constant * mx, damper: out.damper * mx, rumble: out.rumble * mx, rumbleHz: out.rumbleHz });
       return;

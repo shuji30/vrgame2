@@ -1,18 +1,19 @@
 // NPC ドライバー: 少し先の目標点へハンドルを切り、先のカーブの曲率から目標速度を決める。
 // 前にカートがいれば横へずらして抜きにかかる。各 NPC は腕前と好みのライン取りが少しずつ違う
 import { locate, pointAt, maxCurvatureAhead, wrapAngle, wrapS } from './track.js';
-import { forwardSpeed, KART } from './physics.js';
+import { forwardSpeed, KART, steerLimit } from './physics.js';
 import { surfaceParams, bankSlope } from './surface.js';
 
-const MAX_LAT = 23.5; // 想定する最大横加速度 (m/s²)。物理の上限 24 ぎりぎりまで攻める
+// 想定する最大横加速度 (m/s²)。カートが実際に出せる横 G（理論値の約 85%）に合わせる
+const MAX_LAT = KART.mu * 9.8 * 0.85;
 
 export function createDriver(rng, level = 'normal') {
-  const base = { easy: 0.92, normal: 1.02, hard: 1.06 }[level] ?? 1.02;
+  const base = { easy: 0.9, normal: 1.0, hard: 1.02 }[level] ?? 1.0;
   return {
     skill: base + rng() * 0.04,
     linePref: (rng() - 0.5) * 0.6,
     phase: rng() * Math.PI * 2,
-    sway: 0.15 + rng() * 0.25,
+    sway: 0.04 + rng() * 0.08,
     avoid: 0,
     stuck: 0,
     reverseTimer: 0,
@@ -41,7 +42,7 @@ export function driveAI(driver, kart, loc, track, others, pace = 1, dt = 1 / 60)
 
   // ライン取り: カーブの内側寄り＋個性＋ゆらぎ
   const kAhead = maxCurvatureAhead(track, loc.s + 10, 30);
-  let offset = -Math.sign(kAhead) * Math.min(0.55, Math.abs(kAhead) * 25) * hw;
+  let offset = -Math.sign(kAhead) * Math.min(0.45, Math.abs(kAhead) * 22) * hw;
   offset += driver.linePref * hw + Math.sin(loc.s * 0.01 + driver.phase) * driver.sway * hw;
 
   // 追い越し: 前方近くのカートを避ける
@@ -58,12 +59,17 @@ export function driveAI(driver, kart, loc, track, others, pace = 1, dt = 1 / 60)
     if (ds > 0 && ds < 4 + sp * 0.25 && dl < 2.1) follow = Math.min(follow, forwardSpeed(o.kart));
   }
   driver.avoid += ((block * 2.6) - driver.avoid) * Math.min(1, 3 * dt);
-  offset = Math.max(-hw + 1.2, Math.min(hw - 1.2, offset + driver.avoid));
+  offset = Math.max(-hw + 2.2, Math.min(hw - 2.2, offset + driver.avoid));
 
-  const look = 5 + sp * 0.55;
+  // 目標点への進路（ピュアパシュート）から必要な旋回の速さを決め、いまの旋回の速さとの差で舵角を補正する
+  const look = 6 + sp * 0.5;
   const target = pointAt(track, loc.s + look, offset);
   const err = wrapAngle(Math.atan2(target.z - kart.z, target.x - kart.x) - kart.heading);
-  const steer = Math.max(-1, Math.min(1, err * 2.4));
+  const L = KART.dynWheelbase;
+  const vv = Math.max(sp, 3);
+  const rDes = (2 * vv * Math.sin(err)) / look;
+  const delta = Math.atan((L * rDes) / vv) + (1.2 * (rDes - kart.yawRate) * L) / vv;
+  const steer = Math.max(-1, Math.min(1, delta / steerLimit(sp, true)));
 
   // 先のカーブに合わせた目標速度
   const reach = 18 + sp * 1.1;
@@ -74,7 +80,8 @@ export function driveAI(driver, kart, loc, track, others, pace = 1, dt = 1 / 60)
   for (let d = 0; d <= reach; d += 6) {
     const p = surfaceParams(track, loc.s + d);
     const bank = Math.abs(Math.sin(Math.atan(bankSlope(track, loc.s + d))));
-    lat = Math.min(lat, MAX_LAT * (p.maxLat / KART.maxLat) + 9.8 * bank * 0.8);
+    // バンクでは重力の横成分と押しつけによる荷重増の両方で速く曲がれる
+    lat = Math.min(lat, MAX_LAT * (p.maxLat / KART.maxLat) * (1 + bank * 0.9) + 9.8 * bank);
   }
   let vTarget = kBrake > 1e-4 ? Math.sqrt(lat / kBrake) : top;
   vTarget = Math.min(vTarget, top) * driver.skill * pace;
@@ -84,6 +91,8 @@ export function driveAI(driver, kart, loc, track, others, pace = 1, dt = 1 / 60)
 
   let throttle = v < vTarget ? 1 : 0.15;
   let brake = v > vTarget + 1.5 ? Math.min(1, (v - vTarget) / 4) : 0;
+  // 曲がりながらの強いブレーキは後輪が抜けてスピンするので、横 G に応じて弱める
+  brake *= 1 - Math.min(0.75, Math.abs(kart.lateralAccel || 0) / MAX_LAT);
   if (Math.abs(err) > 0.9) { throttle = 0.4; }
   return { steer, throttle, brake, handbrake: 0 };
 }

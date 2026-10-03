@@ -66,7 +66,7 @@ test('物理: ハンドルを切ると右へ曲がり、サイドブレーキで
   assert.ok(k.heading > h0, '右 = heading 増加');
   let turbo = 0;
   for (let i = 0; i < 90; i++) stepKart(k, { throttle: 1, steer: 0.8, handbrake: 1 }, 1 / 60);
-  assert.ok(k.slip > 0.15, `slip ${k.slip}`);
+  assert.ok(Math.abs(k.rearSlip) > 0.2, `後輪の滑り角 ${k.rearSlip}`);
   for (let i = 0; i < 30; i++) turbo += stepKart(k, { throttle: 1 }, 1 / 60).miniTurbo;
   assert.ok(turbo > 0 && k.boost > 0);
 });
@@ -143,8 +143,12 @@ test('FFB: 速度が出るとセンターへ戻す力、ロック超えで押し
   const k = createKart(0, 0, 0);
   const m = new FFBModel();
   const still = m.compute(k, { value: 0.5, beyond: 0.5 }, [], {}, 1 / 60);
-  assert.ok(Math.abs(still.constant) < 0.01, '停止中はほぼ無負荷');
+  assert.ok(Math.abs(still.constant) < 0.15, `停止中はタイヤがこする程度の軽い手応え ${still.constant}`);
   run(k, { throttle: 1 }, 4);
+  const straight = m.compute(k, { value: 0, beyond: 0 }, [], {}, 1 / 60);
+  assert.ok(Math.abs(straight.constant) < 0.05, '直進中はほぼ無負荷');
+  // 実際に右へ曲がっている状態（前輪の横力）から、左へ戻す力が出る
+  run(k, { throttle: 0.6, steer: 0.08, assist: false }, 1.5);
   const moving = m.compute(k, { value: 0.5, beyond: 0.5 }, [], {}, 1 / 60);
   assert.ok(moving.constant < -0.1, `右に切ると左へ戻す ${moving.constant}`);
   const inv = m.compute(k, { value: 0.5, beyond: 0.5 }, [], { invert: true }, 1 / 60);

@@ -5,7 +5,7 @@ import { KART } from './physics.js';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 export const FFB_DEFAULTS = {
-  gain: 0.3, // 全体の強さ（ダイレクトドライブを考えて低めから）
+  gain: 0.5, // 全体の強さ
   align: 1.0, // セルフアライニングトルク
   damper: 0.25,
   road: 0.5, // 縁石・芝の振動
@@ -29,15 +29,20 @@ export class FFBModel {
     const vL = kart.vx * -sn + kart.vz * c;
     const speed = Math.abs(vF);
 
-    // 前輪は進行方向へ戻ろうとする。横滑り中は滑る向きへ引っぱられる（カウンターの手応え）
-    const steerMax = KART.maxSteerLow + (KART.maxSteerHigh - KART.maxSteerLow) * Math.min(1, speed / 28);
-    const neutral = clamp(Math.atan2(vL, Math.max(2, speed)) / steerMax, -1, 1);
-    const stiffness = Math.min(1, speed / 12) * 0.7;
-    // 前輪が限界を超えると手応えが軽くなる（アンダーステア）
-    const frontLoad = 1 - clamp((Math.abs(kart.lateralAccel) - 9) / 10, 0, 0.6);
-    // ダートは手応えが軽い
-    const surfaceAlign = kart.surface === 'dirt' ? 0.55 : kart.surface === 'grass' ? 0.6 : 1;
-    let force = -(wheel.value - neutral) * stiffness * frontLoad * s.align * surfaceAlign;
+    // セルフアライニングトルク: 前輪の横力 × トレール。コーナーで横 G に比例して重くなり、
+    // 前輪の滑りが限界を超えるとニューマチックトレールが縮んで軽くなる（アンダーステアの手応え）。
+    // 後輪が流れると前輪は進行方向を向こうとし、ハンドルがカウンター側へ切れる
+    let force;
+    if (speed > 2 && kart.FzF > 0) {
+      const peak = Math.tan(Math.PI / (2 * KART.tireC)) / KART.tireB; // 横力が最大になる滑り角
+      const pneumatic = 0.045 * Math.max(0, 1 - Math.abs(kart.frontSlip) / (peak * 1.7));
+      const mech = 0.012; // キャスターによる機械的トレール
+      const maxTorque = (kart.mu || KART.mu) * kart.FzF * (0.045 + mech) * 0.7;
+      force = (-kart.frontForce * (pneumatic + mech)) / maxTorque * s.align;
+    } else {
+      // 停止・低速はタイヤが路面をこする重さ
+      force = -wheel.value * 0.25 * s.align;
+    }
 
     // 路面の凹凸: 左右の前輪の高さの差が変わるとハンドルが取られる（バンプステア）
     let jolt = 0;

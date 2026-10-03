@@ -19,10 +19,36 @@ export const KART = {
   grassGrip: 4,
   shiftTime: 0.15,
   boostAccel: 5,
-  // タイヤが出せる横加速度の上限 (m/s²)。旋回の速さをこれで制限する
-  maxLat: 24,
-  driftLatMul: 1.6,
+  // タイヤが出せる横加速度の上限の目安 (m/s²)（AI と表示用。物理は下のタイヤモデルで決まる）
+  maxLat: 28.4,
+  // ---- 2 輪モデル（前後輪のスリップ角 → タイヤ横力 → ヨーの運動方程式）----
+  mass: 170, // カート + ドライバー (kg)
+  Iz: 52, // ヨー慣性モーメント (kg·m²)
+  dynWheelbase: 1.25, // 運動計算用のホイールベース (m)
+  cgFront: 0.6, // 重心から前輪まで (m)
+  cgHeight: 0.18, // 重心高 (m)。前後の荷重移動に使う（カートは低い）
+  mu: 2.9, // 舗装の摩擦係数（アーケード寄りの高グリップ）
+  muGrass: 1.1,
+  tireB: 14, // タイヤの立ち上がりの鋭さ（大きいほどピークが小さな滑り角で来る）
+  rearGrip: 1.08, // 後輪のグリップを少し高くして弱アンダーステアに（安定方向）
+  tireC: 1.45,
+  tireE: 0.2,
+  steerLock: 0.42, // ハンコンでのフルロック時の前輪の切れ角 (rad)
+  steerHigh: 0.1, // キーボード等の補助ありで高速時に絞る切れ角 (rad)
 };
+
+// 操舵の上限（前輪の切れ角 rad）。補助ありは高速で絞る
+export function steerLimit(speed, assist = true) {
+  const lock = KART.steerLock;
+  return assist ? lock + (KART.steerHigh - lock) * Math.min(1, Math.abs(speed) / 35) : lock;
+}
+
+// タイヤの横力（Pacejka のマジックフォーミュラ）。alpha: スリップ角、D: 最大の力
+export function tireForce(alpha, D, B = KART.tireB) {
+  const C = KART.tireC, E = KART.tireE;
+  const x = B * alpha;
+  return D * Math.sin(C * Math.atan(x - E * (x - Math.atan(x))));
+}
 
 export const MAX_GEAR = KART.gearTop.length - 1;
 
@@ -46,7 +72,15 @@ export function createKart(x, z, heading) {
     rollingExtra: 0,
     slopeAccel: 0, // 坂による前後方向の加速度
     bankAccel: 0, // 傾きによる横方向の加速度（右が正）
-    latBonus: 0, // バンクで増える横グリップ
+    latBonus: 0, // （旧モデルの名残。未使用）
+    mu: KART.mu, // 路面の摩擦係数（race.js が設定）
+    tireB: KART.tireB,
+    yawRate: 0,
+    frontForce: 0, // 前輪の横力 (N)。FFB のセルフアライニングトルクに使う
+    frontSlip: 0,
+    rearSlip: 0,
+    FzF: 0,
+    longAccel: 0,
     // FFB と演出用
     slip: 0,
     lateralAccel: 0,
@@ -83,6 +117,7 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
   const c = Math.cos(k.heading), s = Math.sin(k.heading);
   let vF = k.vx * c + k.vz * s;
   let vL = k.vx * -s + k.vz * c;
+  const vF0 = vF;
   const throttle = clamp01(input.throttle);
   const brake = clamp01(input.brake);
   const hb = clamp01(input.handbrake);
@@ -154,50 +189,89 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
     drive -= throttle * P.reverseAccel;
   }
   drive += k.slopeAccel || 0;
-  let resist = hb * P.handbrakeDecel + P.drag * vF * vF + P.rolling + (k.rollingExtra || 0);
+  // 補助あり（キーボード等）のサイドブレーキはドリフト用。ブレーキとしての減速は弱める
+  const hbDecel = input.assist !== false ? P.handbrakeDecel * 0.3 : P.handbrakeDecel;
+  let resist = hb * hbDecel + P.drag * vF * vF + P.rolling + (k.rollingExtra || 0);
   if (!k.reversing) resist += brake * P.brakeDecel;
   if (grass) resist += 1.0 + 0.012 * vF * vF;
   vF += drive * dt;
   if (Math.abs(vF) <= resist * dt) vF = 0;
   else vF -= Math.sign(vF) * resist * dt;
 
-  // 操舵
-  const sp = Math.abs(vF);
-  const steerMax = P.maxSteerLow + (P.maxSteerHigh - P.maxSteerLow) * Math.min(1, sp / 28);
-  k.steerAngle = Math.max(-1, Math.min(1, input.steer || 0)) * steerMax;
-  let yawTarget = (vF * Math.tan(k.steerAngle)) / P.wheelbase;
-  const drift = hb > 0.3 && sp > 5;
-  if (drift) yawTarget *= 1.35;
-  const maxLat = (grass ? Math.min(P.maxLat, 10) : k.maxLatBase ?? P.maxLat) + (k.latBonus || 0);
-  const yawLimit = (maxLat * (drift ? P.driftLatMul : 1)) / Math.max(sp, 1);
-  yawTarget = Math.max(-yawLimit, Math.min(yawLimit, yawTarget));
-  k.yawRate += (yawTarget - k.yawRate) * Math.min(1, dt * 10);
-  const dh = k.yawRate * dt;
-  k.heading += dh;
-
-  // 向きが変わっても速度ベクトルは慣性で残る → 新しい向きで分解し直す（これが横滑り）
-  const wx = vF * c - vL * s, wz = vF * s + vL * c;
+  // ---- 操舵と横方向: 2 輪モデル ----
+  // キーボード・ゲームパッド・AI は補助あり（高速で切れ角を絞る・スピンしにくくする）。ハンコンは補助なし
+  const assist = input.assist !== false;
+  const sp0 = Math.abs(vF);
+  const steerMax = steerLimit(sp0, assist);
+  const d = Math.max(-1, Math.min(1, input.steer || 0)) * steerMax;
+  k.steerAngle = d;
+  const mu = grass ? P.muGrass : k.mu ?? P.mu;
+  const B = grass ? 6 : k.tireB ?? P.tireB;
+  const m = P.mass, L = P.dynWheelbase, a = P.cgFront, b = L - a;
+  // 加減速による前後の荷重移動（ブレーキで前輪、加速で後輪に荷重が乗る）。
+  // 実際の速度変化（前のステップ。タイヤの横力による減速も含む）をならして使う
+  const aLong = k.longAccel || 0;
+  // バンクでは遠心力の分だけタイヤが路面に押しつけられ、グリップが増える（race.js が loadScale を設定）
+  const W = m * 9.8 * (k.loadScale ?? 1);
+  // 荷重移動は静止時の ±45% までに抑える（急ブレーキで後輪が完全に抜けないように）
+  const FzF0 = (W * b) / L, FzR0 = (W * a) / L;
+  const dFz = Math.max(-0.45 * Math.min(FzF0, FzR0), Math.min(0.45 * Math.min(FzF0, FzR0), (m * aLong * P.cgHeight) / L));
+  const FzF = FzF0 - dFz;
+  const FzR = FzR0 + dFz;
+  // 後輪の摩擦円: 駆動力やサイドブレーキで縦に使うほど横に使える力が減る（→ テールが流れる）
+  // 補助ありのサイドブレーキはロックを弱め、滑らせながら立て直せるようにする
+  const hbLock = assist ? 0.62 : 0.9;
+  const FxR = hb > 0.3 ? mu * FzR * Math.min(1, hb) * hbLock : Math.min(mu * FzR * 0.9, Math.abs(drive) * m * 0.5);
+  const muR = mu * P.rearGrip;
+  const capR = Math.sqrt(Math.max(0, (muR * FzR) ** 2 - FxR ** 2));
+  const n = 4, h = dt / n;
+  let FyF = 0, FyR = 0, af = 0, ar = 0, ay = 0;
+  for (let i = 0; i < n; i++) {
+    if (vF < 2) {
+      // 低速・後退は幾何学的に（スリップ角の計算が不安定になるため）
+      const rT = (vF * Math.tan(d)) / L;
+      k.yawRate += (rT - k.yawRate) * Math.min(1, h * 25);
+      vL *= Math.exp(-15 * h);
+      FyF = FyR = af = ar = ay = 0;
+    } else {
+      af = Math.atan2(vL + a * k.yawRate, vF) - d;
+      ar = Math.atan2(vL - b * k.yawRate, vF);
+      FyF = -tireForce(af, mu * FzF, B);
+      FyR = Math.max(-capR, Math.min(capR, -tireForce(ar, muR * FzR, B * 1.1)));
+      ay = (FyF * Math.cos(d) + FyR) / m;
+      vL += (ay - vF * k.yawRate + (k.bankAccel || 0)) * h;
+      k.yawRate += ((a * FyF * Math.cos(d) - b * FyR) / P.Iz) * h;
+      vF += (vL * k.yawRate - (FyF * Math.sin(d)) / m) * h;
+      // 補助: 後輪が大きく滑ったら、タイヤで出せる範囲の旋回に戻す（スピン防止）
+      // サイドブレーキ中は滑り角を約 0.3rad で保つ「ドリフト補助」（テールを流したまま曲がれる）
+      if (assist && Math.abs(ar) > (hb > 0.3 ? 0.28 : 0.12)) {
+        const rMax = (mu * 9.8) / vF;
+        const rT = Math.max(-rMax, Math.min(rMax, (vF * Math.tan(d)) / L));
+        k.yawRate += (rT - k.yawRate) * Math.min(1, h * (hb > 0.3 ? 25 : 8));
+        // 横滑りの速さも、後輪の滑り角が上限に収まる値へ寄せる
+        const lim = hb > 0.3 ? 0.3 : 0.15;
+        const vLmax = vF * Math.tan(lim * Math.sign(ar)) + b * k.yawRate;
+        if (Math.abs(vL - b * k.yawRate) > Math.abs(vLmax - b * k.yawRate)) vL += (vLmax - vL) * Math.min(1, h * 20);
+      }
+    }
+    k.heading += k.yawRate * h;
+  }
+  const axNow = (vF - vF0) / Math.max(dt, 1e-4);
+  k.longAccel = (k.longAccel || 0) + (axNow - (k.longAccel || 0)) * Math.min(1, dt * 15);
+  k.frontForce = FyF;
+  k.frontSlip = af;
+  k.rearSlip = ar;
+  k.FzF = FzF;
+  k.mu = mu;
+  k.lateralAccel = ay;
   const c2 = Math.cos(k.heading), s2 = Math.sin(k.heading);
-  vF = wx * c2 + wz * s2;
-  vL = wx * -s2 + wz * c2;
-  const baseGrip = grass ? P.grassGrip : k.gripBase ?? P.grip;
-  // 坂やバンクの重力の横成分
-  vL += (k.bankAccel || 0) * dt;
-  let grip = hb > 0.3 ? Math.min(P.driftGrip, baseGrip) : baseGrip;
-  // 滑り角が大きくなるほどタイヤが粘り、スピンしにくくする（ドリフトを維持できる）
-  const slipNow = Math.atan2(Math.abs(vL), Math.max(1, Math.abs(vF)));
-  grip += Math.max(0, slipNow - 0.4) * 25;
-  const vLnew = vL * Math.exp(-grip * dt);
-  k.lateralAccel = (vL - vLnew) / Math.max(dt, 1e-4);
-  // ドリフト中、アクセルを踏んでいれば横滑りの勢いの一部を前進に変える（速度を保ったまま曲がれる）
-  if (vF > 0 && throttle > 0.2) vF += Math.abs(vL - vLnew) * (hb > 0.3 ? 0.3 : 0.12) * throttle;
-  vL = vLnew;
   k.vx = vF * c2 - vL * s2;
   k.vz = vF * s2 + vL * c2;
   k.slip = Math.atan2(Math.abs(vL), Math.max(1, Math.abs(vF)));
+  const sp = Math.abs(vF);
 
   // ドリフトを溜めて離すとミニターボ
-  const drifting = sp > 8 && (hb > 0.3 || k.slip > 0.16);
+  const drifting = sp > 8 && (hb > 0.3 || Math.abs(k.rearSlip) > 0.12);
   let miniTurbo = 0;
   if (drifting) {
     k.driftTime += dt;
