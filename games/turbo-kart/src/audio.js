@@ -145,6 +145,68 @@ export class KartAudio {
     src.stop(t + 0.7);
   }
 
+  // コインを拾った音（ピコーン: 2 音の短い上昇）
+  coin() {
+    if (!this.running) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    for (const [f, d] of [[988, 0], [1319, 0.07]]) {
+      const o = ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t + d);
+      g.gain.exponentialRampToValueAtTime(0.12, t + d + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, t + d + 0.18);
+      o.connect(g).connect(this.master);
+      o.start(t + d);
+      o.stop(t + d + 0.2);
+    }
+  }
+
+  // コミカルなぶつかり音（ボヨーン: 音程が下がるバネの音）
+  boing(strength = 1) {
+    if (!this.running) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(420, t);
+    o.frequency.exponentialRampToValueAtTime(110, t + 0.35);
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 22;
+    const lg = ctx.createGain();
+    lg.gain.value = 40;
+    lfo.connect(lg).connect(o.frequency);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(Math.min(0.35, 0.12 + strength * 0.03), t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+    o.connect(g).connect(this.master);
+    o.start(t);
+    lfo.start(t);
+    o.stop(t + 0.42);
+    lfo.stop(t + 0.42);
+  }
+
+  // 順位が上がった音（ピロリン）
+  up() {
+    if (!this.running) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    [784, 988, 1175].forEach((f, i) => {
+      const o = ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t + i * 0.06);
+      g.gain.exponentialRampToValueAtTime(0.14, t + i * 0.06 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.06 + 0.2);
+      o.connect(g).connect(this.master);
+      o.start(t + i * 0.06);
+      o.stop(t + i * 0.06 + 0.22);
+    });
+  }
+
   silence() {
     if (this.ctx) this.update(null, 0, 0, false);
   }

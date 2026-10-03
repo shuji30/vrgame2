@@ -5,7 +5,7 @@ const RAMP = 8; // 区間の境目をなめらかに切り替える距離 (m)
 
 export const SURFACES = {
   // maxLat: タイヤが出せる横加速度 (m/s²)、B: タイヤの立ち上がり（ダートは穏やかに滑り出す）
-  tarmac: { grip: 8.5, maxLat: 28.4, rolling: 0, bump: 0.004, B: 14 },
+  tarmac: { grip: 8.5, maxLat: 28.4, rolling: 0, bump: 0.0012, B: 14 },
   rough: { grip: 8, maxLat: 26, rolling: 0.1, bump: 0.045, B: 13 },
   dirt: { grip: 5.5, maxLat: 21, rolling: 0.3, bump: 0.03, B: 8 },
 };
@@ -74,7 +74,8 @@ export function bankSlope(track, s) {
   return slope;
 }
 
-export function roadHeight(track, s, lateral) {
+// detail = false で細かい凹凸（短い波・荒れた路面・ダート）を除いた「路面の形」だけを返す
+export function roadHeight(track, s, lateral, detail = true) {
   const L = track.length;
   const u = s / L;
   const w = surfaceWeights(track, s);
@@ -83,7 +84,10 @@ export function roadHeight(track, s, lateral) {
   const pivot = track.halfWidth + track.runoff;
   let h = elevationAt(track, s) + lateral * bank + Math.abs(bank) * pivot;
   // 路面のうねり（アンジュレーション。約 57m と 13m 周期）
-  h += 0.15 * Math.sin(TAU * 23 * u) + 0.06 * Math.sin(TAU * 97 * u + 1.3);
+  // （短い周期の波は高速だと細かい振動になるので小さく。ゆったりしたうねりは残す）
+  h += 0.15 * Math.sin(TAU * 23 * u);
+  if (!detail) return h;
+  h += 0.02 * Math.sin(TAU * 97 * u + 1.3);
   // 舗装の継ぎ目程度の微細な凹凸
   h += SURFACES.tarmac.bump * Math.sin(TAU * 691 * u);
   // 荒れたターマック: 約 3m 周期の波打ちと、左右でずれた凹凸（片輪だけ跳ねる）
@@ -105,13 +109,22 @@ export function roadHeight(track, s, lateral) {
 export function rideState(track, loc, kartHeading, trackHeading, { half = 0.62, tw = 0.63 } = {}) {
   const rel = kartHeading - trackHeading;
   const c = Math.cos(rel), sn = Math.sin(rel);
-  const wheel = (fx, fz) => roadHeight(track, loc.s + fx * c - fz * sn, loc.lateral + fx * sn + fz * c);
-  const fl = wheel(half, -tw), fr = wheel(half, tw), rl = wheel(-half, -tw), rr = wheel(-half, tw);
-  const front = (fl + fr) / 2, rear = (rl + rr) / 2;
-  return {
-    y: (fl + fr + rl + rr) / 4,
-    pitch: Math.atan2(front - rear, half * 2), // 正 = 前が高い（上り）
-    roll: Math.atan2(fr - fl + (rr - rl), tw * 4), // 正 = 右が高い
-    fl, fr, rl, rr,
+  const pose = (detail) => {
+    const wheel = (fx, fz) => roadHeight(track, loc.s + fx * c - fz * sn, loc.lateral + fx * sn + fz * c, detail);
+    const fl = wheel(half, -tw), fr = wheel(half, tw), rl = wheel(-half, -tw), rr = wheel(-half, tw);
+    const front = (fl + fr) / 2, rear = (rl + rr) / 2;
+    return {
+      y: (fl + fr + rl + rr) / 4,
+      pitch: Math.atan2(front - rear, half * 2), // 正 = 前が高い（上り）
+      roll: Math.atan2(fr - fl + (rr - rl), tw * 4), // 正 = 右が高い
+      fl, fr, rl, rr,
+    };
   };
+  const r = pose(true);
+  // 凹凸を除いた姿勢（坂・バンク・うねり）。描画で細かい揺れだけをならすときの基準
+  const b = pose(false);
+  r.y0 = b.y;
+  r.pitch0 = b.pitch;
+  r.roll0 = b.roll;
+  return r;
 }

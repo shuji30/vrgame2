@@ -6,6 +6,7 @@ import { CalibrationUI } from './input/calibration.js';
 import { FFBBridge } from './ffb.js';
 import { TRACKS } from './core/tracks.js';
 import { setupOnline } from './net/lobby.js';
+import { CHARACTERS } from './scene/characters.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -65,7 +66,7 @@ const describeTrack = () => {
   $('track-desc').textContent = `${t.def.name} — ${TRACK_DESC[t.def.id] || ''}（1 周 ${(t.length / 1000).toFixed(2)}km）`;
 };
 trackSel.addEventListener('change', () => {
-  game.setTrack(trackSel.value);
+  game.setTrack(trackSel.value, game.theme);
   game.showAttract();
   describeTrack();
 });
@@ -77,8 +78,29 @@ game.resize(window.innerWidth, window.innerHeight);
 const npcSel = $('opt-npcs');
 for (let i = 0; i <= 10; i++) npcSel.add(new Option(`${i} 台`, i, i === 10, i === 10));
 const STORE = 'turbokart:menu';
+// モード（パーティー / 本格）とキャラクター
+const charSel = $('opt-char');
+for (const c of CHARACTERS) charSel.add(new Option(`${c.emoji} ${c.name}`, c.id));
+let mode = 'party';
+const setMode = (m, rebuild = true) => {
+  mode = m === 'real' ? 'real' : 'party';
+  for (const b of document.querySelectorAll('#opt-mode button')) b.classList.toggle('on', b.dataset.mode === mode);
+  $('char-field').hidden = mode !== 'party';
+  if (rebuild && game.theme !== mode) {
+    game.setTrack(trackSel.value, mode);
+    game.showAttract();
+  }
+};
+for (const b of document.querySelectorAll('#opt-mode button')) b.addEventListener('click', () => { setMode(b.dataset.mode); raceOptions(); });
+charSel.addEventListener('change', () => { game.character = charSel.value; raceOptions(); });
 try {
   const m = JSON.parse(localStorage.getItem(STORE) || '{}');
+  if (m.character && CHARACTERS.some((c) => c.id === m.character)) charSel.value = game.character = m.character;
+  if (m.mode) setMode(m.mode, false);
+  if (m.mode && m.mode !== game.theme && !(m.track && TRACKS.some((t) => t.id === m.track))) {
+    game.setTrack(trackSel.value, mode);
+    game.showAttract();
+  }
   if (m.npcs != null) npcSel.value = m.npcs;
   if (m.level) $('opt-level').value = m.level;
   if (m.laps) $('opt-laps').value = m.laps;
@@ -86,12 +108,13 @@ try {
   if (m.vehicle) $('opt-vehicle').value = m.vehicle;
   if (m.track && TRACKS.some((t) => t.id === m.track)) {
     trackSel.value = m.track;
-    game.setTrack(m.track);
+    game.setTrack(m.track, mode);
     game.showAttract();
   }
 } catch {
   // 既定値
 }
+setMode(mode, false);
 describeTrack();
 $('opt-trans').value = input.config.transmission;
 $('opt-trans').addEventListener('change', (e) => {
@@ -105,7 +128,7 @@ $('opt-stability').addEventListener('change', (e) => {
 });
 
 function raceOptions() {
-  const o = { npcs: Number(npcSel.value), level: $('opt-level').value, laps: Number($('opt-laps').value), manual: input.config.transmission === 'manual', shake: Number($('opt-shake').value), vehicle: $('opt-vehicle').value, track: trackSel.value };
+  const o = { npcs: Number(npcSel.value), level: $('opt-level').value, laps: Number($('opt-laps').value), manual: input.config.transmission === 'manual', shake: Number($('opt-shake').value), vehicle: $('opt-vehicle').value, track: trackSel.value, mode, character: charSel.value };
   game.shake = o.shake;
   try {
     localStorage.setItem(STORE, JSON.stringify(o));

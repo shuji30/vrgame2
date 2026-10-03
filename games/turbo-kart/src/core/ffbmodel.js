@@ -52,7 +52,8 @@ export class FFBModel {
       force += clamp((diff / rideDt) * 0.5, -0.6, 0.6) * s.road;
       // 前輪の上下の速さ → 突き上げ
       const vz = ((ride.fl + ride.fr) - (prevRide.fl + prevRide.fr)) / 2 / rideDt;
-      jolt = clamp(Math.abs(vz - (this.prevVz || 0)) * 0.25, 0, 1);
+      // 舗装の細かい継ぎ目程度は拾わない（直線でハンドルがゴリゴリ震えないように）
+      jolt = clamp((Math.abs(vz - (this.prevVz || 0)) - 0.12) * 0.25, 0, 1);
       this.prevVz = vz;
     }
 

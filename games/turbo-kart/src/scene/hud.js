@@ -86,7 +86,10 @@ export class Hud {
       center: root.querySelector('[data-hud=center]'),
       map: root.querySelector('[data-hud=map]'),
       board: root.querySelector('[data-hud=board]'),
+      coins: root.querySelector('[data-hud=coins]'),
+      pop: root.querySelector('[data-hud=pop]'),
     };
+    this.lastPos = null;
     this.mapCtx = this.el.map.getContext('2d');
     // VR 用
     this.dash = new CanvasPlane(0.42, 0.2, 512);
@@ -111,8 +114,28 @@ export class Hud {
     return '';
   }
 
-  update(race, me, { vr = false, manual = false, dt = 0 } = {}) {
+  // 順位が変わったら「+1」「-1」を弾ませる（パーティーモード）
+  popPosition(race, me) {
+    const el = this.el.pop;
+    if (race.state !== 'racing' || race.time < 3 || me.finished) {
+      this.lastPos = me.position;
+      return 0;
+    }
+    const d = this.lastPos == null ? 0 : this.lastPos - me.position;
+    this.lastPos = me.position;
+    if (!d) return 0;
+    el.textContent = d > 0 ? `+${d}` : `${d}`;
+    el.classList.toggle('down', d < 0);
+    el.classList.remove('show');
+    void el.offsetWidth; // アニメーションをやり直す
+    el.classList.add('show');
+    return d;
+  }
+
+  update(race, me, { vr = false, manual = false, dt = 0, party = false } = {}) {
     const k = me.kart;
+    this.el.coins.hidden = !party || vr;
+    if (party) this.el.coins.textContent = `🪙 ${me.coins || 0}`;
     const kmh = Math.round(Math.abs(forwardSpeed(k)) * 3.6);
     const lapTime = me.started && !me.finished ? race.time - me.lapStart : null;
     const center = this.centerText(race, me);

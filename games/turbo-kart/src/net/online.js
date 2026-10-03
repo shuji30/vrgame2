@@ -172,6 +172,9 @@ export class OnlineSession {
     this.npcState = null;
     this.onStart = null;
     this.error = null;
+    this.char = null; // 自分のキャラクター
+    this.chars = new Map(); // id → 他の参加者のキャラクター
+    this.helloSent = new Set();
   }
 
   get self() { return this.signal.peer; }
@@ -238,6 +241,12 @@ export class OnlineSession {
     if (r.settings && Object.keys(r.settings).length) this.settings = r.settings;
     this.mesh.sync(r.players.map((p) => p.id));
     for (const m of r.msgs) await this.mesh.handleSignal(m.from, m.data);
+    // つながった相手に、自分のキャラクターを 1 回だけ知らせる
+    for (const p of r.players) {
+      if (p.id === this.self || this.helloSent.has(p.id) || !this.mesh.isOpen(p.id)) continue;
+      this.mesh.send(p.id, { t: 'hello', char: this.char }, true);
+      this.helloSent.add(p.id);
+    }
     this.error = null;
     this.emit();
   }
@@ -255,7 +264,7 @@ export class OnlineSession {
   async startRace(extra = {}) {
     if (!this.isHost) return;
     const at = this.hostNow() + 5000;
-    const grid = this.players.map((p) => ({ id: p.id, name: p.name }));
+    const grid = this.players.map((p) => ({ id: p.id, name: p.name, char: p.id === this.self ? this.char : this.chars.get(p.id) }));
     const msg = { t: 'start', at, grid, settings: this.settings, seed: (Math.random() * 1e9) | 0, ...extra };
     this.mesh.broadcast(msg, true);
     await this.signal.update({ state: 'racing' }).catch(() => {});
@@ -292,6 +301,9 @@ export class OnlineSession {
         this.rtt = rtt;
         break;
       }
+      case 'hello':
+        if (typeof m.char === 'string') this.chars.set(id, m.char.slice(0, 16));
+        break;
       case 'settings':
         this.settings = m.settings;
         this.emit();

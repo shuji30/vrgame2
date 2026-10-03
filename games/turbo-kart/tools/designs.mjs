@@ -43,7 +43,8 @@ export const DESIGNS = {
     cmds: [
       ['mark', 'start'], ['S', 120],
       ['mark', 'source'], ['R', 16, 165], ['mark', 'sourceEnd'], ['S', 170],
-      ['mark', 'eauRouge'], ['L', 40, 30], ['R', 45, 45], ['L', 60, 15], ['mark', 'raidillonTop'],
+      // オー・ルージュ: 谷底で左へ切り込み（コンプレッション）、右・左と曲がりながらラディオンの急坂を登る
+      ['mark', 'eauRouge'], ['L', 50, 25], ['mark', 'raidillon'], ['R', 70, 55], ['L', 90, 30], ['mark', 'raidillonTop'],
       ['S', 450, 'adj'],
       ['mark', 'combes'], ['R', 25, 60], ['L', 25, 60], ['S', 60],
       ['mark', 'malmedy'], ['R', 35, 70], ['S', 80],
@@ -55,7 +56,7 @@ export const DESIGNS = {
       ['mark', 'busstop'], ['R', 12, 70], ['L', 12, 70], ['mark', 'busstopEnd'], ['S', 60],
     ],
     // ラ・ソース → オー・ルージュの谷 → ケメルの丘 → スタヴロの谷 → ブランシモンを登って戻る
-    elevation: [['start', 14], ['source', 15], ['eauRouge', 6], ['raidillonTop', 14], ['combes', 20], ['rivage', 14],
+    elevation: [['start', 14], ['source', 15], ['eauRouge', 3], ['raidillon', 5], ['raidillonTop', 19], ['combes', 22], ['rivage', 14],
       ['pouhon', 9], ['fagnes', 6], ['stavelot', 2], ['blanchimont', 6], ['busstop', 12]],
     banks: [],
     sections: [],

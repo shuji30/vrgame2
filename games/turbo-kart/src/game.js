@@ -12,6 +12,8 @@ import { Hud, fmtTime } from './scene/hud.js';
 import { KartAudio } from './audio.js';
 import { Effects, driftTier } from './scene/fx.js';
 import { createDriver, driveAI } from './core/ai.js';
+import { applyRendererTheme } from './scene/theme.js';
+import { CHARACTERS } from './scene/characters.js';
 
 const STEP = 1 / 120; // 物理の固定刻み
 
@@ -23,6 +25,7 @@ export function centeringForce(wheel, gain = 0.5) {
 }
 
 const lerp = (a, b, t) => a + (b - a) * t;
+const ev0 = (events, type) => events.some((e) => e.type === type);
 const lerpAngle = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 
 export class Game {
@@ -34,6 +37,9 @@ export class Game {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(75, 16 / 9, 0.05, 1500);
     this.hud = new Hud(ui.hud);
+    // 'party'（アイテム・コイン・コミカルな見た目）| 'real'（本格・写実的な見た目）。物理は同じ
+    this.theme = 'party';
+    this.character = 'bear';
     this.setTrack(TRACKS[0].id);
     this.ffbModel = new FFBModel();
     this.fx = new Effects(this.scene);
@@ -52,10 +58,10 @@ export class Game {
     this.showAttract();
   }
 
-  // コースを切り替える（地形・路面・装飾を作り直す）
-  setTrack(id) {
+  // コース（と見た目のテーマ）を切り替える（地形・路面・装飾を作り直す）
+  setTrack(id, theme = this.theme) {
     const def = TRACKS.find((t) => t.id === id) || TRACKS[0];
-    if (this.trackId === def.id) return;
+    if (this.trackId === def.id && this.worldTheme === theme) return;
     if (this.race) this.clearRace();
     if (this.world) {
       this.scene.remove(this.world);
@@ -65,8 +71,10 @@ export class Game {
       });
     }
     this.trackId = def.id;
+    this.theme = this.worldTheme = theme;
     this.track = buildTrack(def);
-    this.world = buildWorld(this.scene, this.track);
+    applyRendererTheme(this.renderer, this.scene, theme);
+    this.world = buildWorld(this.scene, this.track, { theme });
     this.hud.setTrack(this.track);
   }
 
@@ -93,28 +101,34 @@ export class Game {
     this.race = null;
   }
 
-  // opts: { npcs, laps, level, manual, attract, vehicle, track, online: { session, grid, seed, countdown } }
+  // opts: { npcs, laps, level, manual, attract, vehicle, track, mode: 'party' | 'real', character,
+  //         online: { session, grid: [{ id, name, char }], seed, countdown } }
   startRace(opts) {
-    if (opts.track) this.setTrack(opts.track);
+    const theme = opts.mode === 'real' ? 'real' : opts.mode === 'party' ? 'party' : this.theme;
+    this.setTrack(opts.track || this.trackId, theme);
     this.clearRace();
-    this.opts = opts;
+    this.opts = { ...opts, mode: theme };
+    if (opts.character) this.character = opts.character;
     const entries = [];
     const n = Math.max(0, Math.min(10, opts.npcs ?? 10));
     const on = opts.online;
+    // NPC には、プレイヤーが選んでいない動物から順に割り当てる
+    const taken = new Set(on ? on.grid.map((p) => p.char) : opts.attract ? [] : [this.character]);
+    const npcChars = [...CHARACTERS.filter((c) => !taken.has(c.id)), ...CHARACTERS].map((c) => c.id);
     let playerIndex;
     if (on) {
       // オンライン: 参加者をグリッド順に、そのあと NPC（ホストだけが走らせ、他の人には位置を配る）
       on.grid.forEach((p, i) => entries.push({
-        name: p.name, color: KART_COLORS[i % KART_COLORS.length], netId: p.id,
+        name: p.name, color: KART_COLORS[i % KART_COLORS.length], netId: p.id, char: p.char || CHARACTERS[i % CHARACTERS.length].id,
         type: p.id === on.session.self ? 'player' : 'remote',
       }));
       for (let i = 0; i < n; i++) {
-        entries.push({ name: NPC_NAMES[i], color: KART_COLORS[(on.grid.length + i) % KART_COLORS.length], netId: `npc${i}`, type: on.session.isHost ? 'npc' : 'remote' });
+        entries.push({ name: NPC_NAMES[i], color: KART_COLORS[(on.grid.length + i) % KART_COLORS.length], netId: `npc${i}`, char: npcChars[i], type: on.session.isHost ? 'npc' : 'remote' });
       }
       playerIndex = entries.findIndex((e) => e.type === 'player');
     } else {
-      for (let i = 0; i < n; i++) entries.push({ name: NPC_NAMES[i], color: KART_COLORS[(i + 1) % KART_COLORS.length], type: 'npc' });
-      if (!opts.attract) entries.push({ name: 'YOU', color: KART_COLORS[0], type: 'player' });
+      for (let i = 0; i < n; i++) entries.push({ name: NPC_NAMES[i], color: KART_COLORS[(i + 1) % KART_COLORS.length], char: npcChars[i], type: 'npc' });
+      if (!opts.attract) entries.push({ name: 'YOU', color: KART_COLORS[0], char: this.character, type: 'player' });
       playerIndex = opts.attract ? -1 : entries.length - 1;
     }
     this.online = on ? on.session : null;
@@ -125,12 +139,13 @@ export class Game {
       level: opts.level ?? 'normal',
       seed: on ? on.seed : (Math.random() * 1e9) | 0,
       manual: opts.manual && playerIndex >= 0 ? [playerIndex] : [],
+      coins: theme === 'party',
     });
     // オンラインはホストが決めたスタート時刻に合わせてカウントダウンを始める
     if (on) this.race.time = -Math.max(1, on.countdown);
     this.fx.clear();
     this.models = this.race.karts.map((e, i) => {
-      const mo = { isPlayer: e.type === 'player', number: i + 1 };
+      const mo = { isPlayer: e.type === 'player', number: i + 1, theme, character: e.char };
       const v = opts.vehicle || 'kart';
       const m = v === 'kart' ? new KartModel(e.color, e.name, mo) : new CarModel(v, e.color, e.name, mo);
       this.scene.add(m.group);
@@ -163,8 +178,7 @@ export class Game {
     this.cockpit.add(this.hud.banner.mesh);
     this.hud.dash.mesh.visible = this.hud.banner.mesh.visible = false;
     this.hud.bannerText = null;
-    for (const m of this.models) m.setCockpit(false);
-    if (this.me) this.models[this.me.index].setCockpit(this.cameraMode === 'cockpit' || this.xrOn);
+    this.applyView();
 
     if (!opts.attract) {
       this.state = 'race';
@@ -181,8 +195,13 @@ export class Game {
     for (const e of this.race.karts) {
       const k = e.kart;
       const r = e.ride || { y: 0, pitch: 0, roll: 0 };
-      e.prevPose = e.pose || { x: k.x, z: k.z, heading: k.heading, y: r.y, pitch: r.pitch, roll: r.roll };
-      e.pose = { x: k.x, z: k.z, heading: k.heading, y: r.y, pitch: r.pitch, roll: r.roll };
+      // y0 / pitch0 / roll0: 細かい凹凸を除いた路面の形（坂・バンク）での姿勢
+      const p = {
+        x: k.x, z: k.z, heading: k.heading, y: r.y, pitch: r.pitch, roll: r.roll,
+        y0: r.y0 ?? r.y, pitch0: r.pitch0 ?? r.pitch, roll0: r.roll0 ?? r.roll,
+      };
+      e.prevPose = e.pose || p;
+      e.pose = p;
     }
   }
 
@@ -191,23 +210,50 @@ export class Game {
     cam.removeFromParent();
     cam.position.set(0, 0, 0);
     cam.rotation.set(0, 0, 0);
-    if (this.xrOn || (this.me && this.cameraMode === 'cockpit')) {
+    if (this.xrOn || (this.me && this.cameraMode !== 'chase')) {
       this.xrOffset.add(cam);
     } else {
       this.scene.add(cam);
     }
   }
 
+  // mode: 'chase'（ビハインド）| 'cockpit'（車内）| 'eye'（目線: 車体を消してコースを広く見る）
   setCameraMode(mode) {
     this.cameraMode = mode;
-    if (this.me) this.models[this.me.index].setCockpit(mode === 'cockpit' || this.xrOn);
+    this.applyView();
     this.attachCamera();
+  }
+
+  // 自分の車の見え方を視点に合わせる。車内はハンドルを半分の大きさに、目線は車ごと隠す（VR は常に車内）
+  applyView() {
+    for (const m of this.models) {
+      m.setCockpit(false);
+      for (const c of m.eyeHidden || []) c.visible = true;
+      m.eyeHidden = null;
+      m.steerGroup.scale.setScalar(1);
+    }
+    this.hud.dash.mesh.scale.setScalar(0.5);
+    if (!this.me) return;
+    const m = this.models[this.me.index];
+    const mode = this.xrOn ? 'cockpit' : this.cameraMode;
+    m.setCockpit(mode !== 'chase');
+    this.cockpit.position.copy(m.eye);
+    if (!this.xrOn && mode === 'cockpit') m.steerGroup.scale.setScalar(0.5);
+    if (!this.xrOn && mode === 'eye') {
+      m.eyeHidden = m.group.children.filter((c) => c !== this.cockpit && c.visible);
+      for (const c of m.eyeHidden) c.visible = false;
+      this.cockpit.position.y += 0.1;
+    }
+    if (!this.xrOn && mode !== 'chase') {
+      this.camera.fov = mode === 'eye' ? 88 : 75;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   onXRStart() {
     this.renderer.xr.getCamera();
     this.attachCamera();
-    if (this.me) this.models[this.me.index].setCockpit(true);
+    this.applyView();
     this.recenterAt = performance.now() + 500;
   }
 
@@ -215,6 +261,7 @@ export class Game {
     this.xrOffset.position.set(0, 0, 0);
     this.xrOffset.rotation.set(0, 0, 0);
     this.attachCamera();
+    this.applyView();
     if (this.state !== 'menu') this.toMenu();
   }
 
@@ -289,7 +336,7 @@ export class Game {
       else if (this.state === 'paused' && this.xrOn) this.toMenu();
     }
     if (inp.recenter) this.recenter();
-    if (inp.camera && !this.xrOn && this.me) this.setCameraMode(this.cameraMode === 'chase' ? 'cockpit' : 'chase');
+    if (inp.camera && !this.xrOn && this.me) this.setCameraMode({ chase: 'cockpit', cockpit: 'eye', eye: 'chase' }[this.cameraMode] || 'chase');
     if (inp.debug) this.showDebug = !this.showDebug;
     if (inp.ffbReset) this.ffb.reset();
     if (inp.shiftUp || inp.shiftDown) this.lastShiftInput = { up: inp.shiftUp, at: performance.now() };
@@ -345,17 +392,18 @@ export class Game {
         x: lerp(a.x, b.x, alpha), z: lerp(a.z, b.z, alpha), heading: lerpAngle(a.heading, b.heading, alpha),
         y: lerp(a.y, b.y, alpha), pitch: lerp(a.pitch, b.pitch, alpha), roll: lerp(a.roll, b.roll, alpha),
       };
-      // サスペンション: 車体の姿勢をならして細かい凹凸を吸収する（坂・バンク・うねりは残る）
-      const v = (e.vis ||= { y: pose.y, pitch: pose.pitch, roll: pose.roll });
+      // サスペンション: 細かい凹凸の分だけをならす。坂・バンクの形には遅れずに沿わせる
+      // （全体をならすと、急な上り坂で車体が路面の下に沈んで見える）
+      const base = { y: lerp(a.y0, b.y0, alpha), pitch: lerp(a.pitch0, b.pitch0, alpha), roll: lerp(a.roll0, b.roll0, alpha) };
+      const v = (e.vis ||= { y: 0, pitch: 0, roll: 0 });
       const mine = e === this.me;
       const k = 1 - Math.exp(-dt / (mine ? 0.18 : 0.1));
-      v.y += (pose.y - v.y) * k;
-      v.pitch += (pose.pitch - v.pitch) * k;
-      v.roll += (pose.roll - v.roll) * k;
       const keep = mine ? this.shake : 0.3;
-      pose.y = v.y + (pose.y - v.y) * keep;
-      pose.pitch = v.pitch + (pose.pitch - v.pitch) * keep;
-      pose.roll = v.roll + (pose.roll - v.roll) * keep;
+      for (const c of ['y', 'pitch', 'roll']) {
+        const bump = pose[c] - base[c];
+        v[c] += (bump - v[c]) * k;
+        pose[c] = base[c] + v[c] + (bump - v[c]) * keep;
+      }
       // G による車体の傾き: 旋回で外側へロール、ブレーキで前に沈み、加速で後ろに沈む
       const g = (e.gfx ||= { roll: 0, pitch: 0 });
       const kk = 1 - Math.exp(-dt / 0.12);
@@ -380,15 +428,27 @@ export class Game {
     });
     this.fx.update(dt);
 
+    // コースの動く飾り（風船・コイン・信号機）と、写実モードの影の追従
+    const focusE = this.me || race.karts.find((e) => e.position === 1) || race.karts[0];
+    this.world.userData.update?.({ dt, time: race.time, race, focus: focusE.renderPose });
+    if (this.theme === 'party') this.updateExpressions(dt);
+
     this.updateCamera(dt);
 
     if (this.me && this.state !== 'menu') {
       const me = this.me;
+      const party = this.theme === 'party';
       for (const ev of events) {
         if (ev.type === 'lap') me.lapFlash = 2;
-        if (ev.type === 'wall' || (ev.type === 'bump' && ev.strength > 1)) this.audio.thump(ev.strength);
+        if (ev.type === 'wall' || (ev.type === 'bump' && ev.strength > 1)) {
+          this.audio.thump(ev.strength);
+          if (party && ev.strength > 2.5) this.audio.boing(ev.strength);
+        }
         if (ev.type === 'boostPad' || ev.type === 'miniTurbo') this.audio.whoosh();
+        if (ev.type === 'coin') this.audio.coin();
       }
+      if (party && this.hud.popPosition(race, me) > 0) this.audio.up();
+      if (party && ev0(events, 'finish')) this.fx.confetti(this.models[me.index]);
       if (me.lapFlash > 0) me.lapFlash -= dt;
       // カウントダウンの音
       if (race.state === 'countdown') {
@@ -401,7 +461,7 @@ export class Game {
       const vr = this.xrOn;
       this.hud.dash.mesh.visible = vr || this.cameraMode === 'cockpit';
       this.hud.banner.mesh.visible = vr;
-      this.hud.update(race, me, { vr, manual: me.manual, dt });
+      this.hud.update(race, me, { vr, manual: me.manual, dt, party });
 
       // FFB
       if (this.state === 'race' && race.state === 'countdown') {
@@ -424,6 +484,22 @@ export class Game {
       }
       if (this.state === 'results') this.hud.showBoard(race, this.boardHtml());
     }
+  }
+
+  // パーティーモードの表情: ぶつかると目を回し、1 位はドヤ顔、ゴール後は 3 位以内なら笑顔・それ以外は泣き顔
+  updateExpressions(dt) {
+    const race = this.race;
+    race.karts.forEach((e, i) => {
+      for (const ev of e.events) {
+        if ((ev.type === 'wall' && ev.strength > 3) || (ev.type === 'bump' && ev.strength > 2.5)) e.dizzy = 1.2;
+      }
+      e.dizzy = Math.max(0, (e.dizzy || 0) - dt);
+      let face = 'normal';
+      if (e.dizzy > 0) face = 'dizzy';
+      else if (e.finished) face = e.position <= 3 ? 'happy' : 'cry';
+      else if (race.state === 'racing' && e.position === 1) face = 'happy';
+      this.models[i].setExpression(face);
+    });
   }
 
   // オンライン: 受け取った走行データを反映し、自分（とホストは NPC）の走行データを送る
@@ -499,7 +575,7 @@ export class Game {
 
   updateCamera(dt) {
     const focus = this.me || this.race.karts.find((e) => e.position === 1) || this.race.karts[0];
-    if (this.xrOn || (this.me && this.cameraMode === 'cockpit')) return; // コックピットは自動で追従
+    if (this.xrOn || (this.me && this.cameraMode !== 'chase')) return; // 車内・目線は自動で追従
     const pose = focus.renderPose;
     const c = this.chase;
     if (!c.init) {
@@ -508,8 +584,9 @@ export class Game {
     }
     c.heading = lerpAngle(c.heading, pose.heading, 1 - Math.exp(-dt * 5));
     const big = (this.opts?.vehicle || 'kart') !== 'kart';
-    const back = this.me ? (big ? 7.5 : 4.8) : 11;
-    const up = this.me ? (big ? 2.4 : 1.9) : 4;
+    // 自分の車が画面の下 3 分の 1 ほどに収まる距離（近すぎると車が大きく前に見える）
+    const back = this.me ? (big ? 9.8 : 6.6) : 11;
+    const up = this.me ? (big ? 3.1 : 2.5) : 4;
     // ブースト中は視野を広げてスピード感を出す
     const fov = 75 + (focus.kart.boost > 0 ? 10 : 0);
     if (Math.abs(this.camera.fov - fov) > 0.05) {

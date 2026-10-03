@@ -56,6 +56,7 @@ export function setupOnline({ game, ui, input, getVR, $ }) {
     for (const el of document.querySelectorAll('#net-settings select')) el.disabled = !isHost;
     const st = session.settings || {};
     if (!isHost) {
+      if (st.mode) $('net-mode').value = st.mode;
       if (st.track) $('net-track').value = st.track;
       if (st.vehicle) $('net-vehicle').value = st.vehicle;
       if (st.laps) $('net-laps').value = st.laps;
@@ -73,6 +74,7 @@ export function setupOnline({ game, ui, input, getVR, $ }) {
   };
 
   const settingsFromForm = () => ({
+    mode: $('net-mode').value,
     track: $('net-track').value,
     vehicle: $('net-vehicle').value,
     laps: Number($('net-laps').value),
@@ -83,12 +85,14 @@ export function setupOnline({ game, ui, input, getVR, $ }) {
     save();
     if (!(await checkServer())) return;
     session = new OnlineSession($('net-server').value.trim());
+    session.char = game.character; // 自分のキャラクター（パーティーモード）を他の参加者に伝える
     session.onChange(render);
     session.onStart = (msg) => {
       const st = msg.settings || {};
       game.audio.init();
       game.startRace({
         track: st.track, vehicle: st.vehicle, laps: st.laps || 3, npcs: st.npcs || 0, level: 'hard',
+        mode: st.mode || 'party', character: game.character,
         manual: input.config.transmission === 'manual',
         online: { session, grid: msg.grid, seed: msg.seed, countdown: (msg.at - session.hostNow()) / 1000 },
       });
@@ -132,6 +136,8 @@ export function setupOnline({ game, ui, input, getVR, $ }) {
   });
   // タブを閉じたら退出を知らせる（pagehide はスマホ・Quest のブラウザでも確実に届く）
   window.addEventListener('pagehide', () => session?.leave());
+  // ホストは、メニューで選んでいるモードをロビーの初期値にする
+  $('btn-online').addEventListener('click', () => { if (!session) $('net-mode').value = game.theme; });
   window.__online = () => session;
 }
 

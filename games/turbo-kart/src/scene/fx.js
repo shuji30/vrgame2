@@ -17,7 +17,10 @@ function dotTexture() {
 }
 
 class Pool {
-  constructor(scene, { size, additive }) {
+  // late: 最後の 3 分の 1 だけで消える（紙吹雪用）
+  constructor(scene, { size, additive, opacity = 0.45, late = false }) {
+    this.late = late;
+    this.opacity = opacity;
     this.pos = new Float32Array(MAX * 3).fill(-9999);
     this.col = new Float32Array(MAX * 3);
     this.vel = new Float32Array(MAX * 3);
@@ -78,7 +81,7 @@ class Pool {
       this.col[o] = this.base[o];
       this.col[o + 1] = this.base[o + 1];
       this.col[o + 2] = this.base[o + 2];
-      this.alpha[i] = this.additive ? f : f * 0.45;
+      this.alpha[i] = this.additive ? f : (this.late ? Math.min(1, f * 3) : f) * this.opacity;
     }
     this.geo.attributes.position.needsUpdate = true;
     this.geo.attributes.color.needsUpdate = true;
@@ -106,6 +109,7 @@ export class Effects {
   constructor(scene) {
     this.sparks = new Pool(scene, { size: 0.18, additive: true });
     this.dust = new Pool(scene, { size: 0.7, additive: false });
+    this.confettiPool = new Pool(scene, { size: 0.28, additive: false, opacity: 1, late: true });
     this.tmp = new THREE.Vector3();
     this.tmpV = new THREE.Vector3();
   }
@@ -113,6 +117,7 @@ export class Effects {
   clear() {
     this.sparks.clear();
     this.dust.clear();
+    this.confettiPool.clear();
   }
 
   // 毎フレーム、各カートについて呼ぶ
@@ -152,5 +157,18 @@ export class Effects {
   update(dt) {
     this.sparks.update(dt, -9, 2);
     this.dust.update(dt, 1.2, 1.5);
+    this.confettiPool.update(dt, -2.5, 2.2);
   }
 }
+
+const CONFETTI = [0xff4f7b, 0xffd23f, 0x4fc3ff, 0x7cff6a, 0xb06cff, 0xff8a1f, 0xffffff].map((c) => new THREE.Color(c));
+
+// ゴールの紙吹雪（カートの上から降らせる）
+Effects.prototype.confetti = function confetti(model, count = 220) {
+  const g = model.group;
+  for (let n = 0; n < count; n++) {
+    const p = this.tmp.set((Math.random() - 0.3) * 6, 3 + Math.random() * 3, (Math.random() - 0.5) * 6).applyMatrix4(g.matrixWorld);
+    const v = this.tmpV.set((Math.random() - 0.5) * 6, 2 + Math.random() * 4, (Math.random() - 0.5) * 6);
+    this.confettiPool.emit(p, v, CONFETTI[n % CONFETTI.length], 2.5 + Math.random() * 1.5);
+  }
+};

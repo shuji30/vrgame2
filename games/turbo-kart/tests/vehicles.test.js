@@ -84,3 +84,23 @@ test('ハンコン: 高速でブレーキを踏みながらハンドルを切っ
     }
   }
 });
+
+test('車同士の衝突: 車体の長さと幅で当たる（GT3 の前後も素通りしない）', () => {
+  const track = buildTrack(TRACKS[0]);
+  const place = (dx, dz) => {
+    const race = new Race(track, [{ name: 'A', type: 'npc' }, { name: 'B', type: 'npc' }], { vehicle: 'gt3' });
+    const [A, B] = race.karts.map((e) => e.kart);
+    Object.assign(A, { x: 0, z: 0, heading: 0, vx: 0, vz: 0, yawRate: 0 });
+    Object.assign(B, { x: dx, z: dz, heading: 0, vx: 0, vz: 0, yawRate: 0 });
+    race.collideKarts();
+    return Math.hypot(B.x - A.x, B.z - A.z);
+  };
+  // 前後に 4m（車長 4.6m）→ 押し離される
+  assert.ok(place(4, 0) >= 4.59, '前後');
+  // 横に 1.8m（車幅 2.0m）→ 押し離される
+  assert.ok(place(0, 1.8) >= 1.99, '横');
+  // 横に 2.2m → 触れていない
+  assert.equal(place(0, 2.2), 2.2);
+  // 前後に 5m → 触れていない
+  assert.equal(place(5, 0), 5);
+});

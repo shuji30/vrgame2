@@ -2,9 +2,10 @@
 // 入力: { steer: -1..1（右が正）, throttle: 0..1, brake: 0..1, handbrake: 0..1, shiftUp, shiftDown }
 export const KART = {
   radius: 0.95,
+  width: 1.4, // 車同士の当たり判定（カプセル）の幅。長さは length
   wheelbase: 1.6,
-  // 各ギアの上限速度 (m/s)。6 速で約 148 km/h
-  gearTop: [0, 12, 18, 24, 30, 36, 41],
+  // 各ギアの上限速度 (m/s)。最高速 約 150 km/h
+  gearTop: [0, 12, 18, 24, 30, 36, 41.25],
   baseAccel: 11,
   brakeDecel: 20,
   handbrakeDecel: 2.5,
@@ -46,25 +47,25 @@ export const KART = {
 // 車両の諸元。物理はすべて同じ 2 輪モデルで、値だけが違う
 export const VEHICLES = {
   kart: { ...KART, id: 'kart', name: 'カート' },
-  // GT3: 重くて安定。中程度のダウンフォース。約 270km/h
+  // GT3: 重くて安定。中程度のダウンフォース。グリップはカートより高い。約 270km/h
   gt3: {
     ...KART, id: 'gt3', name: 'GT3',
-    radius: 1.35, length: 4.6, wheelbase: 2.7, dynWheelbase: 2.7, cgFront: 1.3, cgHeight: 0.42,
+    radius: 1.35, width: 2.0, length: 4.6, wheelbase: 2.7, dynWheelbase: 2.7, cgFront: 1.3, cgHeight: 0.42,
     mass: 1300, Iz: 1900,
-    gearTop: [0, 22, 33, 44, 55, 66, 76], baseAccel: 9, brakeDecel: 15, drag: 0.00055, rolling: 0.15,
+    gearTop: [0, 22, 33, 44, 55, 66, 74.7], baseAccel: 9, brakeDecel: 15, drag: 0.00055, rolling: 0.15,
     reverseAccel: 3, reverseTop: 7, handbrakeDecel: 2,
-    mu: 1.9, maxLat: 18.6, tireB: 12, rearGrip: 1.3,
+    mu: 3.1, maxLat: 30.4, tireB: 12, rearGrip: 1.3,
     downforce: 1.3, aeroFront: 0.42,
     steerLock: 0.32, steerHigh: 0.05, assistSpeed: 60, wheelHigh: 0.8, shiftTime: 0.1, boostAccel: 6,
   },
-  // フォーミュラ: 軽量・強烈なダウンフォース。約 320km/h
+  // フォーミュラ: 軽量・強烈なダウンフォース。グリップは最も高い。約 320km/h
   formula: {
     ...KART, id: 'formula', name: 'フォーミュラ',
-    radius: 1.35, length: 5.2, wheelbase: 3.2, dynWheelbase: 3.2, cgFront: 1.8, cgHeight: 0.28,
+    radius: 1.35, width: 1.95, length: 5.2, wheelbase: 3.2, dynWheelbase: 3.2, cgFront: 1.8, cgHeight: 0.28,
     mass: 800, Iz: 1100,
-    gearTop: [0, 25, 38, 51, 64, 77, 90], baseAccel: 13, brakeDecel: 22, drag: 0.0006, rolling: 0.12,
+    gearTop: [0, 25, 38, 51, 64, 77, 88.6], baseAccel: 13, brakeDecel: 22, drag: 0.0006, rolling: 0.12,
     reverseAccel: 3, reverseTop: 7, handbrakeDecel: 2,
-    mu: 2.15, maxLat: 21, tireB: 13, rearGrip: 1.3,
+    mu: 3.3, maxLat: 32.3, tireB: 13, rearGrip: 1.3,
     downforce: 3.0, aeroFront: 0.44,
     steerLock: 0.3, steerHigh: 0.04, assistSpeed: 70, wheelHigh: 0.8, shiftTime: 0.06, boostAccel: 7,
   },
@@ -204,7 +205,8 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
     if (r > 0.95 && k.gear < MAXG && throttle > 0.1) shift(k, 1);
     else if (r < 0.5 && k.gear > 1) shift(k, -1);
   }
-  const top = k.gear > 0 ? P.gearTop[k.gear] * (k.boost > 0 ? 1.15 : 1) : P.reverseTop;
+  // topBonus: パーティーモードのコインによる最高速の上乗せ（操作感は変えず、伸びだけ増える）
+  const top = k.gear > 0 ? P.gearTop[k.gear] * (k.boost > 0 ? 1.15 : 1) * (1 + (k.topBonus || 0)) : P.reverseTop;
   k.rpm = k.gear > 0 ? Math.max(0, vF) / P.gearTop[k.gear] : k.gear === 0 ? throttle * 0.9 : Math.abs(vF) / P.reverseTop;
 
   // 自動変速時は停止中にブレーキを踏み続けると後退

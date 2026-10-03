@@ -1,7 +1,8 @@
 // カートの見た目（アニメ調）。前方 = ローカル +X、右 = +Z。ハンドルは入力に合わせて回る
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { toon } from './style.js';
+import { mat, addOutline } from './theme.js';
+import { buildHead, animateDriver } from './characters.js';
 
 // 運転者の目の位置（カートのローカル座標）
 export const EYE = new THREE.Vector3(-0.25, 1.0, 0);
@@ -20,6 +21,11 @@ function geos() {
     tireF: new THREE.CylinderGeometry(0.25, 0.25, 0.26, 20),
     tireR: new THREE.CylinderGeometry(0.29, 0.29, 0.34, 20),
     rim: new THREE.CylinderGeometry(0.15, 0.15, 0.28, 14),
+    // パーティー用: 大きく太いタイヤ
+    bigTireF: new THREE.CylinderGeometry(0.31, 0.31, 0.34, 22),
+    bigTireR: new THREE.CylinderGeometry(0.37, 0.37, 0.44, 22),
+    bigRim: new THREE.CylinderGeometry(0.17, 0.17, 0.46, 14),
+    belly: new THREE.CapsuleGeometry(0.17, 0.12, 4, 10),
     column: new THREE.CylinderGeometry(0.02, 0.02, 0.2, 6),
     steer: new THREE.TorusGeometry(0.17, 0.028, 10, 32),
     spoke: new THREE.BoxGeometry(0.03, 0.32, 0.05),
@@ -73,16 +79,20 @@ function numberPlate(n, color) {
 }
 
 export class KartModel {
-  constructor(color, name, { isPlayer = false, number = 1 } = {}) {
+  // theme: 'party'（動物ドライバー・大きなタイヤ・縁取り）| 'real'（写実的な材質）。character: 動物の id
+  constructor(color, name, { isPlayer = false, number = 1, theme = 'party', character = 'bear' } = {}) {
     const G = geos();
     this.group = new THREE.Group();
+    this.theme = theme;
+    const party = theme === 'party';
+    const real = theme === 'real';
     const base = new THREE.Color(color);
-    const paint = toon({ color: base });
-    const accent = toon({ color: base.clone().offsetHSL(0.08, 0, 0.15) });
-    const dark = toon({ color: 0x23232b });
-    const chrome = toon({ color: 0xd9dde5 });
-    const tire = toon({ color: 0x1b1b20 });
-    const rimMat = toon({ color: 0xffd23f });
+    const paint = mat(theme, { color: base }, 'paint');
+    const accent = mat(theme, { color: base.clone().offsetHSL(0.08, 0, real ? 0 : 0.15) }, 'paint');
+    const dark = mat(theme, { color: real ? 0x18181c : 0x23232b }, 'carbon');
+    const chrome = mat(theme, { color: 0xd9dde5 }, 'metal');
+    const tire = mat(theme, { color: real ? 0x141416 : 0x1b1b20 }, 'rubber');
+    const rimMat = mat(theme, { color: real ? 0xb8bcc4 : 0xffd23f }, 'metal');
 
     const body = new THREE.Mesh(G.body, paint);
     body.position.y = 0.3;
@@ -106,10 +116,13 @@ export class KartModel {
     const postR = postL.clone();
     postR.position.z = 0.35;
     // ゼッケン
-    const plate = new THREE.Mesh(G.plate, toon({ map: numberPlate(number, color) }));
+    const plate = new THREE.Mesh(G.plate, mat(theme, { map: numberPlate(number, color) }, 'paint'));
     plate.position.set(1.33, 0.36, 0);
     plate.rotation.y = Math.PI / 2;
     this.group.add(body, nose, bumperF, bumperR, podL, podR, seat, wing, postL, postR, plate);
+    // 実車のカートにリアウイングは無い
+    if (real) wing.visible = postL.visible = postR.visible = false;
+    if (party) for (const o of [body, nose, bumperF, bumperR, podL, podR, seat, wing]) addOutline(o, 0.03);
 
     // マフラーとブーストの炎
     this.flames = [];
@@ -128,11 +141,13 @@ export class KartModel {
     this.wheels = [];
     for (const [x, z, front] of [[0.68, -0.66, true], [0.68, 0.66, true], [-0.62, -0.7, false], [-0.62, 0.7, false]]) {
       const pivot = new THREE.Group();
-      pivot.position.set(x, front ? 0.25 : 0.29, z);
+      const r = party ? (front ? 0.31 : 0.37) : front ? 0.25 : 0.29;
+      pivot.position.set(x, r, z * (party ? 1.06 : 1));
       const spin = new THREE.Group();
-      const w = new THREE.Mesh(front ? G.tireF : G.tireR, tire);
+      const w = new THREE.Mesh(party ? (front ? G.bigTireF : G.bigTireR) : front ? G.tireF : G.tireR, tire);
       w.rotation.x = Math.PI / 2;
-      const rim = new THREE.Mesh(G.rim, rimMat);
+      if (party) addOutline(w, 0.03);
+      const rim = new THREE.Mesh(party ? G.bigRim : G.rim, rimMat);
       rim.rotation.x = Math.PI / 2;
       spin.add(w, rim);
       pivot.add(spin);
@@ -148,7 +163,7 @@ export class KartModel {
     column.rotation.z = Math.PI / 2;
     column.position.set(0.1, -0.02, 0);
     this.steerWheel = new THREE.Group();
-    const ring = new THREE.Mesh(G.steer, toon({ color: 0x3a3a46 }));
+    const ring = new THREE.Mesh(G.steer, mat(theme, { color: 0x3a3a46 }, 'rubber'));
     ring.rotation.y = Math.PI / 2;
     // スポークは横と下だけ（上は視界をふさがないように空ける）
     const spoke = new THREE.Mesh(G.spoke, chrome);
@@ -156,7 +171,7 @@ export class KartModel {
     spoke.position.y = -0.08;
     const spoke2 = new THREE.Mesh(G.spoke, chrome);
     spoke2.rotation.x = Math.PI / 2;
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.04, 0.05), toon({ color: 0xffd23f }));
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.04, 0.05), mat(theme, { color: 0xffd23f }));
     grip.position.y = 0.17;
     this.steerWheel.add(ring, spoke, spoke2, grip);
     this.steerGroup.add(column, this.steerWheel);
@@ -167,37 +182,63 @@ export class KartModel {
     this.lever.position.set(-0.32, 0.4, 0.36);
     const rod = new THREE.Mesh(G.lever, chrome);
     rod.position.y = 0.19;
-    const knob = new THREE.Mesh(G.knob, toon({ color: 0xff3b5c }));
+    const knob = new THREE.Mesh(G.knob, mat(theme, { color: 0xff3b5c }));
     knob.position.y = 0.39;
     this.lever.add(rod, knob);
     this.group.add(this.lever);
 
-    // ドライバー（プレイヤーのコックピット視点では隠す）。大きなヘルメットでかわいらしく
+    // ドライバー（プレイヤーのコックピット視点では隠す）。腰を支点に体を傾けられるようにする
     this.driver = new THREE.Group();
-    const suit = toon({ color: base.clone().offsetHSL(0, -0.1, -0.1) });
-    const torso = new THREE.Mesh(G.torso, suit);
-    torso.position.set(-0.38, 0.9, 0);
-    for (const z of [-0.2, 0.2]) {
-      const arm = new THREE.Mesh(G.arm, suit);
-      arm.position.set(-0.08, 0.88, z);
-      arm.rotation.z = Math.PI / 2.6;
-      this.driver.add(arm);
+    this.driver.position.set(-0.38, 0.62, 0);
+    const suit = mat(theme, { color: base.clone().offsetHSL(0, -0.1, -0.1) }, 'cloth');
+    if (party) {
+      // 2.5 頭身: 小さな体に大きな動物の頭
+      const belly = new THREE.Mesh(G.belly, suit);
+      belly.position.set(0, 0.22, 0);
+      addOutline(belly, 0.02);
+      for (const z of [-0.17, 0.17]) {
+        const arm = new THREE.Mesh(G.arm, suit);
+        arm.position.set(0.3, 0.26, z);
+        arm.rotation.z = Math.PI / 2.4;
+        arm.scale.setScalar(0.85);
+        this.driver.add(arm);
+      }
+      this.head = buildHead(character);
+      this.headBase = 0.68;
+      this.head.group.position.set(0.04, this.headBase, 0);
+      this.driver.add(belly, this.head.group);
+    } else {
+      const torso = new THREE.Mesh(G.torso, suit);
+      torso.position.set(0, 0.28, 0);
+      for (const z of [-0.2, 0.2]) {
+        const arm = new THREE.Mesh(G.arm, suit);
+        arm.position.set(0.3, 0.26, z);
+        arm.rotation.z = Math.PI / 2.6;
+        this.driver.add(arm);
+      }
+      const helmet = new THREE.Mesh(G.helmet, mat(theme, { color: 0xffffff }, 'paint'));
+      helmet.position.set(0.06, 0.7, 0);
+      const stripe = new THREE.Mesh(G.stripe, paint);
+      stripe.position.copy(helmet.position);
+      stripe.rotation.set(0, Math.PI / 2, Math.PI / 2);
+      const visor = new THREE.Mesh(G.visor, mat(theme, { color: 0x1c2a4a }, 'glass'));
+      visor.rotation.y = -Math.PI / 2;
+      visor.position.copy(helmet.position);
+      this.driver.add(torso, helmet, stripe, visor);
     }
-    const helmet = new THREE.Mesh(G.helmet, toon({ color: 0xffffff }));
-    helmet.position.set(-0.32, 1.32, 0);
-    const stripe = new THREE.Mesh(G.stripe, paint);
-    stripe.position.copy(helmet.position);
-    stripe.rotation.set(0, Math.PI / 2, Math.PI / 2);
-    const visor = new THREE.Mesh(G.visor, toon({ color: 0x1c2a4a }));
-    visor.rotation.y = -Math.PI / 2;
-    visor.position.copy(helmet.position);
-    this.driver.add(torso, helmet, stripe, visor);
     this.group.add(this.driver);
+    this.lean = 0;
+    this.bob = { y: 0, v: 0, prevY: null };
 
     const shadow = new THREE.Mesh(G.shadow, new THREE.MeshBasicMaterial({ map: blobShadow(), transparent: true, depthWrite: false }));
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.04;
     this.group.add(shadow);
+    // 写実モードは本物の影も落とす（丸い影は薄く残して接地感を出す）
+    if (real) {
+      shadow.material.opacity = 0.5;
+      this.group.traverse((o) => { if (o.isMesh && o !== shadow && o.material.blending !== THREE.AdditiveBlending) o.castShadow = true; });
+    }
 
     if (!isPlayer && name) this.group.add(this.makeLabel(name, color));
     this.wheelSpin = 0;
@@ -235,6 +276,16 @@ export class KartModel {
     this.driver.visible = !on;
   }
 
+  // 表情（パーティーモードのみ）: normal / happy / dizzy / cry
+  setExpression(name) {
+    this.head?.setExpression(name);
+  }
+
+  // ドライバーの体の傾き（遠心力の向き）と、凹凸で頭がぽよんと弾む動き
+  animateDriver(pose, kart, dt) {
+    animateDriver(this, pose, kart, dt);
+  }
+
   // pose: { x, z, heading, y, pitch, roll }（補間済みの姿勢）、kart: physics 状態、steer: -1..1
   update(pose, kart, steer, dt, lockDeg = 270) {
     this.group.position.set(pose.x, pose.y, pose.z);
@@ -248,6 +299,7 @@ export class KartModel {
     this.steerWheel.rotation.x = steer * THREE.MathUtils.degToRad(lockDeg / 2);
     const hb = kart.handbrakeInput || 0;
     this.lever.rotation.z = 0.35 + hb * 0.6;
+    this.animateDriver(pose, kart, dt);
     // ブースト中は青い炎がゆらめく
     this.flameT += dt;
     const boosting = kart.boost > 0;

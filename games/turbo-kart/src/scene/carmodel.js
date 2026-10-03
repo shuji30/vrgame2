@@ -2,7 +2,8 @@
 // 前方 = ローカル +X、右 = +Z
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { toon } from './style.js';
+import { mat, addOutline } from './theme.js';
+import { buildHead, animateDriver } from './characters.js';
 
 function label(name, color) {
   const c = document.createElement('canvas');
@@ -46,18 +47,20 @@ function numberTex(n, color) {
 }
 
 export class CarModel {
-  constructor(type, color, name, { isPlayer = false, number = 1 } = {}) {
+  constructor(type, color, name, { isPlayer = false, number = 1, theme = 'party', character = 'bear' } = {}) {
+    this.theme = theme;
+    const party = theme === 'party';
     this.type = type;
     this.group = new THREE.Group();
     this.group.rotation.order = 'YZX';
     const base = new THREE.Color(color);
-    const paint = toon({ color: base });
-    const accent = toon({ color: base.clone().offsetHSL(0.06, 0, 0.12) });
-    const dark = toon({ color: 0x1e1f26 });
-    const glass = toon({ color: 0x223355 });
-    const carbon = toon({ color: 0x2b2c33 });
-    const tire = toon({ color: 0x17171c });
-    const rimMat = toon({ color: 0xd9dde5 });
+    const paint = mat(theme, { color: base }, 'paint');
+    const accent = mat(theme, { color: base.clone().offsetHSL(0.06, 0, party ? 0.12 : 0) }, 'paint');
+    const dark = mat(theme, { color: 0x1e1f26 }, 'carbon');
+    const glass = mat(theme, { color: party ? 0x223355 : 0x0d1420 }, 'glass');
+    const carbon = mat(theme, { color: party ? 0x2b2c33 : 0x1a1b20 }, 'carbon');
+    const tire = mat(theme, { color: 0x17171c }, 'rubber');
+    const rimMat = mat(theme, { color: party ? 0xd9dde5 : 0x9a9ea6 }, 'metal');
     const formula = type === 'formula';
     // 運転席視点のときに隠す部品（視界をふさぐ屋根・キャビン・ハロー）
     this.cockpitHide = [];
@@ -107,7 +110,7 @@ export class CarModel {
       const halo = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.035, 8, 20, Math.PI), carbon);
       halo.rotation.set(0, Math.PI / 2, 0);
       halo.position.set(0.15, 0.68, 0);
-      const num = new THREE.Mesh(new THREE.CircleGeometry(0.2, 20), toon({ map: numberTex(number, color) }));
+      const num = new THREE.Mesh(new THREE.CircleGeometry(0.2, 20), mat(theme, { map: numberTex(number, color) }, 'paint'));
       num.position.set(1.6, 0.64, 0);
       num.rotation.x = -Math.PI / 2;
       num.rotation.z = -Math.PI / 2;
@@ -115,6 +118,8 @@ export class CarModel {
       this.cockpitHide.push(halo);
       this.eye = new THREE.Vector3(-0.2, 0.92, 0);
       this.steerPos = new THREE.Vector3(0.22, 0.66, 0);
+    } else if (theme === 'real') {
+      this.buildRealGT3({ paint, glass, carbon, dark, color, number });
     } else {
       // GT3: ボディ・キャビン・リアウイング・スプリッター
       const body = new THREE.Mesh(new RoundedBoxGeometry(4.6, 0.62, 2.0, 4, 0.25), paint);
@@ -132,9 +137,9 @@ export class CarModel {
         post.position.set(-2.05, 1.15, z);
         this.group.add(post);
       }
-      const stripe = new THREE.Mesh(new RoundedBoxGeometry(4.62, 0.05, 0.4, 2, 0.02), toon({ color: 0xffffff }));
+      const stripe = new THREE.Mesh(new RoundedBoxGeometry(4.62, 0.05, 0.4, 2, 0.02), mat(theme, { color: 0xffffff }, 'paint'));
       stripe.position.set(0, 0.87, 0);
-      const num = new THREE.Mesh(new THREE.CircleGeometry(0.32, 24), toon({ map: numberTex(number, color) }));
+      const num = new THREE.Mesh(new THREE.CircleGeometry(0.32, 24), mat(theme, { map: numberTex(number, color) }, 'paint'));
       num.position.set(0.3, 0.6, 1.005);
       const num2 = num.clone();
       num2.position.z = -1.005;
@@ -155,30 +160,51 @@ export class CarModel {
       this.steerPos = new THREE.Vector3(0.12, 0.98, -0.38);
     }
 
+    if (party) {
+      // 車体に縁取りを付け、GT3 のガラスは半透明にして中の動物が見えるようにする
+      const parts = [];
+      this.group.traverse((o) => { if (o.isMesh && o.material !== glass) parts.push(o); });
+      for (const o of parts) addOutline(o, 0.035);
+      glass.transparent = true;
+      glass.opacity = 0.45;
+    }
+
     // ハンドル
     this.steerGroup = new THREE.Group();
     this.steerGroup.position.copy(this.steerPos);
     this.steerGroup.rotation.z = -0.15;
     this.steerWheel = new THREE.Group();
     const ringR = formula ? 0.14 : 0.18;
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(ringR, 0.025, 10, 32), toon({ color: 0x33343e }));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(ringR, 0.025, 10, 32), mat(theme, { color: 0x33343e }, 'rubber'));
     ring.rotation.y = Math.PI / 2;
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.05, ringR * 2), toon({ color: 0xd9dde5 }));
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.04, 0.05), toon({ color: 0xffd23f }));
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.05, ringR * 2), mat(theme, { color: 0xd9dde5 }, 'metal'));
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.04, 0.05), mat(theme, { color: 0xffd23f }));
     grip.position.y = ringR;
     this.steerWheel.add(ring, bar, grip);
     this.steerGroup.add(this.steerWheel);
     this.group.add(this.steerGroup);
     this.lever = new THREE.Group(); // 互換のため（車ではサイドブレーキのレバーを表示しない）
 
-    // ドライバー（ヘルメットだけ見える）
+    // ドライバー（頭だけ見える）。腰の位置を支点に傾ける
     this.driver = new THREE.Group();
-    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.2, 18, 14), toon({ color: 0xffffff }));
-    helmet.position.copy(this.eye).add(new THREE.Vector3(-0.05, 0.02, 0));
-    const visor = new THREE.Mesh(new THREE.SphereGeometry(0.205, 18, 14, -0.9, 1.8, 1.0, 0.75), toon({ color: 0x1c2a4a }));
-    visor.rotation.y = -Math.PI / 2;
-    visor.position.copy(helmet.position);
-    this.driver.add(helmet, visor);
+    this.driver.position.copy(this.eye).add(new THREE.Vector3(-0.05, -0.45, 0));
+    if (party) {
+      this.head = buildHead(character);
+      // GT3 は屋根の下に収まる高さ（フォーミュラはコックピットから頭が出る）
+      this.headBase = formula ? 0.47 : 0.35;
+      this.head.group.position.set(0, this.headBase, 0);
+      this.head.group.scale.setScalar(0.72);
+      this.headScale = 0.72;
+      this.driver.add(this.head.group);
+    } else {
+      const hr = formula ? 0.2 : 0.15; // GT3 は屋根を突き抜けないよう小さく低く
+      const helmet = new THREE.Mesh(new THREE.SphereGeometry(hr, 18, 14), mat(theme, { color: 0xffffff }, 'paint'));
+      helmet.position.set(0, formula ? 0.47 : 0.33, 0);
+      const visor = new THREE.Mesh(new THREE.SphereGeometry(hr * 1.025, 18, 14, -0.9, 1.8, 1.0, 0.75), mat(theme, { color: 0x1c2a4a }, 'glass'));
+      visor.rotation.y = -Math.PI / 2;
+      visor.position.copy(helmet.position);
+      this.driver.add(helmet, visor);
+    }
     this.group.add(this.driver);
 
     // ブーストの炎（排気）
@@ -207,6 +233,10 @@ export class CarModel {
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.04;
     this.group.add(shadow);
+    if (theme === 'real') {
+      shadow.material.opacity = 0.5;
+      this.group.traverse((o) => { if (o.isMesh && o !== shadow && o.material.blending !== THREE.AdditiveBlending) o.castShadow = true; });
+    }
 
     if (!isPlayer && name) {
       const l = label(name, color);
@@ -218,9 +248,100 @@ export class CarModel {
     this.rear = { x: -wb * 0.45, z: tr };
   }
 
+  // 写実モードの GT3: 横から見た輪郭を押し出した車体（ボンネット → フロントガラス → ルーフ → リア）
+  buildRealGT3({ paint, glass, carbon, dark, color, number }) {
+    const V = (x, y) => new THREE.Vector2(x, y);
+    const extrude = (shape, depth, bevel, mat) => {
+      const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 3, curveSegments: 18 });
+      g.translate(0, 0, -depth / 2);
+      return new THREE.Mesh(g, mat);
+    };
+    // 上半分（タイヤの上端より上）: 全幅
+    const upper = new THREE.Shape();
+    upper.moveTo(2.32, 0.6);
+    upper.lineTo(2.3, 0.68);
+    upper.splineThru([V(1.9, 0.74), V(1.25, 0.8), V(0.65, 0.84)]);
+    upper.splineThru([V(0.15, 1.1), V(-0.35, 1.17), V(-1.0, 1.15)]);
+    upper.splineThru([V(-1.6, 1.0), V(-2.0, 0.95), V(-2.3, 0.93)]);
+    upper.lineTo(-2.32, 0.6);
+    upper.closePath();
+    const body = extrude(upper, 1.84, 0.05, paint);
+    // 窓（車体よりわずかに外側に出して、横と前後から見えるようにする）
+    const win = new THREE.Shape();
+    win.moveTo(0.6, 0.87);
+    win.splineThru([V(0.15, 1.08), V(-0.35, 1.13), V(-1.0, 1.11)]);
+    win.splineThru([V(-1.55, 0.98)]);
+    win.lineTo(-1.6, 0.88);
+    win.closePath();
+    const windows = extrude(win, 1.86, 0.062, glass);
+    // 下半分: タイヤの前後と間（ホイールハウスの開口を残す）、中央は細い床
+    const lower = (x0, x1, w) => {
+      const m = new THREE.Mesh(new RoundedBoxGeometry(x1 - x0, 0.42, w, 3, 0.06), paint);
+      m.position.set((x0 + x1) / 2, 0.41, 0);
+      return m;
+    };
+    const bumperF = lower(1.88, 2.36, 1.94);
+    const skirt = lower(-0.82, 1.1, 1.94);
+    const bumperR = lower(-2.34, -1.6, 1.94);
+    const floor = lower(-2.2, 2.2, 1.3);
+    // フロントスプリッター・リアディフューザー・スワンネックのリアウイング
+    const splitter = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.04, 2.0), carbon);
+    splitter.position.set(2.3, 0.22, 0);
+    const diffuser = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 1.6), carbon);
+    diffuser.position.set(-2.32, 0.3, 0);
+    const wing = new THREE.Mesh(new RoundedBoxGeometry(0.38, 0.04, 1.85, 2, 0.015), carbon);
+    wing.position.set(-2.12, 1.32, 0);
+    wing.rotation.z = 0.12;
+    for (const z of [-0.45, 0.45]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.42, 0.03), carbon);
+      post.position.set(-2.05, 1.12, z);
+      post.rotation.z = -0.35;
+      const plate = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.22, 0.02), carbon);
+      plate.position.set(-2.12, 1.32, z * 2.07);
+      this.group.add(post, plate);
+    }
+    // ライト・ミラー・ゼッケン
+    for (const z of [-0.66, 0.66]) {
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.08, 0.38), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2d0, emissiveIntensity: 0.8, roughness: 0.2 }));
+      head.position.set(2.27, 0.7, z);
+      head.rotation.z = -0.35;
+      const tail = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.07, 0.42), new THREE.MeshStandardMaterial({ color: 0x550000, emissive: 0xff1a1a, emissiveIntensity: 0.9 }));
+      tail.position.set(-2.33, 0.86, z);
+      const mirror = new THREE.Mesh(new RoundedBoxGeometry(0.12, 0.09, 0.16, 2, 0.03), paint);
+      mirror.position.set(0.45, 0.97, z * 1.52);
+      this.group.add(head, tail, mirror);
+    }
+    const num = new THREE.Mesh(new THREE.CircleGeometry(0.3, 24), mat('real', { map: numberTex(number, color) }, 'paint'));
+    num.position.set(-0.1, 0.42, 0.975);
+    const num2 = num.clone();
+    num2.position.z = -0.975;
+    num2.rotation.y = Math.PI;
+    // 運転席視点用のボンネットとダッシュボード（車体の内側からは車体が見えないため）
+    const hoodShape = new THREE.Shape();
+    hoodShape.moveTo(2.32, 0.6);
+    hoodShape.lineTo(2.3, 0.68);
+    hoodShape.splineThru([V(1.9, 0.74), V(1.25, 0.8), V(0.65, 0.84)]);
+    hoodShape.lineTo(0.62, 0.6);
+    hoodShape.closePath();
+    const hood = extrude(hoodShape, 1.84, 0.05, paint);
+    const dash = new THREE.Mesh(new RoundedBoxGeometry(0.45, 0.14, 1.7, 2, 0.05), dark);
+    dash.position.set(0.5, 0.9, 0);
+    hood.visible = dash.visible = false;
+    this.group.add(body, windows, bumperF, skirt, bumperR, floor, splitter, diffuser, wing, num, num2, hood, dash);
+    this.cockpitHide.push(body, windows);
+    this.cockpitShow = [hood, dash];
+    this.eye = new THREE.Vector3(-0.35, 1.12, -0.38);
+    this.steerPos = new THREE.Vector3(0.12, 0.95, -0.38);
+  }
+
   setCockpit(on) {
     this.driver.visible = !on;
     for (const m of this.cockpitHide) m.visible = !on;
+    for (const m of this.cockpitShow || []) m.visible = on;
+  }
+
+  setExpression(name) {
+    this.head?.setExpression(name);
   }
 
   update(pose, kart, steer, dt, lockDeg = 270) {
@@ -233,6 +354,7 @@ export class CarModel {
       if (w.front) w.pivot.rotation.y = -kart.steerAngle;
     }
     this.steerWheel.rotation.x = steer * THREE.MathUtils.degToRad(lockDeg / 2);
+    animateDriver(this, pose, kart, dt);
     this.flameT += dt;
     const boosting = kart.boost > 0;
     for (const f of this.flames) {

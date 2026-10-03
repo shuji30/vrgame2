@@ -5,6 +5,7 @@ import { SURFACES } from './surface.js';
 import { createDriver, driveAI } from './ai.js';
 import { mulberry32 } from './rng.js';
 import { rideState, surfaceParams } from './surface.js';
+import { coinLayout, collectCoins } from './coins.js';
 
 const G = 9.8;
 
@@ -28,8 +29,10 @@ export function gridSlot(track, i) {
 
 export class Race {
   // entries: [{ name, color, type: 'player' | 'npc' | 'remote', id }]
-  constructor(track, entries, { laps = 3, seed = 1, level = 'normal', manual = [], vehicle = 'kart' } = {}) {
+  // coins: パーティーモードのコイン（拾うと最高速が少し上がる）
+  constructor(track, entries, { laps = 3, seed = 1, level = 'normal', manual = [], vehicle = 'kart', coins = false } = {}) {
     this.spec = VEHICLES[vehicle] || KART;
+    this.coins = coins ? coinLayout(track).map((c) => ({ ...c, respawnAt: -Infinity })) : [];
     this.track = track;
     this.laps = laps;
     this.level = level;
@@ -58,6 +61,7 @@ export class Race {
         progress: 0,
         position: i + 1,
         input: { steer: 0, throttle: 0, brake: 0, handbrake: 0 },
+        coins: 0,
         boostPadCool: 0,
         events: [],
       };
@@ -126,6 +130,7 @@ export class Race {
       if (e.type === 'remote') continue;
       this.checkBoostPads(e, dt);
     }
+    if (racing && this.coins.length) collectCoins(this);
     this.updateProgress();
   }
 
@@ -159,7 +164,9 @@ export class Race {
   applyTerrain(e) {
     const t = this.track;
     const k = e.kart;
-    const ride = rideState(t, e.loc, k.heading, t.heading[e.loc.i]);
+    // 4 輪の位置は車種の大きさに合わせる（カートは従来の値）
+    const dims = this.spec.id && this.spec.id !== 'kart' ? { half: this.spec.wheelbase / 2, tw: 0.85 } : undefined;
+    const ride = rideState(t, e.loc, k.heading, t.heading[e.loc.i], dims);
     const p = surfaceParams(t, e.loc.s);
     k.gripBase = p.grip;
     k.maxLatBase = p.maxLat;
@@ -207,30 +214,53 @@ export class Race {
     }
   }
 
+  // 車同士の衝突。車体は向きに沿った細長いカプセル（幅 = spec.width、長さ = spec.length）
   collideKarts() {
     const ks = this.karts;
-    const R = this.spec.radius * 2;
+    const P = this.spec;
+    const r = (P.width ?? P.radius * 1.4) / 2;
+    const half = Math.max(0, (P.length ?? 2) / 2 - r);
+    const yawK = (P.mass / P.Iz) * 0.35; // 中心を外れた当たりで車の向きが変わる量（控えめ）
     for (let a = 0; a < ks.length; a++) {
       for (let b = a + 1; b < ks.length; b++) {
         const A = ks[a].kart, B = ks[b].kart;
         // 立体交差の上と下にいる車はぶつからない
         if (Math.abs((ks[a].ride?.y ?? 0) - (ks[b].ride?.y ?? 0)) > 3) continue;
-        const dx = B.x - A.x, dz = B.z - A.z;
+        const reach = 2 * (half + r);
+        if (Math.abs(B.x - A.x) > reach || Math.abs(B.z - A.z) > reach) continue;
+        const c = closestSegments(A, B, half);
+        const dx = c.bx - c.ax, dz = c.bz - c.az;
         const d2 = dx * dx + dz * dz;
-        if (d2 >= R * R || d2 < 1e-8) continue;
+        if (d2 >= 4 * r * r) continue;
         const d = Math.sqrt(d2);
-        const nx = dx / d, nz = dz / d;
-        const over = (R - d) / 2;
+        // 中心線が重なるほど深く入ったときは、中心どうしを結ぶ向きに押し出す
+        let nx, nz;
+        if (d > 1e-4) { nx = dx / d; nz = dz / d; } else {
+          const cd = Math.hypot(B.x - A.x, B.z - A.z) || 1;
+          nx = (B.x - A.x) / cd; nz = (B.z - A.z) / cd;
+        }
+        const over = (2 * r - d) / 2;
         // 他プレイヤー（remote）は動かさず、こちら側だけ押し戻す
         const ra = ks[a].type === 'remote', rb = ks[b].type === 'remote';
         const wa = ra ? 0 : rb ? 2 : 1, wb = rb ? 0 : ra ? 2 : 1;
         A.x -= nx * over * wa; A.z -= nz * over * wa;
         B.x += nx * over * wb; B.z += nz * over * wb;
-        const rel = (B.vx - A.vx) * nx + (B.vz - A.vz) * nz;
+        // 接触点での相対速度（回転による速度も含める）
+        const px = (c.ax + c.bx) / 2, pz = (c.az + c.bz) / 2;
+        const rax = px - A.x, raz = pz - A.z, rbx = px - B.x, rbz = pz - B.z;
+        const vax = A.vx - (A.yawRate || 0) * raz, vaz = A.vz + (A.yawRate || 0) * rax;
+        const vbx = B.vx - (B.yawRate || 0) * rbz, vbz = B.vz + (B.yawRate || 0) * rbx;
+        const rel = (vbx - vax) * nx + (vbz - vaz) * nz;
         if (rel < 0) {
           const j = -rel * 0.6;
-          if (!ra) { A.vx -= nx * j * wa * 0.5; A.vz -= nz * j * wa * 0.5; }
-          if (!rb) { B.vx += nx * j * wb * 0.5; B.vz += nz * j * wb * 0.5; }
+          if (!ra) {
+            A.vx -= nx * j * wa * 0.5; A.vz -= nz * j * wa * 0.5;
+            A.yawRate -= (rax * nz - raz * nx) * j * wa * 0.5 * yawK;
+          }
+          if (!rb) {
+            B.vx += nx * j * wb * 0.5; B.vz += nz * j * wb * 0.5;
+            B.yawRate += (rbx * nz - rbz * nx) * j * wb * 0.5 * yawK;
+          }
           ks[a].events.push({ type: 'bump', strength: -rel, nx, nz });
           ks[b].events.push({ type: 'bump', strength: -rel, nx: -nx, nz: -nz });
         }
@@ -316,6 +346,28 @@ export class Race {
   standings() {
     return [...this.karts].sort((a, b) => a.position - b.position);
   }
+}
+
+// 2 台の車体の中心線（向きに沿った長さ 2*half の線分）どうしの最も近い点
+function closestSegments(A, B, half) {
+  const ux = Math.cos(A.heading) * half, uz = Math.sin(A.heading) * half;
+  const vx = Math.cos(B.heading) * half, vz = Math.sin(B.heading) * half;
+  // 線分 A: A + s*u（s = -1..1）、線分 B: B + t*v
+  const wx = A.x - B.x, wz = A.z - B.z;
+  const a = ux * ux + uz * uz, b = ux * vx + uz * vz, c = vx * vx + vz * vz;
+  const d = ux * wx + uz * wz, e = vx * wx + vz * wz;
+  const clamp = (x) => Math.max(-1, Math.min(1, x));
+  let s, t;
+  if (a < 1e-9) {
+    s = 0;
+    t = c < 1e-9 ? 0 : clamp(e / c);
+  } else {
+    const den = a * c - b * b;
+    s = den > 1e-9 ? clamp((b * e - c * d) / den) : 0;
+    t = c < 1e-9 ? 0 : clamp((b * s + e) / c);
+    s = clamp((b * t - d) / a);
+  }
+  return { ax: A.x + ux * s, az: A.z + uz * s, bx: B.x + vx * t, bz: B.z + vz * t };
 }
 
 export { forwardSpeed };
