@@ -13,11 +13,12 @@ export class SignalClient {
     this.token = null;
   }
 
-  async call(a, body = {}) {
+  async call(a, body = {}, keepalive = false) {
     const res = await fetch(this.base, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ a, room: this.room, peer: this.peer, token: this.token, ...body }),
+      keepalive, // タブを閉じる途中でも送り切る
     });
     const j = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
     if (!j.ok) throw new Error(j.error || 'error');
@@ -47,7 +48,7 @@ export class SignalClient {
 
   async leave() {
     if (!this.room) return;
-    try { await this.call('leave'); } catch { /* 切断済み */ }
+    try { await this.call('leave', {}, true); } catch { /* 切断済み */ }
     this.room = this.peer = this.token = null;
   }
 }

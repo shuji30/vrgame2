@@ -130,7 +130,8 @@ export function setupOnline({ game, ui, input, getVR, $ }) {
     session = null;
     render();
   });
-  window.addEventListener('beforeunload', () => session?.leave());
+  // タブを閉じたら退出を知らせる（pagehide はスマホ・Quest のブラウザでも確実に届く）
+  window.addEventListener('pagehide', () => session?.leave());
   window.__online = () => session;
 }
 
