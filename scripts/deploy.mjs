@@ -5,7 +5,7 @@
 // パスワードは保存しない（SSH が聞いてくる。SSH 鍵を設定すれば聞かれなくなる）
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join, relative, sep } from 'node:path';
+import { join, relative, sep, dirname } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
@@ -109,10 +109,27 @@ async function main() {
   const git = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' });
   const version = { deployed: new Date().toISOString(), commit: git.status === 0 ? git.stdout.trim() : '' };
   writeFileSync(join(verDir, 'version.json'), JSON.stringify(version) + '\n');
-  const tar = spawn('tar', ['-czf', '-', ...files, '-C', verDir, 'version.json'], { cwd: root, stdio: ['ignore', 'pipe', 'inherit'] });
+  // ブラウザに古いプログラムが残って新旧が混ざらないよう、各ゲームの src/ を毎回新しい名前（src-<版>/）で置く
+  const stamp = Date.now().toString(36);
+  const staged = [];
+  for (const rel of files) {
+    const m = rel.match(/^games\/([^/]+)\/src\//);
+    const out = m ? rel.replace(`games/${m[1]}/src/`, `games/${m[1]}/src-${stamp}/`) : rel;
+    const dst = join(verDir, out);
+    mkdirSync(dirname(dst), { recursive: true });
+    if (/^games\/[^/]+\/index\.html$/.test(rel)) {
+      writeFileSync(dst, readFileSync(join(root, rel), 'utf8').replace(/(["'])\.\/src\//g, `$1./src-${stamp}/`));
+    } else {
+      copyFileSync(join(root, rel), dst);
+    }
+    staged.push(out);
+  }
+  const tar = spawn('tar', ['-czf', '-', ...staged, 'version.json'], { cwd: verDir, stdio: ['ignore', 'pipe', 'inherit'] });
   const remote = [
     `mkdir -p '${dir}'`,
     `tar -xzf - -C '${dir}'`,
+    // 前回までの src / src-<版> を消す（今回の版だけ残す）
+    `for d in '${dir}'/games/*/src '${dir}'/games/*/src-*; do [ -e "$d" ] && [ "$(basename "$d")" != "src-${stamp}" ] && rm -rf "$d"; done; true`,
     `mkdir -p '${dir}/server/data' && chmod 700 '${dir}/server/data'`,
     `(command -v php >/dev/null && php -l '${dir}/server/api.php' || echo 'php コマンドが見つからないため構文チェックを省略')`,
   ].join(' && ');
