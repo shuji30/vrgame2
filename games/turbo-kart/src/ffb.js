@@ -153,6 +153,8 @@ export class FFBBridge {
   // 毎フレーム呼ぶ（送信は 60Hz に間引く）
   update(out, force = false) {
     if (!this.settings.enabled && !force) return;
+    // 力の向きの反転はここで一括（レース・テスト・リセットのどれにも効く）
+    if (this.settings.invert) out = { ...out, constant: -out.constant };
     this.lastOut = out;
     const web = this.webTarget();
     if (web) {
@@ -213,30 +215,26 @@ export class FFBBridge {
     return { state, ok: !!target && this.settings.enabled, force: c, error: err };
   }
 
+  // 1 秒間だけテストの力を出す（WebHID でもブリッジでも同じ経路。反転も効く）
   test(effect) {
     if (!this.settings.enabled) return;
-    const web = this.webTarget();
-    if (web) {
-      // 1 秒間だけテストの力を出す
-      const g = this.settings.gain;
-      const out = { constant: 0, damper: 0, rumble: 0, rumbleHz: 0 };
-      if (effect === 'left') out.constant = -0.5 * g;
-      else if (effect === 'right') out.constant = 0.5 * g;
-      else if (effect === 'rumble') { out.rumble = 0.6 * g; out.rumbleHz = 25; }
-      else if (effect === 'center') out.damper = 0.8 * g;
-      const end = performance.now() + 1000;
-      clearInterval(this.testTimer);
-      this.testTimer = setInterval(() => {
-        if (performance.now() > end) {
-          clearInterval(this.testTimer);
-          web.stop();
-          return;
-        }
-        this.update(out);
-      }, 16);
-      return;
-    }
-    this.send({ t: 'test', effect, gain: this.settings.gain });
+    const g = this.settings.gain;
+    const out = { constant: 0, damper: 0, spring: 0, rumble: 0, rumbleHz: 0 };
+    if (effect === 'left') out.constant = -0.5 * g;
+    else if (effect === 'right') out.constant = 0.5 * g;
+    else if (effect === 'rumble') { out.rumble = 0.6 * g; out.rumbleHz = 25; }
+    else if (effect === 'center') { out.spring = 0.8 * g; out.damper = 0.3 * g; }
+    const end = performance.now() + 1000;
+    clearInterval(this.testTimer);
+    this.testTimer = setInterval(() => {
+      if (performance.now() > end) {
+        clearInterval(this.testTimer);
+        this.stop();
+        return;
+      }
+      this.lastSend = 0;
+      this.update(out);
+    }, 16);
   }
 }
 

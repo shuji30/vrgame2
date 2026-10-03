@@ -78,8 +78,8 @@ export class FFBModel {
     if (!hz && rumble > 0) hz = 20;
     rumble *= s.road * Math.min(1, speed / 10);
 
-    let constant = clamp(force, -1, 1) * s.gain;
-    if (s.invert) constant = -constant;
+    // 力の向きの反転は出力の直前（ffb.js）でまとめて行う
+    const constant = clamp(force, -1, 1) * s.gain;
     return {
       constant,
       spring: 0,

@@ -151,8 +151,6 @@ test('FFB: 速度が出るとセンターへ戻す力、ロック超えで押し
   run(k, { throttle: 0.6, steer: 0.08, assist: false }, 1.5);
   const moving = m.compute(k, { value: 0.5, beyond: 0.5 }, [], {}, 1 / 60);
   assert.ok(moving.constant < -0.1, `右に切ると左へ戻す ${moving.constant}`);
-  const inv = m.compute(k, { value: 0.5, beyond: 0.5 }, [], { invert: true }, 1 / 60);
-  assert.ok(inv.constant > 0.1);
   const lock = m.compute(k, { value: 1, beyond: 1.3 }, [], {}, 1 / 60);
   assert.ok(lock.constant < moving.constant);
   const hit = new FFBModel().compute(k, { value: 0, beyond: 0 }, [{ type: 'wall', strength: 6, side: 1 }], { gain: 0.6 }, 1 / 60);
@@ -197,4 +195,20 @@ test('物理: H シフターを割り当てていても、触れていなけれ�
   assert.equal(k.gear, 2, 'パドルの変速が保たれる');
   run(k, { throttle: 1, hGear: 4 }, 0.2, { manual: true });
   assert.equal(k.gear, 4, 'シフターを動かすとその段へ');
+});
+
+test('FFB: 「力の向きを反転」はレース・テスト・リセットのどの経路でも出力直前に効く', async () => {
+  globalThis.localStorage ||= { getItem: () => null, setItem: () => {} };
+  globalThis.WebSocket ||= class { constructor() { throw new Error('no ws in test'); } };
+  const { FFBBridge } = await import('../src/ffb.js');
+  const b = new FFBBridge();
+  const sent = [];
+  b.send = (m) => sent.push(m);
+  b.settings.invert = false;
+  b.update({ constant: 0.4, damper: 0, spring: 0, rumble: 0, rumbleHz: 0 });
+  b.settings.invert = true;
+  b.lastSend = 0;
+  b.update({ constant: 0.4, damper: 0, spring: 0, rumble: 0, rumbleHz: 0 });
+  assert.deepEqual(sent.filter((m) => m.t === 'ffb').map((m) => m.c), [0.4, -0.4]);
+  clearTimeout(b.retry);
 });
