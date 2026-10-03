@@ -3,7 +3,8 @@
 //   node scripts/deploy.mjs --dry    … 送るファイルの一覧だけ表示
 //   node scripts/deploy.mjs --setup  … 接続先を設定し直す
 // パスワードは保存しない（SSH が聞いてくる。SSH 鍵を設定すれば聞かれなくなる）
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, copyFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
@@ -42,12 +43,29 @@ async function setup(old = {}) {
     user: await ask('SSH ユーザー名', old.user),
     remoteDir: await ask('アップロード先のフォルダ（例: public_html/example.com/vrgame2）', old.remoteDir),
     publicUrl: await ask('公開 URL（例: https://example.com/vrgame2/）', old.publicUrl),
+    identityFile: await ask('秘密鍵のファイル（.pem など。パスワード認証なら空欄）', old.identityFile),
   };
   if (cfg.publicUrl && !cfg.publicUrl.endsWith('/')) cfg.publicUrl += '/';
   rl.close();
   writeFileSync(CONFIG, JSON.stringify(cfg, null, 2) + '\n');
   console.log(`保存しました: ${CONFIG}`);
   return cfg;
+}
+
+// Windows の SSH は他のユーザーも読める鍵を拒否するので、自分の .ssh へコピーして権限を自分だけにする
+function prepareKey(src) {
+  if (!src) return null;
+  if (!existsSync(src)) throw new Error(`秘密鍵が見つかりません: ${src}`);
+  const dir = join(homedir(), '.ssh');
+  mkdirSync(dir, { recursive: true });
+  const dst = join(dir, 'turbokart_deploy_key');
+  copyFileSync(src, dst);
+  if (process.platform === 'win32') {
+    const user = process.env.USERNAME;
+    const r = spawnSync('icacls', [dst, '/inheritance:r', '/grant:r', `${user}:R`], { encoding: 'utf8' });
+    if (r.status !== 0) console.warn(`鍵の権限を変更できませんでした: ${r.stderr || r.stdout}`);
+  }
+  return dst;
 }
 
 function run(cmd, cmdArgs, input) {
@@ -88,7 +106,10 @@ async function main() {
     `mkdir -p '${dir}/server/data' && chmod 700 '${dir}/server/data'`,
     `(command -v php >/dev/null && php -l '${dir}/server/api.php' || echo 'php コマンドが見つからないため構文チェックを省略')`,
   ].join(' && ');
-  await run('ssh', ['-p', String(cfg.port || 22), target, remote], tar.stdout);
+  const key = prepareKey(cfg.identityFile);
+  const sshArgs = ['-p', String(cfg.port || 22), '-o', 'StrictHostKeyChecking=accept-new'];
+  if (key) sshArgs.push('-i', key, '-o', 'IdentitiesOnly=yes');
+  await run('ssh', [...sshArgs, target, remote], tar.stdout);
 
   if (cfg.publicUrl) {
     const url = `${cfg.publicUrl}server/api.php?a=health`;
