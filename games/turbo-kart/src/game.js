@@ -763,7 +763,7 @@ export class Game {
 
   updateCamera(dt) {
     const focus = this.me || this.race.karts.find((e) => e.position === 1) || this.race.karts[0];
-    // 上から（2D）: 真上の高い所から狭い視野で見下ろす（ラリーX 風。北が常に上、進む向きを少し先読み）。霧は消す
+    // 上から（2D）: 真上の高い所から狭い視野で見下ろす（ラリーX 風の縦スクロール）。霧は消す
     const top = !!this.me && this.cameraMode === 'top' && !this.xrOn;
     this.scene.fog = top ? null : this.worldFog;
     // 上からの視点は、雲を消し、描画の奥行きを路面の前後だけに絞る（広すぎると遠くの路面と縁石の前後が決まらずちらつく）
@@ -791,17 +791,21 @@ export class Game {
       this.topMarker.visible = top;
     }
     if (top) {
-      const k = focus.kart;
-      const t = this.topCam ||= { x: pose.x, z: pose.z };
-      const a = 1 - Math.exp(-dt * 4);
-      t.x += (pose.x + k.vx * 0.5 - t.x) * a;
-      t.z += (pose.z + k.vz * 0.5 - t.z) * a;
+      // 進行方向が常に画面の上（縦スクロール）。画面の回転は車の向きをゆっくり追い、細かい操作で揺れないようにする
+      const t = this.topCam ||= { x: pose.x, z: pose.z, h: pose.heading };
+      t.h = lerpAngle(t.h, pose.heading, 1 - Math.exp(-dt * 2.5));
+      const fx = Math.cos(t.h), fz = Math.sin(t.h);
+      // 自分の車は画面の下寄り（前方を広く見せる）
+      const ahead = 18;
+      const a = 1 - Math.exp(-dt * 6);
+      t.x += (pose.x + fx * ahead - t.x) * a;
+      t.z += (pose.z + fz * ahead - t.z) * a;
       if (Math.abs(this.camera.fov - 14) > 0.01) {
         this.camera.fov = 14;
         this.camera.updateProjectionMatrix();
       }
-      this.camera.position.set(t.x, pose.y + 320, t.z + 0.01);
-      this.camera.up.set(0, 0, -1);
+      this.camera.position.set(t.x, pose.y + 320, t.z);
+      this.camera.up.set(fx, 0, fz);
       this.camera.lookAt(t.x, pose.y, t.z);
       return;
     }
