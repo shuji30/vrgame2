@@ -22,13 +22,16 @@ function laps_db(array $config): ?PDO {
         id INT AUTO_INCREMENT PRIMARY KEY,
         track VARCHAR(32) NOT NULL,
         vehicle VARCHAR(16) NOT NULL,
-        mode VARCHAR(8) NOT NULL,
+        mode VARCHAR(16) NOT NULL,
         name VARCHAR(32) NOT NULL,
         lap_ms INT NOT NULL,
         created DATETIME NOT NULL,
         UNIQUE KEY uniq_driver (track, vehicle, mode, name),
         KEY idx_rank (track, vehicle, mode, lap_ms)
     ) DEFAULT CHARSET=utf8mb4");
+    // 以前に作ったテーブルは mode が 8 文字だったので広げる（party-real などを入れるため）
+    $len = $pdo->query("SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tk_laps' AND COLUMN_NAME = 'mode'")->fetchColumn();
+    if ($len !== false && (int)$len < 16) $pdo->exec('ALTER TABLE tk_laps MODIFY mode VARCHAR(16) NOT NULL');
     return $pdo;
 }
 
@@ -47,7 +50,8 @@ function laps_key(array $in): array {
     $mode = (string)($in['mode'] ?? '');
     if (!preg_match('/^[a-z0-9-]{1,32}$/', $track)) fail('bad track');
     if (!in_array($vehicle, ['kart', 'gt3', 'formula'], true)) fail('bad vehicle');
-    if (!in_array($mode, ['party', 'real'], true)) fail('bad mode');
+    // モード（ハンドリングがモードの標準と違うときは party-real / real-arcade）
+    if (!in_array($mode, ['party', 'real', 'party-real', 'real-arcade'], true)) fail('bad mode');
     return [$track, $vehicle, $mode];
 }
 

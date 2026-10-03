@@ -241,6 +241,13 @@
             <option value="manual">MT（パドルシフト）</option>
           </select>
         </label>
+        <label class="field">ハンドリング（車の挙動）
+          <select id="opt-handling">
+            <option value="auto">モードに合わせる（パーティー = アーケード、本格 = リアル）</option>
+            <option value="arcade">アーケード（高グリップ・安定）</option>
+            <option value="real">リアル（実車並みのグリップ・ギア比）</option>
+          </select>
+        </label>
         <label class="field">スピン防止（ハンコン）
           <select id="opt-stability">
             <option value="1">あり（大きく滑ったときだけ）</option>
@@ -363,6 +370,7 @@
         <ol id="net-players"></ol>
         <div class="grid" id="net-settings">
           <label class="field">モード <select id="net-mode"><option value="party">🎉 パーティー</option><option value="real">🏁 本格</option></select></label>
+          <label class="field">ハンドリング <select id="net-handling"><option value="auto">モードに合わせる</option><option value="arcade">アーケード</option><option value="real">リアル</option></select></label>
           <label class="field">コース <select id="net-track"></select></label>
           <label class="field">車種 <select id="net-vehicle">
             <option value="kart">カート</option><option value="gt3">GT3</option><option value="formula">フォーミュラ</option></select></label>

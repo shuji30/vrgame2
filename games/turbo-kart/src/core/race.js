@@ -1,6 +1,6 @@
 // レース全体: 全カートの物理・衝突・周回・順位（描画やネットワークには依存しない）
 import { locate, pointAt, wrapS } from './track.js';
-import { createKart, stepKart, forwardSpeed, KART, VEHICLES } from './physics.js';
+import { createKart, stepKart, forwardSpeed, KART, VEHICLES, realSpec } from './physics.js';
 import { SURFACES } from './surface.js';
 import { createDriver, driveAI } from './ai.js';
 import { mulberry32 } from './rng.js';
@@ -50,8 +50,9 @@ export class Race {
   // entries: [{ name, color, type: 'player' | 'npc' | 'remote', id }]
   // coins: パーティーモードのコイン（拾うと最高速が少し上がる）
   // items: パーティーモードのアイテム（アイテムボックス・投げ物・スター・カミナリなど）
-  constructor(track, entries, { laps = 3, seed = 1, level = 'normal', manual = [], vehicle = 'kart', coins = false, items = false } = {}) {
-    this.spec = VEHICLES[vehicle] || KART;
+  constructor(track, entries, { laps = 3, seed = 1, level = 'normal', manual = [], vehicle = 'kart', coins = false, items = false, realistic = false } = {}) {
+    // realistic: 本格モード（実車寄りの諸元）
+    this.spec = realistic ? realSpec(VEHICLES[vehicle] || KART) : VEHICLES[vehicle] || KART;
     this.coins = coins ? coinLayout(track).map((c) => ({ ...c, respawnAt: -Infinity })) : [];
     this.track = track;
     this.laps = laps;

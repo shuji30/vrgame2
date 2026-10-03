@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Game } from './game.js';
+import { Game, lapMode } from './game.js';
 import { InputManager, setBridgePads, setHidPads } from './input/devices.js';
 import { HIDManager } from './input/webhid.js';
 import { CalibrationUI } from './input/calibration.js';
@@ -98,6 +98,7 @@ try {
   const m = JSON.parse(localStorage.getItem(STORE) || '{}');
   if (m.character && CHARACTERS.some((c) => c.id === m.character)) charSel.value = game.character = m.character;
   if (m.name) $('opt-name').value = m.name;
+  if (m.handling) $('opt-handling').value = m.handling;
   if (m.mode) setMode(m.mode, false);
   if (m.mode && m.mode !== game.theme && !(m.track && TRACKS.some((t) => t.id === m.track))) {
     game.setTrack(trackSel.value, mode);
@@ -130,7 +131,7 @@ $('opt-stability').addEventListener('change', (e) => {
 });
 
 function raceOptions() {
-  const o = { npcs: Number(npcSel.value), level: $('opt-level').value, laps: Number($('opt-laps').value), manual: input.config.transmission === 'manual', shake: Number($('opt-shake').value), vehicle: $('opt-vehicle').value, track: trackSel.value, mode, character: charSel.value, name: driverName() };
+  const o = { npcs: Number(npcSel.value), level: $('opt-level').value, laps: Number($('opt-laps').value), manual: input.config.transmission === 'manual', shake: Number($('opt-shake').value), vehicle: $('opt-vehicle').value, track: trackSel.value, mode, character: charSel.value, name: driverName(), handling: $('opt-handling').value };
   game.playerName = o.name;
   game.shake = o.shake;
   try {
@@ -240,14 +241,17 @@ function driverName() {
 }
 let rankReq = 0;
 async function refreshRanking() {
-  const key = { track: trackSel.value, vehicle: $('opt-vehicle').value, mode };
-  $('ranking-title').textContent = `🏆 ベストラップ ランキング（${game.track.def.name}・${VEHICLE_NAMES[key.vehicle]}・${mode === 'real' ? '本格' : 'パーティー'}）`;
+  const handling = $('opt-handling').value;
+  const key = { track: trackSel.value, vehicle: $('opt-vehicle').value, mode: lapMode(mode, handling) };
+  const hName = key.mode.endsWith('-real') ? '・リアル' : key.mode.endsWith('-arcade') ? '・アーケード' : '';
+  $('ranking-title').textContent = `🏆 ベストラップ ランキング（${game.track.def.name}・${VEHICLE_NAMES[key.vehicle]}・${mode === 'real' ? '本格' : 'パーティー'}${hName}）`;
   const id = ++rankReq;
   let top = null;
   try { top = await fetchLaps(key); } catch { /* つながらない */ }
   if (id === rankReq) $('ranking').innerHTML = lapsTable(top, driverName());
 }
-for (const id of ['opt-track', 'opt-vehicle']) $(id).addEventListener('change', refreshRanking);
+for (const id of ['opt-track', 'opt-vehicle', 'opt-handling']) $(id).addEventListener('change', refreshRanking);
+$('opt-handling').addEventListener('change', () => raceOptions());
 for (const b of document.querySelectorAll('#opt-mode button')) b.addEventListener('click', refreshRanking);
 $('opt-name').addEventListener('change', () => { raceOptions(); refreshRanking(); });
 refreshRanking();
@@ -260,21 +264,21 @@ function loadPB() {
 }
 game.onPersonalBest = (sec) => {
   const all = loadPB();
-  all[pbKey({ track: game.trackId, vehicle: game.opts.vehicle || 'kart', mode: game.theme })] = sec;
+  all[pbKey({ track: game.trackId, vehicle: game.opts.vehicle || 'kart', mode: lapMode(game.theme, game.opts.handling) })] = sec;
   try { localStorage.setItem(PB_STORE, JSON.stringify(all)); } catch { /* 保存できない */ }
 };
 game.onRaceStart = async (opts) => {
-  const key = { track: game.trackId, vehicle: opts.vehicle || 'kart', mode: game.theme };
+  const key = { track: game.trackId, vehicle: opts.vehicle || 'kart', mode: lapMode(game.theme, opts.handling) };
   game.hud.personalBest = loadPB()[pbKey(key)] || null;
   try {
     const top = await fetchLaps(key);
-    if (game.trackId === key.track && game.theme === key.mode) game.hud.courseRecord = top?.[0] || null;
+    if (game.trackId === key.track) game.hud.courseRecord = top?.[0] || null;
   } catch { /* つながらない */ }
 };
 // ゴールしたら自分のベストラップを登録して、結果画面にランキングを出す（自動運転の確認中は登録しない）
 game.onFinish = async (me) => {
   if (game.autodrive || !me.bestLap) return;
-  const key = { track: game.trackId, vehicle: game.opts.vehicle || 'kart', mode: game.theme };
+  const key = { track: game.trackId, vehicle: game.opts.vehicle || 'kart', mode: lapMode(game.theme, game.opts.handling) };
   const name = game.playerName || driverName();
   game.rankHtml = '<p class="muted">ランキングに登録しています…</p>';
   let r = null;

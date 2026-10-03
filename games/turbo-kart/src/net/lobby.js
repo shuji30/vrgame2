@@ -57,6 +57,7 @@ export function setupOnline({ game, ui, input, getVR, $ }) {
     const st = session.settings || {};
     if (!isHost) {
       if (st.mode) $('net-mode').value = st.mode;
+      if (st.handling) $('net-handling').value = st.handling;
       if (st.track) $('net-track').value = st.track;
       if (st.vehicle) $('net-vehicle').value = st.vehicle;
       if (st.laps) $('net-laps').value = st.laps;
@@ -75,6 +76,7 @@ export function setupOnline({ game, ui, input, getVR, $ }) {
 
   const settingsFromForm = () => ({
     mode: $('net-mode').value,
+    handling: $('net-handling').value,
     track: $('net-track').value,
     vehicle: $('net-vehicle').value,
     laps: Number($('net-laps').value),
@@ -92,7 +94,7 @@ export function setupOnline({ game, ui, input, getVR, $ }) {
       game.audio.init();
       game.startRace({
         track: st.track, vehicle: st.vehicle, laps: st.laps || 3, npcs: st.npcs || 0, level: 'hard',
-        mode: st.mode || 'party', character: game.character,
+        mode: st.mode || 'party', character: game.character, handling: st.handling || 'auto',
         manual: input.config.transmission === 'manual',
         online: { session, grid: msg.grid, seed: msg.seed, countdown: (msg.at - session.hostNow()) / 1000 },
       });

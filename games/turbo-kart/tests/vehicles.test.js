@@ -104,3 +104,24 @@ test('車同士の衝突: 車体の長さと幅で当たる（GT3 の前後も�
   // 前後に 5m → 触れていない
   assert.equal(place(5, 0), 5);
 });
+
+test('リアルなハンドリング: 実車並みのグリップとロック角。NPC は壁を突き抜けずに完走する', async () => {
+  const { realSpec } = await import('../src/core/physics.js');
+  const { isRealHandling, lapMode } = { isRealHandling: (h, t) => h === 'real' || ((!h || h === 'auto') && t === 'real'), lapMode: null };
+  for (const v of VEHICLE_ORDER) {
+    const r = realSpec(VEHICLES[v]);
+    assert.ok(r.mu < VEHICLES[v].mu, v);
+    assert.equal(r.wheelHigh, 1);
+    assert.ok(r.lockDeg >= 180);
+    assert.equal(realSpec(VEHICLES[v]), r, '同じ諸元を使い回す');
+  }
+  assert.ok(isRealHandling('auto', 'real') && isRealHandling('real', 'party') && !isRealHandling('auto', 'party'));
+  const race = new Race(track, NPC_NAMES.slice(0, 6).map((name) => ({ name, type: 'npc' })), { laps: 2, seed: 4, vehicle: 'gt3', realistic: true });
+  let walls = 0;
+  while (race.state !== 'finished' && race.time < 300) {
+    race.step(1 / 60);
+    for (const e of race.karts) walls += e.events.filter((x) => x.type === 'wall').length;
+  }
+  assert.equal(race.state, 'finished');
+  assert.ok(walls < 30, `壁 ${walls}`);
+});

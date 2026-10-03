@@ -29,6 +29,18 @@ export function centeringForce(wheel, gain = 0.5) {
 const lerp = (a, b, t) => a + (b - a) * t;
 const ev0 = (events, type) => events.some((e) => e.type === type);
 
+// ハンドリング: 'auto' はモードに合わせる（本格 = リアル、パーティー = アーケード）
+export function isRealHandling(handling, theme) {
+  return handling === 'real' || ((!handling || handling === 'auto') && theme === 'real');
+}
+
+// ランキングの区分: モード（ハンドリングがモードの標準と違うときは別の区分）
+export function lapMode(theme, handling) {
+  const real = isRealHandling(handling, theme);
+  if (real === (theme === 'real')) return theme;
+  return `${theme}-${real ? 'real' : 'arcade'}`;
+}
+
 // アイテムを使ったときのメッセージ
 function useMessage(ev) {
   switch (ev.kind) {
@@ -160,6 +172,7 @@ export class Game {
       seed: on ? on.seed : (Math.random() * 1e9) | 0,
       manual: opts.manual && playerIndex >= 0 ? [playerIndex] : [],
       coins: theme === 'party',
+      realistic: isRealHandling(opts.handling, theme),
       // アイテム（パーティーモード）。オンラインはホストが判定して状態を配る
       items: theme === 'party' && (on ? (on.session.isHost ? 'host' : 'client') : true),
     });
@@ -174,6 +187,8 @@ export class Game {
       return m;
     });
     this.itemView = this.race.items ? new ItemView(this.scene, this.race) : null;
+    // 本格モードはハンコンのロック角を実車の値に（ゲーム内のハンドルも同じ角度で回る）
+    this.input.lockDeg = this.race.spec.real ? this.race.spec.lockDeg || null : null;
     this.screenFx?.clear();
     this.me = playerIndex >= 0 ? this.race.karts[playerIndex] : null;
     this.snapshot();
@@ -453,7 +468,7 @@ export class Game {
       const inside = e === this.me && (this.xrOn || this.cameraMode !== 'chase');
       if (e.spin > 0 && !inside) pose.heading += (1 - e.spin / (e.spinMax || 1.1)) * Math.PI * 2;
       this.models[i].group.scale.setScalar(e.shrink > 0 && !inside ? 0.6 : 1);
-      this.models[i].update(pose, e.kart, steer, dt, this.input.config.steer.lockDeg);
+      this.models[i].update(pose, e.kart, steer, dt, this.input.lockDeg || this.input.config.steer.lockDeg);
     });
 
     // 火花・土煙

@@ -74,6 +74,22 @@ export const VEHICLES = {
 };
 export const VEHICLE_ORDER = ['kart', 'gt3', 'formula'];
 
+// 本格モードの諸元（実車寄り）: グリップは実車並み、空力で高速ほど曲がれる、アンダーステアを弱めて
+// アクセルオフやトレイルブレーキで向きが変わる、限界の手前からジワッと滑る（C・E）、ハンドルは実車のロック角
+//   lockDeg: ハンドルを端から端まで回したときの角度（ハンコンの設定より優先）。wheelHigh 1 = 車速で切れ角を絞らない
+const REAL = {
+  kart: { mu: 1.9, maxLat: 18.6, rearGrip: 1.1, tireB: 11, tireC: 1.35, tireE: 0.6, wheelHigh: 1, brakeRear: 0.75, loadTransferMax: 0.35, lockDeg: 200, brakeDecel: 15 },
+  gt3: { mu: 1.45, maxLat: 14.2, downforce: 1.6, rearGrip: 1.12, tireB: 10, tireC: 1.35, tireE: 0.6, wheelHigh: 1, brakeRear: 0.75, loadTransferMax: 0.35, lockDeg: 540, brakeDecel: 13 },
+  formula: { mu: 1.7, maxLat: 16.7, downforce: 3.6, rearGrip: 1.1, tireB: 11, tireC: 1.35, tireE: 0.6, wheelHigh: 1, brakeRear: 0.75, loadTransferMax: 0.3, lockDeg: 360, brakeDecel: 26 },
+};
+const realCache = new Map();
+export function realSpec(spec) {
+  const r = REAL[spec.id];
+  if (!r) return spec;
+  if (!realCache.has(spec)) realCache.set(spec, { ...spec, ...r, real: true });
+  return realCache.get(spec);
+}
+
 // 操舵の上限（前輪の切れ角 rad）。補助ありは高速で大きく絞る。
 // ハンコンも高速では少しだけ絞る（車速感応ステアリング。数度の手ぶれで限界を超えないように）
 export function steerLimit(speed, assist = true, spec = KART) {
@@ -270,7 +286,7 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
   const W = m * 9.8 * (k.loadScale ?? 1);
   // 荷重移動は静止時の ±25% までに抑える（急ブレーキで後輪が抜けすぎないように）
   const FzF0 = (W * b) / L, FzR0 = (W * a) / L;
-  const dMax = LOAD_TRANSFER_MAX * Math.min(FzF0, FzR0);
+  const dMax = (P.loadTransferMax ?? LOAD_TRANSFER_MAX) * Math.min(FzF0, FzR0);
   const dFz = Math.max(-dMax, Math.min(dMax, (m * aLong * P.cgHeight) / L));
   const FzFn = FzF0 + down * (P.aeroFront ?? 0.45), FzRn = FzR0 + down * (1 - (P.aeroFront ?? 0.45));
   const FzF = FzFn - dFz;
@@ -288,7 +304,7 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
   // フットブレーキの前後配分（摩擦円）: ブレーキに使った分だけ横に使える力が減る。
   // 実車と同じく前寄りの配分にして、強く踏むと先に前輪が限界になる（まっすぐ止まる・アンダーステア側）
   const Fb = k.reversing || vF <= 0.5 ? 0 : brake * P.brakeDecel * m;
-  const FxRb = ((Fb * FzR) / Math.max(1, FzF + FzR)) * BRAKE_REAR, FxFb = Fb - FxRb;
+  const FxRb = ((Fb * FzR) / Math.max(1, FzF + FzR)) * (P.brakeRear ?? BRAKE_REAR), FxFb = Fb - FxRb;
   const capF = Math.sqrt(Math.max(0, (muF * FzF) ** 2 - FxFb ** 2));
   const FxR = Math.min(muR * FzR * 0.95, (hb > 0.3 ? muR * FzR * Math.min(1, hb) * hbLock : Math.min(mu * FzR * 0.9, Math.abs(drive) * m * 0.5)) + FxRb);
   const capR = Math.sqrt(Math.max(0, (muR * FzR) ** 2 - FxR ** 2));

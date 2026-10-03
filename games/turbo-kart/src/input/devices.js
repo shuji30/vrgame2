@@ -188,7 +188,8 @@ export class InputManager {
     if (B.steer) {
       const raw = this.readBinding(pads, B.steer);
       if (raw != null) {
-        const m = mapSteer(raw, { ...B.steer.cal, ...this.config.steer });
+        // lockDeg: 本格モードでは車種ごとの実車のロック角を使う
+        const m = mapSteer(raw, { ...B.steer.cal, ...this.config.steer, ...(this.lockDeg ? { lockDeg: this.lockDeg } : {}) });
         steer = m.value;
         out.wheel = m;
         out.source = 'wheel';

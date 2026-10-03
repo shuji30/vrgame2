@@ -36,7 +36,9 @@ export class FFBModel {
     if (speed > 2 && kart.FzF > 0) {
       const spec = kart.spec || KART;
       const peak = Math.tan(Math.PI / (2 * spec.tireC)) / (kart.tireB || spec.tireB); // 横力が最大になる滑り角
-      const pneumatic = 0.045 * Math.max(0, 1 - Math.abs(kart.frontSlip) / (peak * 1.7));
+      // 本格モードは限界の少し手前からハンドルが軽くなり始める（グリップが抜ける前に知らせる）
+      const fade = spec.real ? 1.25 : 1.7;
+      const pneumatic = 0.045 * Math.max(0, 1 - Math.abs(kart.frontSlip) / (peak * fade));
       const mech = 0.012; // キャスターによる機械的トレール
       const maxTorque = (kart.mu || KART.mu) * kart.FzF * (0.045 + mech) * 0.7;
       force = (-kart.frontForce * (pneumatic + mech)) / maxTorque * s.align;
