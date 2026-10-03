@@ -284,6 +284,7 @@ export class Game {
     if (inp.recenter) this.recenter();
     if (inp.camera && !this.xrOn && this.me) this.setCameraMode(this.cameraMode === 'chase' ? 'cockpit' : 'chase');
     if (inp.debug) this.showDebug = !this.showDebug;
+    if (inp.ffbReset) this.ffb.reset();
     if (inp.shiftUp || inp.shiftDown) this.lastShiftInput = { up: inp.shiftUp, at: performance.now() };
     if (this.recenterAt && performance.now() > this.recenterAt && this.xrOn) {
       this.recenter();
@@ -403,6 +404,7 @@ export class Game {
       }
       this.audio.update(me.kart, Math.abs(forwardSpeed(me.kart)), me.input.throttle || 0, this.state === 'race' || this.state === 'results', this.opts.vehicle || 'kart');
       this.updateDebug(inp);
+      this.ui.ffbStatus?.(this.ffb.describe());
 
       if (me.finished && !this.finishedShown) {
         this.finishedShown = true;

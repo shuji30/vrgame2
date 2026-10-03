@@ -36,6 +36,17 @@ const ui = {
     $('pause').hidden = !on;
   },
   showResults() {},
+  // HUD の FFB 状態表示
+  ffbStatus(st) {
+    const el = $('ffb-state');
+    const txt = `FFB: ${st.state}${st.error ? ` ⚠ ${st.error}` : ''}`;
+    if (el.textContent !== txt) el.textContent = txt;
+    el.className = st.ok && !st.error ? 'ok' : 'ng';
+    const bar = $('ffb-meter').firstElementChild;
+    const f = Math.max(-1, Math.min(1, st.force || 0));
+    bar.style.left = `${50 + Math.min(0, f) * 50}%`;
+    bar.style.width = `${Math.abs(f) * 50}%`;
+  },
 };
 
 const game = new Game({ renderer, input, ffb, ui });
@@ -123,6 +134,7 @@ $('btn-calib-close').addEventListener('click', () => {
   ui.showScreen('menu');
 });
 $('btn-resume').addEventListener('click', () => game.pause(false));
+$('btn-ffb-reset').addEventListener('click', () => ffb.reset());
 $('btn-restart').addEventListener('click', () => game.restart());
 $('btn-menu').addEventListener('click', () => game.toMenu());
 

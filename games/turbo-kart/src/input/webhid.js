@@ -343,6 +343,18 @@ export class PIDForce {
     }
   }
 
+  // 初期化からやり直す（FFB リセット）
+  async reset() {
+    await this.stop();
+    try { await this.control(P.DC_RESET); } catch { /* 非対応 */ }
+    this.ready = false;
+    this.blocks = {};
+    this.last = {};
+    this.lastStart = -Infinity;
+    this.error = null;
+    return this.start();
+  }
+
   async stop() {
     this.last = {};
     if (!this.ready) return;

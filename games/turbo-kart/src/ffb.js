@@ -151,8 +151,9 @@ export class FFBBridge {
   }
 
   // 毎フレーム呼ぶ（送信は 60Hz に間引く）
-  update(out) {
-    if (!this.settings.enabled) return;
+  update(out, force = false) {
+    if (!this.settings.enabled && !force) return;
+    this.lastOut = out;
     const web = this.webTarget();
     if (web) {
       const mx = Math.max(0, Math.min(1, this.settings.maxForce ?? 0.6));
@@ -170,6 +171,46 @@ export class FFBBridge {
   stop() {
     this.send({ t: 'stop' });
     this.webTarget()?.stop();
+  }
+
+  // FFB リセット: 出力先をつなぎ直し、エフェクトを作り直して、短い確認パルスを出す
+  async reset() {
+    this.stop();
+    this.lastOut = null;
+    const web = this.webTarget();
+    if (web) {
+      await web.reset();
+    } else {
+      if (!this.ws) this.connect();
+      // ブリッジ側でハンコンを開き直す（SDL の FFB エフェクトを作り直す）
+      this.send({ t: 'select', device: this.settings.device || this.status.selected || null });
+    }
+    this.resetAt = performance.now();
+    // 0.3 秒だけ弱く右に押して、効いているかを確かめる
+    const g = Math.max(0.15, this.settings.gain * 0.5);
+    const end = performance.now() + 300;
+    clearInterval(this.pulseTimer);
+    this.pulseTimer = setInterval(() => {
+      if (performance.now() > end) {
+        clearInterval(this.pulseTimer);
+        this.stop();
+        return;
+      }
+      this.update({ constant: g, damper: 0, spring: 0, rumble: 0, rumbleHz: 0 }, true);
+    }, 16);
+  }
+
+  // 画面表示用の状態（出力先・送っている力・エラー）
+  describe() {
+    const web = this.webTarget();
+    const target = this.outputName;
+    const err = web?.error || (!web && this.status.connected ? this.status.error : null);
+    let state;
+    if (!this.settings.enabled) state = 'オフ';
+    else if (!target) state = this.status.connected ? 'ブリッジ接続中（FFB 機器なし）' : '出力先なし';
+    else state = target;
+    const c = this.lastOut ? this.lastOut.constant : 0;
+    return { state, ok: !!target && this.settings.enabled, force: c, error: err };
   }
 
   test(effect) {

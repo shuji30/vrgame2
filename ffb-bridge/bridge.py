@@ -22,6 +22,7 @@ import asyncio
 import ctypes
 import json
 import math
+import os
 import sys
 import time
 
@@ -32,9 +33,20 @@ except ImportError:  # --list だけなら websockets は無くてもよい
 
 DEFAULT_ORIGINS = [
     "https://shuji30.github.io",
+    "https://2026082302062910047985.onamaeweb.jp",
     "http://localhost:8080",
     "http://127.0.0.1:8080",
+    "http://localhost:8090",
 ]
+
+
+def extra_origins():
+    """同じフォルダの origins.txt に書いた URL も許可する（1 行に 1 つ、# はコメント）"""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "origins.txt")
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as f:
+        return [ln.strip().rstrip("/") for ln in f if ln.strip() and not ln.strip().startswith("#")]
 WHEEL_HINTS = ("wheel", "fanatec", "thrustmaster", "cammus", "logitech", "moza", "simagic",
                "simucube", "g29", "g920", "g923", "t300", "t150", "t248", "tx", "csl", "podium", "dd")
 TICK = 1 / 200
@@ -407,7 +419,7 @@ async def main_async(args):
     from websockets.asyncio.server import serve
 
     bridge = Bridge(args)
-    origins = DEFAULT_ORIGINS + args.allow_origin
+    origins = DEFAULT_ORIGINS + extra_origins() + args.allow_origin
     print(f"デバイスブリッジ起動: ws://127.0.0.1:{args.port}  (FFB 最大出力 {args.max:.0%})")
     for jid, (_, name) in sorted(bridge.joysticks.items()):
         print(f"  入力デバイス: {name}")

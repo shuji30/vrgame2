@@ -1,0 +1,2 @@
+# FFB ブリッジへの接続を許可するゲームの URL（1 行に 1 つ）
+# 例: https://example.com

@@ -96,6 +96,12 @@
     @media (max-width: 700px) { .row2 { grid-template-columns: 1fr; } table.binds th { width: auto; } .meter { width: 90px; } }
 
     #pause { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, 0.45); }
+    .ffb-box { position: absolute; top: 12px; right: 14px; display: flex; align-items: center; gap: 8px; pointer-events: auto;
+      padding: 6px 8px; border-radius: 12px; background: rgba(0, 0, 0, 0.45); font-size: 12px; text-shadow: none; }
+    .ffb-box button { padding: 6px 10px; font-size: 12px; }
+    #ffb-state.ok { color: var(--ok); } #ffb-state.ng { color: var(--accent2); }
+    #ffb-meter { position: relative; display: block; width: 70px; height: 8px; border-radius: 4px; background: rgba(255,255,255,.18); }
+    #ffb-meter b { position: absolute; top: 0; bottom: 0; left: 50%; width: 0; background: var(--ok); }
   </style>
   <script type="importmap">
     {
@@ -125,6 +131,11 @@
       <div class="rpm"><i data-hud="rpm"></i></div>
     </div>
     <div class="board card" data-hud="board" hidden></div>
+    <div class="ffb-box">
+      <span id="ffb-state" class="muted"></span>
+      <i id="ffb-meter"><b></b></i>
+      <button id="btn-ffb-reset" title="F キー / 割り当てたボタンでも実行できます">FFB リセット</button>
+    </div>
   </div>
 
   <pre id="debug" hidden style="position:fixed;left:200px;bottom:14px;max-width:calc(100vw - 420px);margin:0;padding:10px 12px;border-radius:10px;background:rgba(0,0,0,0.7);color:#cfe;font-size:12px;white-space:pre-wrap;pointer-events:none;z-index:5"></pre>
