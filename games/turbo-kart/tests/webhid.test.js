@@ -127,5 +127,7 @@ test('WebHID FFB: PID 対応を検出し、定数力とエフェクト開始の�
   await f.stop();
   const zero = sent.find(([id]) => id === 0x05)[1];
   assert.equal(new DataView(Uint8Array.from(zero).buffer).getInt16(1, true), 0);
-  assert.deepEqual(sent.find(([id]) => id === 0x0c)[1], [3], 'Stop All Effects');
+  // 全停止は送らず、エフェクトを停止（Op Effect Stop = 値 3）
+  assert.ok(!sent.some(([id]) => id === 0x0c), '全停止を送らない');
+  assert.deepEqual(sent.find(([id]) => id === 0x0a)[1], [1, 3, 1], 'Op Effect Stop');
 });

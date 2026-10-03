@@ -77,3 +77,19 @@ test('WebHID FFB: CAMMUS DDWB の記述でも、有効化・種類（一定の�
   const op = dev.sent.find((s) => s.id === 10);
   assert.equal(op.data[1], 1, `開始 ${op.data[1]}`);
 });
+
+test('WebHID FFB: 止めた後にもう一度出すと、有効化し直して開始する（全停止は送らない）', async () => {
+  const dev = cammus();
+  const p = new PIDForce(dev);
+  await p.start();
+  await p.apply({ constant: 0.5, damper: 0, rumble: 0, rumbleHz: 0 });
+  await p.stop();
+  // 全停止（ビット 2 = 4）は送っていない
+  assert.ok(!dev.sent.some((s) => s.id === 12 && s.data[0] & 4), '全停止を送った');
+  const before = dev.sent.length;
+  await p.apply({ constant: -0.5, damper: 0, rumble: 0, rumbleHz: 0 });
+  const after = dev.sent.slice(before);
+  assert.ok(after.some((s) => s.id === 12 && s.data[0] & 1), '有効化し直していない');
+  assert.ok(after.some((s) => s.id === 10 && s.data[1] === 1), '開始していない');
+  assert.ok(after.some((s) => s.id === 5), '力を送っていない');
+});

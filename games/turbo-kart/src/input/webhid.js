@@ -160,7 +160,7 @@ const P = {
   OFFSET: 0x6f, MAGNITUDE: 0x70, PHASE: 0x71, PERIOD: 0x72,
   EFFECT_OPERATION: 0x78, OP_START: 0x79, OP_STOP: 0x7b, LOOP_COUNT: 0x7c,
   DEVICE_GAIN: 0x7e, BLOCK_LOAD_STATUS: 0x8b, BLS_SUCCESS: 0x8c,
-  DC_ENABLE: 0x97, DC_STOP_ALL: 0x99, DC_RESET: 0x9a, BYTE_COUNT: 0x3b,
+  DC_ENABLE: 0x97, DC_STOP_ALL: 0x99, DC_RESET: 0x9a, DC_CONTINUE: 0x9c, BYTE_COUNT: 0x3b,
 };
 const pid = (id) => U(PAGE.pid, id);
 
@@ -414,6 +414,12 @@ export class PIDForce {
     try {
       const B = this.blocks;
       const now = performance.now();
+      // 止めた後に出し直すときは、念のためアクチュエーターを有効にし直す（停止で無効に戻る機種がある）
+      if (this.needEnable) {
+        this.needEnable = false;
+        await this.control(P.DC_ENABLE);
+        await this.control(P.DC_CONTINUE);
+      }
       const c = Math.round(out.constant * 1000) / 1000;
       if (c !== this.last.c) {
         await this.send(this.r.constant, new Map([[pid(P.EFFECT_BLOCK_INDEX), { raw: B.constant }], [pid(P.MAGNITUDE), { n: c }]]));
@@ -468,14 +474,25 @@ export class PIDForce {
     return this.start();
   }
 
+  // 止める: 力を 0 にしてから、エフェクトを 1 つずつ停止する。
+  // 「全エフェクト停止」は使わない（CAMMUS などで、その後に開始しても力が出なくなる）
   async stop() {
     this.last = {};
     if (!this.ready) return;
+    if (this.starting) await this.starting;
+    while (this.busy) await new Promise((r) => setTimeout(r, 5));
+    this.busy = true;
     try {
       await this.send(this.r.constant, new Map([[pid(P.EFFECT_BLOCK_INDEX), { raw: this.blocks.constant }], [pid(P.MAGNITUDE), { n: 0 }]]));
-      await this.control(P.DC_STOP_ALL);
-    } catch {
-      // 切断済みなど
+      for (const idx of [this.blocks.constant, this.blocks.damper, this.blocks.sine]) {
+        if (!idx) continue;
+        await this.send(this.r.operation, new Map([[pid(P.EFFECT_BLOCK_INDEX), { raw: idx }], [pid(P.LOOP_COUNT), { raw: 1 }]]), new Set([pid(P.OP_STOP)]));
+      }
+      this.needEnable = true;
+    } catch (e) {
+      this.note(`停止に失敗: ${e.message || e}`);
+    } finally {
+      this.busy = false;
     }
     this.lastStart = -Infinity;
   }
