@@ -6,6 +6,7 @@ import { createDriver, driveAI } from './ai.js';
 import { mulberry32 } from './rng.js';
 import { rideState, surfaceParams } from './surface.js';
 import { coinLayout, collectCoins } from './coins.js';
+import { ItemSystem } from './items.js';
 
 const G = 9.8;
 
@@ -30,7 +31,8 @@ export function gridSlot(track, i) {
 export class Race {
   // entries: [{ name, color, type: 'player' | 'npc' | 'remote', id }]
   // coins: パーティーモードのコイン（拾うと最高速が少し上がる）
-  constructor(track, entries, { laps = 3, seed = 1, level = 'normal', manual = [], vehicle = 'kart', coins = false } = {}) {
+  // items: パーティーモードのアイテム（アイテムボックス・投げ物・スター・カミナリなど）
+  constructor(track, entries, { laps = 3, seed = 1, level = 'normal', manual = [], vehicle = 'kart', coins = false, items = false } = {}) {
     this.spec = VEHICLES[vehicle] || KART;
     this.coins = coins ? coinLayout(track).map((c) => ({ ...c, respawnAt: -Infinity })) : [];
     this.track = track;
@@ -68,6 +70,8 @@ export class Race {
     });
     for (const e of this.karts) this.applyTerrain(e);
     for (const e of this.karts) e.prevS = undefined;
+    this.events = []; // レース全体の出来事（カミナリ・アイテムの命中など）
+    this.items = items ? new ItemSystem(this) : null;
     this.updateProgress();
   }
 
@@ -79,6 +83,7 @@ export class Race {
   step(dt, inputs = new Map()) {
     this.time += dt;
     for (const e of this.karts) e.events.length = 0;
+    this.events.length = 0;
     if (this.state === 'countdown' && this.time >= 0) this.state = 'racing';
     const racing = this.state !== 'countdown';
 
@@ -110,13 +115,19 @@ export class Race {
           pace = gap > rb[0] ? rb[1] : gap < -60 ? 1.03 : 1;
         }
         // ゴール後はゆっくり流す
-        input = driveAI(e.driver, e.kart, e.loc, this.track, others, e.finished ? 0.6 : pace, dt);
+        // スミ雲で前が見えにくいときは少し慎重に走る
+        input = driveAI(e.driver, e.kart, e.loc, this.track, others, (e.finished ? 0.6 : pace) * (e.ink > 0 ? 0.95 : 1), dt);
       } else if (e.type === 'player' && e.finished) {
         // ゴール後は自動でクールダウン走行
         if (!e.driver) e.driver = createDriver(this.rng, 'easy');
         input = driveAI(e.driver, e.kart, e.loc, this.track, this.karts.filter((o) => o !== e), 0.6, dt);
       } else {
         input = inputs.get(e.index) || e.input;
+      }
+      if (this.items) {
+        if (input.useItem) this.items.use(e, false);
+        if (input.useItemBack) this.items.use(e, true);
+        input = this.items.overrideInput(e, input);
       }
       e.input = input;
       this.applyTerrain(e);
@@ -131,6 +142,7 @@ export class Race {
       this.checkBoostPads(e, dt);
     }
     if (racing && this.coins.length) collectCoins(this);
+    if (racing && this.items) this.items.step(dt);
     this.updateProgress();
   }
 

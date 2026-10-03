@@ -1,11 +1,13 @@
 // NPC ドライバー: 少し先の目標点へハンドルを切り、先のカーブの曲率から目標速度を決める。
 // 前にカートがいれば横へずらして抜きにかかる。各 NPC は腕前と好みのライン取りが少しずつ違う
-import { locate, pointAt, maxCurvatureAhead, wrapAngle, wrapS } from './track.js';
+import { locate, pointAt, maxCurvatureAhead, wrapAngle, wrapS, curvatureAt } from './track.js';
 import { forwardSpeed, KART, steerLimit } from './physics.js';
 import { surfaceParams, bankSlope } from './surface.js';
 
 // 想定する横 G は、車両が実際に出せる値（理論値の約 85%）に合わせる
 const LAT_MARGIN = 0.85;
+const BANK_K = 0; // ブレーキ計画でのバンクの恩恵（見込まない）
+let BRAKE_LEAD = 0.08;
 
 export function createDriver(rng, level = 'normal') {
   const base = { easy: 0.9, normal: 1.0, hard: 1.02 }[level] ?? 1.0;
@@ -78,7 +80,8 @@ export function driveAI(driver, kart, loc, track, others, pace = 1, dt = 1 / 60)
   const reach = 18 + sp * 1.1;
   const kBrake = Math.abs(maxCurvatureAhead(track, loc.s, reach));
   const top = spec.gearTop[spec.gearTop.length - 1];
-  const MAX_LAT = spec.mu * 9.8 * LAT_MARGIN;
+  const margin = spec.aiMargin ?? LAT_MARGIN;
+  const MAX_LAT = spec.mu * 9.8 * margin;
   // 先の路面（ダートは滑る）とバンク（速く曲がれる）を考慮した横加速度
   let lat = Infinity;
   for (let d = 0; d <= reach; d += 6) {
@@ -88,17 +91,54 @@ export function driveAI(driver, kart, loc, track, others, pace = 1, dt = 1 / 60)
     lat = Math.min(lat, MAX_LAT * (p.maxLat / 28.4) * (1 + bank * 0.9) + 9.8 * bank);
   }
   // ダウンフォースで速いほど曲がれる: v²κ = lat + μ·c·v²/m → v² = lat / (κ - μ·c/m)
-  const aero = ((spec.downforce || 0) * spec.mu * LAT_MARGIN) / spec.mass;
-  let vTarget = kBrake > 1e-4 ? (kBrake > aero * 1.05 ? Math.sqrt(lat / (kBrake - aero)) : top) : top;
+  const aero = ((spec.downforce || 0) * spec.mu * margin * (spec.aiAero ?? 1)) / spec.mass;
+  const gripV = (k, la = lat) => (k > 1e-4 ? (k > aero * 1.05 ? Math.sqrt(la / (k - aero)) : top) : top);
+  // 高速では切れ角が絞られるので、急なカーブは「その速さで曲がり切れる切れ角があるか」でも速さを抑える
+  const cornerV = (k, la = lat) => {
+    let v1 = gripV(k, la);
+    if (!spec.aiBrakePlan) return v1;
+    while (v1 > 8 && (Math.tan(steerLimit(v1, true, spec)) / spec.dynWheelbase) * 1.25 < k) v1 -= 1;
+    return v1;
+  };
+  // その地点の路面とバンクで出せる横加速度
+  const latAt = (s) => {
+    const p = surfaceParams(track, s);
+    const bank = Math.abs(Math.sin(Math.atan(bankSlope(track, s))));
+    // バンクの恩恵は控えめに見積もる（速度が高いほど荷重の増え方が理論どおりにならない）
+    return MAX_LAT * (p.maxLat / 28.4) * (1 + bank * 0.35 * BANK_K) + 9.8 * bank * 0.5 * BANK_K;
+  };
+  let vTarget = cornerV(kBrake);
+  // ブレーキで間に合う速さ: 先の各地点のコーナー速度 v_c と距離 d から √(v_c² + 2·a·d)。
+  // 見えたコーナーの速度まで今すぐ落とすのではなく、ぎりぎりまで踏んでから減速する
+  if (spec.aiBrakePlan) {
+    const decel = spec.brakeDecel * 1.0;
+    const far = (sp * sp) / (2 * decel) + 25;
+    let cap = top;
+    for (let d = 0; d <= far; d += 4) {
+      const vc = cornerV(Math.abs(maxCurvatureAhead(track, loc.s + d, 4)), latAt(loc.s + d));
+      // 曲がりながらの強いブレーキは前輪が逃げるので、コーナーの手前（速さに応じた距離）で減速を終える
+      cap = Math.min(cap, Math.sqrt(vc * vc + 2 * decel * Math.max(0, d - 6 - sp * BRAKE_LEAD)));
+    }
+    vTarget = cap;
+  }
   vTarget = Math.min(vTarget, top) * driver.skill * pace;
   if (kart.surface === 'grass') vTarget = Math.min(vTarget, 12);
   // 抜けないうちは前のカートに合わせて少し控える
   if (follow < Infinity) vTarget = Math.min(vTarget, follow - 0.3);
 
   let throttle = v < vTarget ? 1 : 0.15;
-  let brake = v > vTarget + 1.5 ? Math.min(1, (v - vTarget) / 4) : 0;
+  // ブレーキ計画のある車は、計画どおり減速できるよう強めに踏む
+  let brake = spec.aiBrakePlan ? (v > vTarget + 0.5 ? Math.min(1, (v - vTarget) / 1.5) : 0) : v > vTarget + 1.5 ? Math.min(1, (v - vTarget) / 4) : 0;
   // 曲がりながらの強いブレーキは後輪が抜けてスピンするので、横 G に応じて弱める
   brake *= 1 - Math.min(0.75, Math.abs(kart.lateralAccel || 0) / MAX_LAT);
   if (Math.abs(err) > 0.9) { throttle = 0.4; }
+  // 前輪が限界を超えて外へ逃げ始めたら（アンダーステア）、アクセルもブレーキも抜いて前輪のグリップを戻す
+  if (spec.aiBrakePlan && sp > 8) {
+    const peak = Math.tan(Math.PI / (2 * spec.tireC)) / (kart.tireB || spec.tireB);
+    if (Math.abs(kart.frontSlip || 0) > peak * 0.9) {
+      throttle = 0;
+      brake = Math.min(brake, 0.15);
+    }
+  }
   return { steer, throttle, brake, handbrake: 0 };
 }

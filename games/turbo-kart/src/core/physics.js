@@ -29,7 +29,7 @@ export const KART = {
   cgFront: 0.6, // 重心から前輪まで (m)
   cgHeight: 0.18, // 重心高 (m)。前後の荷重移動に使う（カートは低い）
   mu: 2.9, // 舗装の摩擦係数（アーケード寄りの高グリップ）
-  muGrass: 1.1,
+  muGrass: 1.7, // 芝（コース外）: 滑るが、ハンドルとアクセルで戻ってこられる程度
   tireB: 14, // タイヤの立ち上がりの鋭さ（大きいほどピークが小さな滑り角で来る）
   rearGrip: 1.3, // 後輪のグリップを高くしてアンダーステア寄りに（ブレーキ中も後輪が先に限界にならない）
   tireC: 1.45,
@@ -38,6 +38,7 @@ export const KART = {
   steerHigh: 0.1, // キーボード等の補助ありで高速時に絞る切れ角 (rad)
   assistSpeed: 35, // この速度で steerHigh まで絞る (m/s)
   wheelHigh: 0.55, // ハンコンで assistSpeed のときの切れ角の倍率（車速感応）
+  aiBrakePlan: true, // NPC: ブレーキで間に合う速さまで踏み続ける
   downforce: 0, // ダウンフォース係数 (N/(m/s)²)
   aeroFront: 0.45,
   modelRadius: 0.95,
@@ -67,7 +68,7 @@ export const VEHICLES = {
     reverseAccel: 3, reverseTop: 7, handbrakeDecel: 2,
     mu: 3.3, maxLat: 32.3, tireB: 13, rearGrip: 1.3,
     downforce: 3.0, aeroFront: 0.44,
-    steerLock: 0.3, steerHigh: 0.04, assistSpeed: 70, wheelHigh: 0.8, shiftTime: 0.06, boostAccel: 7,
+    steerLock: 0.3, steerHigh: 0.04, assistSpeed: 70, wheelHigh: 0.8, aiMargin: 0.95, aiAero: 0.75, aiBrakePlan: true, shiftTime: 0.06, boostAccel: 7,
   },
 };
 export const VEHICLE_ORDER = ['kart', 'gt3', 'formula'];
@@ -206,7 +207,7 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
     else if (r < 0.5 && k.gear > 1) shift(k, -1);
   }
   // topBonus: パーティーモードのコインによる最高速の上乗せ（操作感は変えず、伸びだけ増える）
-  const top = k.gear > 0 ? P.gearTop[k.gear] * (k.boost > 0 ? 1.15 : 1) * (1 + (k.topBonus || 0)) : P.reverseTop;
+  const top = k.gear > 0 ? P.gearTop[k.gear] * (k.boost > 0 ? 1.15 : 1) * (1 + (k.topBonus || 0)) * (k.topMul ?? 1) : P.reverseTop;
   k.rpm = k.gear > 0 ? Math.max(0, vF) / P.gearTop[k.gear] : k.gear === 0 ? throttle * 0.9 : Math.abs(vF) / P.reverseTop;
 
   // 自動変速時は停止中にブレーキを踏み続けると後退
@@ -244,7 +245,7 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
   const hbDecel = input.assist !== false ? P.handbrakeDecel * 0.3 : P.handbrakeDecel;
   let resist = hb * hbDecel + P.drag * vF * vF + P.rolling + (k.rollingExtra || 0);
   if (!k.reversing) resist += brake * P.brakeDecel;
-  if (grass) resist += 1.0 + 0.012 * vF * vF;
+  if (grass) resist += 0.5 + 0.006 * vF * vF;
   vF += drive * dt;
   if (Math.abs(vF) <= resist * dt) vF = 0;
   else vF -= Math.sign(vF) * resist * dt;
@@ -257,7 +258,7 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
   const d = Math.max(-1, Math.min(1, input.steer || 0)) * steerMax;
   k.steerAngle = d;
   const mu = grass ? P.muGrass : k.mu ?? P.mu;
-  const B = grass ? 6 : k.tireB ?? P.tireB;
+  const B = grass ? 8 : k.tireB ?? P.tireB;
   const m = P.mass, L = P.dynWheelbase, a = P.cgFront, b = L - a;
   // 加減速による前後の荷重移動（ブレーキで前輪、加速で後輪に荷重が乗る）。
   // 実際の速度変化（前のステップ。タイヤの横力による減速も含む）をならして使う
