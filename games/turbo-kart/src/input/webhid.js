@@ -216,6 +216,11 @@ function buildReport(r, values = new Map(), select = new Set()) {
       const u = usages[Math.min(k, usages.length - 1)];
       const v = values.get(u);
       if (v === undefined) continue;
+      // null: 範囲外の値（0）をそのまま書く＝「指定なし」（トリガーボタン無しなど）
+      if (v.null) {
+        writeBits(bytes, off, it.reportSize, min > 0 ? 0 : max + 1 < 2 ** it.reportSize ? max + 1 : 0);
+        continue;
+      }
       let raw;
       if (v.raw !== undefined) raw = v.raw;
       else if (min < 0) raw = Math.round(Math.max(-1, Math.min(1, v.n)) * max);
@@ -263,12 +268,19 @@ export class PIDForce {
   }
 
   async send(r, values, select) {
-    await this.device.sendReport(r.reportId, buildReport(r, values, select));
+    const bytes = buildReport(r, values, select);
+    // 診断: 各レポートを最初に送ったときの中身を記録
+    this.dumped ||= new Set();
+    if (!this.dumped.has(r.reportId)) {
+      this.dumped.add(r.reportId);
+      this.note(`送信 #${r.reportId}: ${[...bytes].map((b) => b.toString(16).padStart(2, '0')).join(' ')}`);
+    }
+    await this.device.sendReport(r.reportId, bytes);
   }
 
   note(msg) {
     this.log.push(msg);
-    if (this.log.length > 30) this.log.shift();
+    if (this.log.length > 40) this.log.shift();
   }
 
   // 診断表示用: 見つかったレポートと、初期化の結果
@@ -279,7 +291,7 @@ export class PIDForce {
       blocks: JSON.stringify(this.blocks),
       ready: this.ready,
       error: this.error,
-      log: this.log.slice(-12),
+      log: this.log.slice(-24),
     };
   }
 
@@ -314,7 +326,8 @@ export class PIDForce {
       [pid(P.SAMPLE_PERIOD), { raw: 0 }],
       [pid(P.START_DELAY), { raw: 0 }],
       [pid(P.GAIN), { n: 1 }],
-      [pid(P.TRIGGER_BUTTON), { raw: 0 }],
+      // トリガーボタンは「無し」（範囲内の値を送ると、そのボタンを押すまで力が出ない機種がある）
+      [pid(P.TRIGGER_BUTTON), { null: true }],
       [pid(P.DIRECTION_ENABLE), { raw: 1 }], // 方向（極座標）を使う。立てないと力を出さない機種がある
       [U(PAGE.desktop, 0x30), { raw: 1 }], // Axes Enable: X
       [U(PAGE.ordinal, 0x01), { n: 0.25 }], // Direction: 90°（X 軸方向）

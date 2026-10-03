@@ -134,7 +134,7 @@ export class CalibrationUI {
     }
     const list = this.hid.list();
     el.innerHTML = list.length
-      ? list.map((st) => `<div class="pad"><b>${escapeHtml(st.name)}</b>入力: 軸 ${st.parser.axes.length} / ボタン ${st.parser.buttons.length}　FFB: ${st.pid?.ok ? '<span style="color:var(--ok)">対応（HID PID）</span>' : st.pid ? 'PID の記述はあるが必要なレポートが不足' : 'なし'}${st.pid?.error ? ` <span class="muted">${escapeHtml(st.pid.error)}</span>` : ''}${st.pid ? pidDiag(st.pid) : ''}<details style="margin-top:2px"><summary class="muted">機器の情報</summary><pre style="white-space:pre-wrap;font-size:11px;margin:4px 0">${escapeHtml(describeDevice(st.device))}</pre></details></div>`).join('')
+      ? list.map((st) => `<div class="pad"><b>${escapeHtml(st.name)}</b>入力: 軸 ${st.parser.axes.length} / ボタン ${st.parser.buttons.length}　FFB: ${st.pid?.ok ? '<span style="color:var(--ok)">対応（HID PID）</span>' : st.pid ? 'PID の記述はあるが必要なレポートが不足' : 'なし'}${st.pid?.error ? ` <span class="muted">${escapeHtml(st.pid.error)}</span>` : ''}${st.pid ? pidDiag(st.pid, st.index) : ''}<details style="margin-top:2px"><summary class="muted">機器の情報</summary><pre style="white-space:pre-wrap;font-size:11px;margin:4px 0">${escapeHtml(describeDevice(st.device))}</pre></details></div>`).join('')
       : '<p class="muted">まだ追加されていません</p>';
   }
 
@@ -163,6 +163,15 @@ export class CalibrationUI {
     this.renderHid();
     const loop = () => {
       this.frame();
+      // FFB 診断の中身は 0.5 秒ごとに書き換える（開いた状態を保ったまま）
+      const now = performance.now();
+      if (now - (this.diagAt || 0) > 500) {
+        this.diagAt = now;
+        for (const st of this.hid?.list() || []) {
+          const pre = st.pid && this.root.querySelector(`[data-diag="${st.index}"]`);
+          if (pre) pre.textContent = pidDiagText(st.pid);
+        }
+      }
       this.raf = requestAnimationFrame(loop);
     };
     cancelAnimationFrame(this.raf);
@@ -305,9 +314,11 @@ function escapeHtml(s) {
 }
 
 // WebHID の FFB 診断（うまく力が出ないときに、どこまで進んだかを確認する）
-function pidDiag(p) {
+function pidDiagText(p) {
   const d = p.diagnose();
-  return `<details style="margin-top:4px"><summary class="muted">FFB 診断</summary><pre style="white-space:pre-wrap;font-size:11px;margin:4px 0">${escapeHtml(
-    [`レポート: ${d.reports}`, `エフェクト番号: ${d.blocks}`, `準備: ${d.ready ? 'OK' : 'まだ'}`, d.error ? `エラー: ${d.error}` : '', ...d.log].filter(Boolean).join('\n'),
-  )}</pre></details>`;
+  return [`レポート: ${d.reports}`, `エフェクト番号: ${d.blocks}`, `準備: ${d.ready ? 'OK' : 'まだ'}`, d.error ? `エラー: ${d.error}` : '', ...d.log].filter(Boolean).join('\n');
+}
+
+function pidDiag(p, index) {
+  return `<details style="margin-top:4px"><summary class="muted">FFB 診断（テストボタンを押すと更新。うまく動かないときはこの文字を送ってください）</summary><pre data-diag="${index}" style="white-space:pre-wrap;font-size:11px;margin:4px 0;user-select:text">${escapeHtml(pidDiagText(p))}</pre></details>`;
 }
