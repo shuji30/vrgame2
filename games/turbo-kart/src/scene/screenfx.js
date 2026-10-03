@@ -29,15 +29,15 @@ export class ScreenFx {
   constructor(camera) {
     const geo = new THREE.PlaneGeometry(1.4, 0.7);
     this.inkMat = new THREE.MeshBasicMaterial({ map: inkTexture(), transparent: true, opacity: 0, depthTest: false, depthWrite: false, fog: false });
-    this.ink = new THREE.Mesh(geo, this.inkMat);
-    this.ink.position.z = -0.25;
-    this.ink.renderOrder = 999;
+    this.inkMesh = new THREE.Mesh(geo, this.inkMat);
+    this.inkMesh.position.z = -0.25;
+    this.inkMesh.renderOrder = 999;
     this.flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthTest: false, depthWrite: false, fog: false });
     this.flashMesh = new THREE.Mesh(geo, this.flashMat);
     this.flashMesh.position.z = -0.24;
     this.flashMesh.renderOrder = 1000;
-    this.ink.visible = this.flashMesh.visible = false;
-    camera.add(this.ink, this.flashMesh);
+    this.inkMesh.visible = this.flashMesh.visible = false;
+    camera.add(this.inkMesh, this.flashMesh);
     this.inkT = 0;
     this.flashT = 0;
   }
@@ -62,7 +62,7 @@ export class ScreenFx {
     // 最後の 1 秒で薄れていく
     this.inkMat.opacity = Math.min(1, this.inkT) * 0.8;
     this.flashMat.opacity = Math.min(1, this.flashT / 0.35) * 0.55;
-    this.ink.visible = this.inkMat.opacity > 0.01;
+    this.inkMesh.visible = this.inkMat.opacity > 0.01;
     this.flashMesh.visible = this.flashMat.opacity > 0.01;
   }
 }

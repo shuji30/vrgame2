@@ -116,6 +116,8 @@ export class Hud {
     if (me?.finished) return `FINISH!  ${me.position}位`;
     // ルーレット中は真ん中に大きく
     if (this.item?.spin) return `🎰 ${this.item.icon}`;
+    // アイテムを使った・当たったときの短いメッセージ
+    if (me?.msg?.t > 0 && !(me.itemFlash > 0)) return me.msg.text;
     // アイテムを取った直後は名前を大きく出す
     if (me?.itemFlash > 0 && me.item && ITEMS[me.item]) return `${ITEMS[me.item].emoji} ${ITEMS[me.item].name} ゲット！`;
     if (me?.lapFlash > 0) return me.lap === race.laps ? 'FINAL LAP' : `LAP ${me.lap}`;
@@ -187,7 +189,7 @@ export class Hud {
       this.el.rpm.classList.toggle('red', k.rpm > 0.92);
       this.el.center.textContent = center;
       this.el.center.classList.toggle('big', /^\d$|GO/.test(center));
-      this.el.center.classList.toggle('small', center.includes('ゲット'));
+      this.el.center.classList.toggle('small', center.includes('ゲット') || !!(me.msg?.t > 0 && center === me.msg.text));
       this.el.center.classList.toggle('roul', center.startsWith('🎰'));
       const ctx = this.mapCtx;
       const S = this.el.map.width;

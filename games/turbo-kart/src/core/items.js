@@ -105,7 +105,7 @@ export class ItemSystem {
       if (e.type !== 'player') return false;
       if (kind === 'mushroom' || kind === 'mushroom3') e.kart.boost = Math.max(e.kart.boost || 0, 1.3);
       this.onUse?.(back);
-      e.events.push({ type: 'useItem', kind });
+      e.events.push({ type: 'useItem', kind, back });
       e.useLock = 0.4; // ホストの返事が来るまで、届いた状態で同じアイテムが復活しないように
       if (kind === 'mushroom3' && --e.itemCount > 0) return true;
       e.item = null;
@@ -142,6 +142,7 @@ export class ItemSystem {
           if (o.shield) { o.shield = false; continue; }
           o.shrink = SHRINK_TIME;
           this.spinOut(o, 0.6, 0.6);
+          this.emit(o, { type: 'shrunk' });
           o.item = null;
           o.roulette = 0;
         }
@@ -157,7 +158,7 @@ export class ItemSystem {
       default:
         break;
     }
-    e.events.push({ type: 'useItem', kind });
+    e.events.push({ type: 'useItem', kind, back });
     if (kind === 'mushroom3' && (e.itemCount = (e.itemCount || 3) - 1) > 0) return true;
     e.item = null;
     e.itemCount = 0;
@@ -364,6 +365,7 @@ export class ItemSystem {
       e.shrink = shrink;
       e.shield = !!shield;
       if (mine && ink > e.ink + 0.5) this.emit(e, { type: 'ink' });
+      if (mine && shrink > e.shrink + 1) this.emit(e, { type: 'shrunk' });
       e.ink = ink;
       // 新しく当たった: 自分なら減速（スピン時間が短いのはカミナリ）、他の車は見た目のスピン
       if (e.hitsSeen === undefined) e.hitsSeen = hits;

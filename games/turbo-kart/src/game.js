@@ -28,6 +28,21 @@ export function centeringForce(wheel, gain = 0.5) {
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const ev0 = (events, type) => events.some((e) => e.type === type);
+
+// アイテムを使ったときのメッセージ
+function useMessage(ev) {
+  switch (ev.kind) {
+    case 'banana': return ev.back ? '🍌 バナナを置いた！' : '🍌 バナナを投げた！';
+    case 'bounce': return ev.back ? '🟢 ボールを後ろへ！' : '🟢 ボール発射！';
+    case 'homing': return '🎯 追尾ボール発射！';
+    case 'mushroom': case 'mushroom3': return '🍄 ダッシュ！';
+    case 'star': return '⭐ スター！ 8 秒間むてき';
+    case 'lightning': return '⚡ カミナリ！ みんなが ちぢんだ';
+    case 'shield': return '🛡️ バリア！ 1 回守る';
+    case 'ink': return '💨 スミ雲！ 前の車の視界をふさいだ';
+    default: return '';
+  }
+}
 const lerpAngle = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 
 export class Game {
@@ -472,10 +487,11 @@ export class Game {
         if (ev.type === 'coin') this.audio.coin();
         if (ev.type === 'itemBox') this.audio.itemBox();
         if (ev.type === 'itemGot') { this.audio.jackpot(); me.itemFlash = 1.6; }
-        if (ev.type === 'useItem') this.audio.whoosh();
-        if (ev.type === 'hit') this.audio.boing(4);
-        if (ev.type === 'shieldBreak') this.audio.thump(6);
-        if (ev.type === 'ink') this.screenFx.ink();
+        if (ev.type === 'useItem') { this.audio.whoosh(); me.msg = { text: useMessage(ev), t: 1.4 }; }
+        if (ev.type === 'hit') { this.audio.boing(4); me.msg = { text: '💥 スピン！', t: 1.2 }; }
+        if (ev.type === 'shrunk') me.msg = { text: '⚡ カミナリで ちぢんだ！', t: 1.6 };
+        if (ev.type === 'shieldBreak') { this.audio.thump(6); me.msg = { text: '🛡️ バリアが守った！', t: 1.4 }; }
+        if (ev.type === 'ink') { this.screenFx.ink(); me.msg = { text: '💨 スミ雲をかけられた！', t: 1.4 }; }
       }
       for (const ev of raceEvents) {
         if (ev.type === 'lightning') {
@@ -487,6 +503,7 @@ export class Game {
       if (party && ev0(events, 'finish')) this.fx.confetti(this.models[me.index]);
       if (me.lapFlash > 0) me.lapFlash -= dt;
       if (me.itemFlash > 0) me.itemFlash -= dt;
+      if (me.msg?.t > 0) me.msg.t -= dt;
       // アイテムを使うボタン: 割り当てがあればその名前、ハンコンで未設定なら自動で使う
       const itemBind = this.input.config.bindings.item;
       me.autoItem = !!race.items && inp.source === 'wheel' && !itemBind;
