@@ -1,0 +1,7 @@
+# デプロイ後に古いファイルが混ざらないよう、HTML / JS / JSON は毎回サーバーに更新を確認させる
+# （変わっていなければ 304 が返るので通信量はほとんど増えない）
+<IfModule mod_headers.c>
+  <FilesMatch "\.(html|js|mjs|json|css)$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+</IfModule>

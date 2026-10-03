@@ -15,7 +15,7 @@ const CONFIG = join(root, 'deploy.config.json');
 const args = process.argv.slice(2);
 
 // 公開するもの / しないもの
-const INCLUDE = ['index.html', 'version.js', 'games', 'server'];
+const INCLUDE = ['.htaccess', 'index.html', 'version.js', 'games', 'server'];
 const EXCLUDE = [
   /(^|\/)tests\//, /(^|\/)tools\//, /analyze\.mjs$/, /(^|\/)\.snapshots\//,
   /^server\/data\//, /^server\/config\.php$/, /(^|\/)\.DS_Store$/,
