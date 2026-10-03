@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mat, addOutline } from './theme.js';
 import { buildHead, animateDriver } from './characters.js';
+import { buildRealKart, buildKartDriver } from './realcars.js';
 
 // 運転者の目の位置（カートのローカル座標）
 export const EYE = new THREE.Vector3(-0.25, 1.0, 0);
@@ -94,6 +95,9 @@ export class KartModel {
     const tire = mat(theme, { color: real ? 0x141416 : 0x1b1b20 }, 'rubber');
     const rimMat = mat(theme, { color: real ? 0xb8bcc4 : 0xffd23f }, 'metal');
 
+    // 本格モードは実車のレーシングカートの形（フレーム・カウル・小径タイヤ）
+    const realInfo = real ? buildRealKart(this, { paint, accent, dark, tire, rim: rimMat, plate: mat(theme, { map: numberPlate(number, color) }, 'paint') }) : null;
+    if (!real) {
     const body = new THREE.Mesh(G.body, paint);
     body.position.y = 0.3;
     const nose = new THREE.Mesh(G.nose, accent);
@@ -154,11 +158,12 @@ export class KartModel {
       this.group.add(pivot);
       this.wheels.push({ pivot, spin, front });
     }
+    }
 
     // ハンドル（ほぼ垂直。下側をわずかに手前に）
     this.steerGroup = new THREE.Group();
-    this.steerGroup.position.set(0.22, 0.74, 0);
-    this.steerGroup.rotation.z = -0.15;
+    this.steerGroup.position.copy(realInfo?.steerPos ?? new THREE.Vector3(0.22, 0.74, 0));
+    this.steerGroup.rotation.z = realInfo?.steerTilt ?? -0.15;
     const column = new THREE.Mesh(G.column, dark);
     column.rotation.z = Math.PI / 2;
     column.position.set(0.1, -0.02, 0);
@@ -186,6 +191,7 @@ export class KartModel {
     knob.position.y = 0.39;
     this.lever.add(rod, knob);
     this.group.add(this.lever);
+    if (real) this.lever.visible = false; // 実車のカートにサイドブレーキのレバーは無い
 
     // ドライバー（プレイヤーのコックピット視点では隠す）。腰を支点に体を傾けられるようにする
     this.driver = new THREE.Group();
@@ -208,23 +214,8 @@ export class KartModel {
       this.head.group.position.set(0.04, this.headBase, 0);
       this.driver.add(belly, this.head.group);
     } else {
-      const torso = new THREE.Mesh(G.torso, suit);
-      torso.position.set(0, 0.28, 0);
-      for (const z of [-0.2, 0.2]) {
-        const arm = new THREE.Mesh(G.arm, suit);
-        arm.position.set(0.3, 0.26, z);
-        arm.rotation.z = Math.PI / 2.6;
-        this.driver.add(arm);
-      }
-      const helmet = new THREE.Mesh(G.helmet, mat(theme, { color: 0xffffff }, 'paint'));
-      helmet.position.set(0.06, 0.7, 0);
-      const stripe = new THREE.Mesh(G.stripe, paint);
-      stripe.position.copy(helmet.position);
-      stripe.rotation.set(0, Math.PI / 2, Math.PI / 2);
-      const visor = new THREE.Mesh(G.visor, mat(theme, { color: 0x1c2a4a }, 'glass'));
-      visor.rotation.y = -Math.PI / 2;
-      visor.position.copy(helmet.position);
-      this.driver.add(torso, helmet, stripe, visor);
+      // 本格: 寝そべるように座り、足を前に伸ばす実車のカートの姿勢
+      buildKartDriver(this.driver, suit, mat(theme, { color: base.clone().lerp(new THREE.Color(0xffffff), 0.6) }, 'paint'), mat(theme, { color: 0x10141c }, 'glass'));
     }
     this.group.add(this.driver);
     this.lean = 0;
@@ -243,8 +234,9 @@ export class KartModel {
     if (!isPlayer && name) this.group.add(this.makeLabel(name, color));
     this.wheelSpin = 0;
     this.flameT = 0;
-    this.eye = EYE;
-    this.rear = { x: -0.65, z: 0.72 }; // 後輪の位置（火花・土煙）
+    this.eye = realInfo?.eye ?? EYE;
+    this.rear ||= { x: -0.65, z: 0.72 }; // 後輪の位置（火花・土煙）
+    this.wheelR = realInfo?.wheelR ?? (party ? 0.34 : 0.27);
     // ヨー → ピッチ → ロールの順に回す
     this.group.rotation.order = 'YZX';
   }
@@ -291,7 +283,7 @@ export class KartModel {
     this.group.position.set(pose.x, pose.y, pose.z);
     this.group.rotation.set(-pose.roll, -pose.heading, pose.pitch);
     const v = kart.vx * Math.cos(kart.heading) + kart.vz * Math.sin(kart.heading);
-    this.wheelSpin -= (v / 0.27) * dt;
+    this.wheelSpin -= (v / this.wheelR) * dt;
     for (const w of this.wheels) {
       w.spin.rotation.z = this.wheelSpin;
       if (w.front) w.pivot.rotation.y = -kart.steerAngle;
@@ -308,7 +300,7 @@ export class KartModel {
       if (boosting) {
         const s = 0.8 + Math.sin(this.flameT * 40 + f.position.z * 10) * 0.25 + Math.random() * 0.15;
         f.scale.set(1, s, 1);
-        f.position.x = -1.38 - 0.28 * s;
+        f.position.x = (f.userData.x0 ?? -1.38) - 0.28 * s;
       }
     }
   }

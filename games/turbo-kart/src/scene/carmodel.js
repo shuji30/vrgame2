@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mat, addOutline } from './theme.js';
 import { buildHead, animateDriver } from './characters.js';
+import { buildRealFormula } from './realcars.js';
 
 function label(name, color) {
   const c = document.createElement('canvas');
@@ -81,13 +82,28 @@ export class CarModel {
       const rim = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.62, r * 0.62, (front ? wF : wR) + 0.02, 14), rimMat);
       rim.rotation.x = Math.PI / 2;
       spin.add(t, rim);
+      if (theme === 'real') {
+        // タイヤ側面の色の帯（コンパウンドの表示）
+        const band = new THREE.MeshStandardMaterial({ color: formula ? 0xf2c400 : 0xd8d8d8, roughness: 0.7 });
+        for (const s of [-1, 1]) {
+          const ring = new THREE.Mesh(new THREE.TorusGeometry(r * 0.8, r * 0.03, 6, 36), band);
+          ring.position.z = (s * ((front ? wF : wR) + 0.004)) / 2;
+          spin.add(ring);
+        }
+      }
       pivot.add(spin);
       this.group.add(pivot);
       this.wheels.push({ pivot, spin, front });
     }
     this.wheelRadius = (rF + rR) / 2;
 
-    if (formula) {
+    if (formula && theme === 'real') {
+      // 本格: 実車に近いフォーミュラ（細いノーズ・多段のウイング・サイドポッド・エアボックス・ヘイロー・アーム）
+      const info = buildRealFormula(this, { paint, accent, carbon, plate: mat(theme, { map: numberTex(number, color) }, 'paint') });
+      this.cockpitHide.push(...info.hide);
+      this.eye = info.eye;
+      this.steerPos = info.steerPos;
+    } else if (formula) {
       // モノコック・ノーズ・フロントウイング・サイドポッド・リアウイング
       const tub = new THREE.Mesh(new RoundedBoxGeometry(3.4, 0.42, 0.75, 3, 0.15), paint);
       tub.position.set(0.1, 0.42, 0);
