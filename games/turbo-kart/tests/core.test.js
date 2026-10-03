@@ -82,7 +82,8 @@ test('レース: NPC 11 台が 3 周を完走し、壁を突き抜けない', ()
   for (const e of race.karts) {
     assert.ok(e.finished, `${e.name} 完走`);
     assert.equal(e.lapTimes.length, 3);
-    for (const t of e.lapTimes) assert.ok(t > 35 && t < 90, `${e.name} lap ${t}`);
+    // NPC は記録に合わせて速くしてある（Thunder Ring 約 35 秒）。あり得ない速さ・遅さでないことだけ確かめる
+    for (const t of e.lapTimes) assert.ok(t > 25 && t < 90, `${e.name} lap ${t}`);
   }
   const pos = race.standings().map((e) => e.position);
   assert.deepEqual(pos, Array.from({ length: 11 }, (_, i) => i + 1));

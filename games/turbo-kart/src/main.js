@@ -166,6 +166,20 @@ $('btn-calib-close').addEventListener('click', () => {
   ui.showScreen('menu');
 });
 $('btn-resume').addEventListener('click', () => game.pause(false));
+// 結果画面のボタン（次のコース / もう一度 / やめる）
+document.querySelector('[data-hud=board]').addEventListener('click', (ev) => {
+  const act = ev.target.closest('[data-act]')?.dataset.act;
+  if (act === 'next') game.nextCourse();
+  else if (act === 'again') game.restart();
+  else if (act === 'quit') game.toMenu();
+});
+// 次のコースへ進んだらメニューの選択も合わせる
+game.onTrackChange = (id) => {
+  trackSel.value = id;
+  describeTrack();
+  raceOptions();
+  refreshRanking();
+};
 $('btn-ffb-reset').addEventListener('click', () => ffb.reset());
 $('btn-restart').addEventListener('click', () => game.restart());
 $('btn-menu').addEventListener('click', () => game.toMenu());
@@ -284,6 +298,7 @@ game.onFinish = async (me) => {
   let r = null;
   try { r = await submitLap(key, name, me.bestLap); } catch { /* つながらない */ }
   if (r?.top?.[0]) game.hud.courseRecord = r.top[0];
+  game.rankText = r?.rank ? `🏆 ベストラップ ランキング ${r.rank} 位に入りました！` : r ? `ベストラップ ${(me.bestLap).toFixed(3)} 秒` : '';
   game.rankHtml = `<h3 style="margin:14px 0 6px">🏆 ベストラップ ランキング${r?.rank ? `　<span style="color:#ffd23f">${r.rank} 位に入りました！</span>` : ''}</h3>${lapsTable(r ? r.top : null, name)}`;
   refreshRanking();
 };

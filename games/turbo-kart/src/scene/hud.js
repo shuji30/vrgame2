@@ -110,6 +110,8 @@ export class Hud {
     // 下の帯に「最速 / 記録 / 自己ベスト」を出すため少し縦長
     this.dash = new CanvasPlane(0.42, 0.25, 512);
     this.banner = new CanvasPlane(2.4, 0.9, 1024);
+    // VR のリザルト（ゴール後に目の前に出す）
+    this.results = new CanvasPlane(1.7, 1.45, 1024);
     this.lastDash = 0;
     this.bannerText = null;
   }
@@ -298,6 +300,59 @@ export class Hud {
     this.dash.commit();
   }
 
+  // VR のリザルト: 順位表・ランキング・操作の案内。extra: { rankText, online }
+  drawResults(race, me, extra = {}) {
+    const { ctx, canvas } = this.results;
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(10,12,24,0.92)';
+    ctx.beginPath();
+    ctx.roundRect(4, 4, W - 8, H - 8, 36);
+    ctx.fill();
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffd23f';
+    ctx.font = 'italic 900 64px system-ui, sans-serif';
+    ctx.fillText(`RESULT — ${me.position} 位`, W / 2, 70);
+    const rows = race.standings();
+    const leader = rows[0];
+    const rowH = Math.min(52, 500 / rows.length);
+    ctx.font = `bold ${Math.round(rowH * 0.62)}px system-ui, sans-serif`;
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.textAlign = 'left';
+    const y0 = 140;
+    ctx.fillText('#', 60, y0);
+    ctx.fillText('DRIVER', 130, y0);
+    ctx.fillText('TIME', 560, y0);
+    ctx.fillText('BEST LAP', 780, y0);
+    rows.forEach((e, i) => {
+      const y = y0 + (i + 1) * rowH;
+      if (e === me) {
+        ctx.fillStyle = 'rgba(255,210,63,0.18)';
+        ctx.fillRect(40, y - rowH / 2, W - 80, rowH);
+      }
+      ctx.fillStyle = e === me ? '#ffd23f' : '#ffffff';
+      ctx.fillText(String(e.position), 60, y);
+      ctx.fillStyle = '#' + new THREE.Color(e.color).getHexString();
+      ctx.fillRect(130, y - rowH * 0.25, rowH * 0.5, rowH * 0.5);
+      ctx.fillStyle = e === me ? '#ffd23f' : '#ffffff';
+      ctx.fillText(e.name, 130 + rowH * 0.7, y);
+      const t = e.finished ? (e === leader ? fmtTime(e.finishTime) : `+${(e.finishTime - leader.finishTime).toFixed(2)}`) : `LAP ${Math.max(1, e.lap)}`;
+      ctx.fillText(t, 560, y);
+      ctx.fillText(fmtTime(e.bestLap), 780, y);
+    });
+    ctx.textAlign = 'center';
+    if (extra.rankText) {
+      ctx.fillStyle = '#7cff6a';
+      ctx.font = 'bold 40px system-ui, sans-serif';
+      ctx.fillText(extra.rankText, W / 2, H - 150);
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.font = 'bold 34px system-ui, sans-serif';
+    ctx.fillText(extra.online ? '決定 / ポーズ: ロビーへ戻る' : '決定: 次のコース ・ アイテム: もう一度 ・ ポーズ: やめる', W / 2, H - 70);
+    this.results.commit();
+  }
+
   drawBanner(text) {
     const { ctx, canvas } = this.banner;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -317,7 +372,11 @@ export class Hud {
   // ゴール後の順位表（PC は HTML、VR はバナーの下に）
   showBoard(race, html) {
     this.el.board.hidden = !html;
-    this.el.board.innerHTML = html || '';
+    // 中身が変わったときだけ書き換える（毎フレーム作り直すとボタンが押せない）
+    if (html !== this.boardHtml) {
+      this.boardHtml = html;
+      this.el.board.innerHTML = html || '';
+    }
   }
 
   hide() {

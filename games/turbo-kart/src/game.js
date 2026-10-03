@@ -29,6 +29,11 @@ export function centeringForce(wheel, gain = 0.5) {
 const lerp = (a, b, t) => a + (b - a) * t;
 const ev0 = (events, type) => events.some((e) => e.type === type);
 
+function nextTrackName(id) {
+  const i = TRACKS.findIndex((t) => t.id === id);
+  return TRACKS[(i + 1) % TRACKS.length].name;
+}
+
 // ハンドリング: 'auto' はモードに合わせる（本格 = リアル、パーティー = アーケード）
 export function isRealHandling(handling, theme) {
   return handling === 'real' || ((!handling || handling === 'auto') && theme === 'real');
@@ -220,6 +225,11 @@ export class Game {
     model.steerWheel.add(this.hud.dash.mesh);
     this.hud.banner.mesh.position.set(0, 0.25, -3);
     this.cockpit.add(this.hud.banner.mesh);
+    this.hud.results.mesh.position.set(0, 0.05, -2.1);
+    this.cockpit.add(this.hud.results.mesh);
+    this.hud.results.mesh.visible = false;
+    this.resultsDrawnAt = 0;
+    this.rankText = '';
     this.hud.dash.mesh.visible = this.hud.banner.mesh.visible = false;
     this.hud.bannerText = null;
     this.applyView();
@@ -355,6 +365,16 @@ export class Game {
     if (this.xrOn) this.renderer.xr.getSession()?.end();
   }
 
+  // 結果画面から次のコースへ（オンラインはロビーへ戻る）
+  nextCourse() {
+    if (this.online) return this.toMenu();
+    const i = TRACKS.findIndex((t) => t.id === this.trackId);
+    const next = TRACKS[(i + 1) % TRACKS.length].id;
+    this.ui.showPause(false);
+    this.startRace({ ...this.opts, track: next });
+    this.onTrackChange?.(next);
+  }
+
   restart() {
     if (this.online) return this.toMenu(); // オンラインはロビーからホストが始める
     this.ui.showPause(false);
@@ -376,9 +396,11 @@ export class Game {
       else if (this.state === 'results') this.toMenu();
     }
     if (inp.confirm) {
-      if (this.state === 'results') this.restart();
+      if (this.state === 'results') this.nextCourse();
       else if (this.state === 'paused' && this.xrOn) this.toMenu();
     }
+    // 結果画面: アイテムボタン（Shift）でもう一度
+    if (inp.item && this.state === 'results') this.restart();
     if (inp.recenter) this.recenter();
     if (inp.camera && !this.xrOn && this.me) this.setCameraMode({ chase: 'cockpit', cockpit: 'eye', eye: 'chase' }[this.cameraMode] || 'chase');
     if (inp.debug) this.showDebug = !this.showDebug;
@@ -543,7 +565,7 @@ export class Game {
       }
       const vr = this.xrOn;
       this.hud.dash.mesh.visible = vr || this.cameraMode === 'cockpit';
-      this.hud.banner.mesh.visible = vr;
+      this.hud.banner.mesh.visible = vr && this.state !== 'results'; // ゴール後はリザルトに場所を譲る
       this.hud.update(race, me, { vr, manual: me.manual, dt, party });
       // ルーレットの絵柄が変わるたびにカチッと鳴らす
       if (me.roulette > 0 && this.hud.rouletteIdx !== this.lastRouletteIdx) this.audio.tick();
@@ -572,6 +594,13 @@ export class Game {
         this.ui.showResults(true);
       }
       if (this.state === 'results') this.hud.showBoard(race, this.boardHtml());
+      // VR: ゴール後は目の前にリザルトを出す（順位やランキングが変わるので 0.5 秒ごとに描き直す）
+      const showVR = vr && this.state === 'results';
+      this.hud.results.mesh.visible = showVR;
+      if (showVR && performance.now() - this.resultsDrawnAt > 500) {
+        this.resultsDrawnAt = performance.now();
+        this.hud.drawResults(race, me, { rankText: this.rankText, online: !!this.online });
+      }
     }
   }
 
@@ -685,7 +714,13 @@ export class Game {
     return `<h2>RESULT — ${this.me.position} 位</h2>
       <table><thead><tr><th>#</th><th>DRIVER</th><th>TIME</th><th>BEST LAP</th></tr></thead><tbody>${rows}</tbody></table>
       ${this.rankHtml || ''}
-      <p class="muted">${this.online ? '決定ボタン / Enter・ポーズボタン / Esc でロビーへ戻る' : '決定ボタン / Enter でもう一度 ・ ポーズボタン / Esc でメニュー'}</p>`;
+      ${this.online ? '<p class="muted">決定ボタン / Enter・ポーズボタン / Esc でロビーへ戻る</p>' : `
+      <div class="actions">
+        <button class="primary" data-act="next">▶ 次のコース（${nextTrackName(this.trackId)}）</button>
+        <button data-act="again">↻ もう一度</button>
+        <button data-act="quit">✕ やめる</button>
+      </div>
+      <p class="muted">決定ボタン / Enter: 次のコース ・ アイテムボタン / Shift: もう一度 ・ ポーズボタン / Esc: やめる</p>`}`;
   }
 
   updateCamera(dt) {
