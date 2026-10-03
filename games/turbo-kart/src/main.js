@@ -5,6 +5,7 @@ import { HIDManager } from './input/webhid.js';
 import { CalibrationUI } from './input/calibration.js';
 import { FFBBridge } from './ffb.js';
 import { TRACKS } from './core/tracks.js';
+import { setupOnline } from './net/lobby.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -23,7 +24,7 @@ ffb.hid = hid;
 setBridgePads(() => ffb.inputPads());
 setHidPads(() => hid.pads());
 
-const screens = { menu: $('menu'), calib: $('calib') };
+const screens = { menu: $('menu'), calib: $('calib'), online: $('online') };
 const ui = {
   hud: $('hud'),
   debug: $('debug'),
@@ -128,23 +129,25 @@ $('btn-menu').addEventListener('click', () => game.toMenu());
 // VR
 const vrBtn = $('btn-vr');
 let pendingVR = null;
+// VR を開始する。opts があれば VR に入ったらそのレースを始める（null ならデモ走行のまま待機）
+async function vrStart(opts) {
+  game.audio.init();
+  pendingVR = opts;
+  try {
+    const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] });
+    await renderer.xr.setSession(session);
+  } catch (e) {
+    pendingVR = null;
+    alert(`VR を開始できませんでした: ${e.message}`);
+  }
+}
 async function setupVR() {
   if (!navigator.xr || !(await navigator.xr.isSessionSupported('immersive-vr').catch(() => false))) {
     vrBtn.disabled = true;
     vrBtn.textContent = 'VR 非対応の環境';
     return;
   }
-  vrBtn.addEventListener('click', async () => {
-    game.audio.init();
-    pendingVR = raceOptions();
-    try {
-      const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] });
-      await renderer.xr.setSession(session);
-    } catch (e) {
-      pendingVR = null;
-      alert(`VR を開始できませんでした: ${e.message}`);
-    }
-  });
+  vrBtn.addEventListener('click', () => vrStart(raceOptions()));
 }
 setupVR();
 renderer.xr.addEventListener('sessionstart', () => {
@@ -169,6 +172,8 @@ renderer.setAnimationLoop(() => {
   game.update();
   renderer.render(game.scene, game.camera);
 });
+
+setupOnline({ game, ui, input, getVR: () => vrStart, $ });
 
 window.__kart = {
   game, input, ffb,

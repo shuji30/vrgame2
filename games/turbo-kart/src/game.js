@@ -86,23 +86,41 @@ export class Game {
     this.race = null;
   }
 
-  // opts: { npcs, laps, level, manual, attract, vehicle, track }
+  // opts: { npcs, laps, level, manual, attract, vehicle, track, online: { session, grid, seed, countdown } }
   startRace(opts) {
     if (opts.track) this.setTrack(opts.track);
     this.clearRace();
     this.opts = opts;
     const entries = [];
     const n = Math.max(0, Math.min(10, opts.npcs ?? 10));
-    for (let i = 0; i < n; i++) entries.push({ name: NPC_NAMES[i], color: KART_COLORS[(i + 1) % KART_COLORS.length], type: 'npc' });
-    if (!opts.attract) entries.push({ name: 'YOU', color: KART_COLORS[0], type: 'player' });
-    const playerIndex = opts.attract ? -1 : entries.length - 1;
+    const on = opts.online;
+    let playerIndex;
+    if (on) {
+      // オンライン: 参加者をグリッド順に、そのあと NPC（ホストだけが走らせ、他の人には位置を配る）
+      on.grid.forEach((p, i) => entries.push({
+        name: p.name, color: KART_COLORS[i % KART_COLORS.length], netId: p.id,
+        type: p.id === on.session.self ? 'player' : 'remote',
+      }));
+      for (let i = 0; i < n; i++) {
+        entries.push({ name: NPC_NAMES[i], color: KART_COLORS[(on.grid.length + i) % KART_COLORS.length], netId: `npc${i}`, type: on.session.isHost ? 'npc' : 'remote' });
+      }
+      playerIndex = entries.findIndex((e) => e.type === 'player');
+    } else {
+      for (let i = 0; i < n; i++) entries.push({ name: NPC_NAMES[i], color: KART_COLORS[(i + 1) % KART_COLORS.length], type: 'npc' });
+      if (!opts.attract) entries.push({ name: 'YOU', color: KART_COLORS[0], type: 'player' });
+      playerIndex = opts.attract ? -1 : entries.length - 1;
+    }
+    this.online = on ? on.session : null;
+    this.netTimer = 0;
     this.race = new Race(this.track, entries, {
       laps: opts.laps ?? 3,
       vehicle: opts.vehicle || 'kart',
       level: opts.level ?? 'normal',
-      seed: (Math.random() * 1e9) | 0,
+      seed: on ? on.seed : (Math.random() * 1e9) | 0,
       manual: opts.manual && playerIndex >= 0 ? [playerIndex] : [],
     });
+    // オンラインはホストが決めたスタート時刻に合わせてカウントダウンを始める
+    if (on) this.race.time = -Math.max(1, on.countdown);
     this.fx.clear();
     this.models = this.race.karts.map((e, i) => {
       const mo = { isPlayer: e.type === 'player', number: i + 1 };
@@ -206,6 +224,7 @@ export class Game {
 
   pause(on) {
     if (this.state !== 'race' && this.state !== 'paused') return;
+    if (this.online) return; // オンライン中は止めない
     this.state = on ? 'paused' : 'race';
     this.ui.showPause(on);
     if (on) {
@@ -216,6 +235,19 @@ export class Game {
   }
 
   toMenu() {
+    if (this.online) {
+      // オンラインのレース後はロビーへ戻る
+      const s = this.online;
+      this.online = null;
+      this.ffb.stop();
+      this.audio.silence();
+      this.hud.hide();
+      this.showAttract();
+      this.ui.showScreen('online');
+      s.backToLobby();
+      if (this.xrOn) this.renderer.xr.getSession()?.end();
+      return;
+    }
     this.ffb.stop();
     this.audio.silence();
     this.hud.hide();
@@ -226,6 +258,7 @@ export class Game {
   }
 
   restart() {
+    if (this.online) return this.toMenu(); // オンラインはロビーからホストが始める
     this.ui.showPause(false);
     this.startRace({ ...this.opts });
   }
@@ -259,6 +292,7 @@ export class Game {
 
     const race = this.race;
     const events = [];
+    if (this.online && this.state !== 'menu') this.syncNet(dt);
     // 押した瞬間の入力は、物理の更新が来るまで保持する（高リフレッシュレートで取りこぼさない）
     if (inp.shiftUp) this.pendingUp = true;
     if (inp.shiftDown) this.pendingDown = true;
@@ -379,6 +413,41 @@ export class Game {
     }
   }
 
+  // オンライン: 受け取った走行データを反映し、自分（とホストは NPC）の走行データを送る
+  syncNet(dt) {
+    const s = this.online;
+    const race = this.race;
+    const now = performance.now();
+    const byId = new Map(race.karts.filter((e) => e.netId).map((e) => [e.netId, e]));
+    for (const [id, m] of s.remote) {
+      const e = byId.get(id);
+      if (e && e.type === 'remote') e.net = { ...m, age: (now - m.recv) / 1000 };
+    }
+    if (s.npcState && !s.isHost) {
+      const age = (now - s.npcState.recv) / 1000;
+      for (const m of s.npcState.list) {
+        const e = byId.get(m.id);
+        if (e && e.type === 'remote') e.net = { ...m, age };
+      }
+    }
+    const pack = (e) => {
+      const k = e.kart;
+      return {
+        id: e.netId, x: +k.x.toFixed(2), z: +k.z.toFixed(2), h: +k.heading.toFixed(4), vx: +k.vx.toFixed(2), vz: +k.vz.toFixed(2),
+        yaw: +k.yawRate.toFixed(3), sa: +k.steerAngle.toFixed(3), st: +(e.input.steer || 0).toFixed(2), th: +(e.input.throttle || 0).toFixed(2),
+        g: k.gear, b: +k.boost.toFixed(2), dr: +(k.driftTime || 0).toFixed(2), hb: +(k.handbrakeInput || 0).toFixed(2),
+        lap: e.lap, sd: e.started ? 1 : 0, f: e.finished ? 1 : 0, ft: e.finishTime, bl: e.bestLap,
+      };
+    };
+    this.netTimer += dt;
+    if (this.netTimer >= 0.05) {
+      this.netTimer = 0;
+      if (this.me) s.sendState(pack(this.me));
+      this.npcTick = (this.npcTick || 0) + 1;
+      if (s.isHost && this.npcTick % 2 === 0) s.sendNpcs(race.karts.filter((e) => e.type === 'npc').map(pack));
+    }
+  }
+
   // I キーで入力の状態を表示（パドルなどが届いているかの確認用）
   updateDebug(inp) {
     const el = this.ui.debug;
@@ -412,7 +481,7 @@ export class Game {
     }).join('');
     return `<h2>RESULT — ${this.me.position} 位</h2>
       <table><thead><tr><th>#</th><th>DRIVER</th><th>TIME</th><th>BEST LAP</th></tr></thead><tbody>${rows}</tbody></table>
-      <p class="muted">決定ボタン / Enter でもう一度 ・ ポーズボタン / Esc でメニュー</p>`;
+      <p class="muted">${this.online ? '決定ボタン / Enter・ポーズボタン / Esc でロビーへ戻る' : '決定ボタン / Enter でもう一度 ・ ポーズボタン / Esc でメニュー'}</p>`;
   }
 
   updateCamera(dt) {

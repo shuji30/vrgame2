@@ -85,3 +85,22 @@ NPC 10 台と競うカートレースです。コース「Thunder Ring」（1.3k
 ```bash
 node games/turbo-kart/analyze.mjs normal   # NPC だけのレースの統計
 ```
+
+## オンライン対戦（最大 5 人）
+
+- お名前.com などの PHP が動くレンタルサーバーに `server/` を置くと使えます（PHP 8.1 以上、データベース不要）
+- ルームを作ってコード（4 文字）を伝え、参加してもらいます。レース中はプレイヤー同士が WebRTC で直接通信し、サーバーはルームと接続の仲介だけを行います
+- ホストがコース・車種・周回・NPC を決めてスタートします。NPC はホストが走らせて全員に配信します
+- ゲームを GitHub Pages から開く場合は、オンライン対戦の画面で「サーバー URL」に `https://(あなたのドメイン)/vrgame2/server/api.php` を入力します。ゲームごとサーバーに置いた場合は自動で決まります
+
+### サーバーへのデプロイ（管理者）
+
+```bat
+deploy.bat            :: 初回は SSH の接続先を質問し deploy.config.json に保存。以後はダブルクリックだけ
+deploy.bat --setup    :: 接続先を設定し直す
+deploy.bat --dry      :: 送るファイルの一覧だけ表示
+```
+
+- Windows 標準の `ssh` と `tar` を使って、サイト一式（`index.html`・`games/`・`server/`）を一度の接続でアップロードします。パスワードは保存しません（SSH 鍵を設定すれば入力も不要）
+- アップロード後、サーバー上で PHP の構文チェックと、公開 URL での動作確認（`server/api.php?a=health`）を行います
+- 許可するゲームの URL（CORS）やデータの保存先を変えたいときは、サーバー上で `server/config.sample.php` を `config.php` にコピーして編集します

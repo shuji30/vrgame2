@@ -179,7 +179,7 @@
         <button class="primary" id="btn-start">▶ レース開始（PC）</button>
         <button class="primary" id="btn-vr">VR でレース開始</button>
         <button id="btn-calib">ハンコン / FFB 設定</button>
-        <button id="btn-online" disabled title="準備中">オンライン対戦（準備中）</button>
+        <button id="btn-online">オンライン対戦</button>
       </div>
       <p class="note" id="input-summary"></p>
       <p class="note">
@@ -262,6 +262,43 @@
         <div class="actions" style="justify-content:center">
           <button class="primary" data-calib="done">完了</button>
           <button data-calib="cancel">キャンセル</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- オンライン対戦 -->
+  <section id="online" class="screen" hidden>
+    <div class="card">
+      <h1 style="font-size:28px">オンライン対戦（最大 5 人）</h1>
+      <div data-net="entry">
+        <div class="grid">
+          <label class="field">名前 <input id="net-name" maxlength="16" placeholder="Player"></label>
+          <label class="field">サーバー URL <input id="net-server" placeholder="https://example.com/vrgame2/server/api.php"></label>
+        </div>
+        <p class="note" id="net-health"></p>
+        <div class="actions">
+          <button class="primary" id="net-create">ルームを作る</button>
+          <input id="net-code" maxlength="4" placeholder="コード" style="width:110px;text-transform:uppercase;font:inherit;padding:10px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:#fff">
+          <button id="net-join">参加</button>
+          <button class="ghost" id="net-back">◀ 戻る</button>
+        </div>
+      </div>
+      <div data-net="lobby" hidden>
+        <p class="sub">ルームコード <b id="net-room" style="font-size:32px;letter-spacing:.2em;color:var(--accent2)"></b>（友だちに伝えて参加してもらう）</p>
+        <ol id="net-players"></ol>
+        <div class="grid" id="net-settings">
+          <label class="field">コース <select id="net-track"></select></label>
+          <label class="field">車種 <select id="net-vehicle">
+            <option value="kart">カート</option><option value="gt3">GT3</option><option value="formula">フォーミュラ</option></select></label>
+          <label class="field">周回数 <select id="net-laps"><option>1</option><option>2</option><option selected>3</option><option>5</option></select></label>
+          <label class="field">NPC の台数 <select id="net-npcs"></select></label>
+        </div>
+        <p class="note" id="net-status"></p>
+        <div class="actions">
+          <button class="primary" id="net-start">▶ スタート（ホスト）</button>
+          <button id="net-vr">VR で待機</button>
+          <button class="ghost" id="net-leave">退出</button>
         </div>
       </div>
     </div>

@@ -80,7 +80,11 @@ export class Race {
 
     const player = this.player;
     for (const e of this.karts) {
-      if (e.type === 'remote') continue; // 他プレイヤーはネットワークから位置を受け取る
+      if (e.type === 'remote') {
+        // 他プレイヤー（とホストが走らせる NPC）はネットワークから受け取った位置へ追従する
+        this.stepRemote(e, dt);
+        continue;
+      }
       let input;
       if (!racing) {
         // カウントダウン中はその場で待機（ブレーキ長押しの後退も起こさない）
@@ -123,6 +127,32 @@ export class Race {
       this.checkBoostPads(e, dt);
     }
     this.updateProgress();
+  }
+
+  // e.net: { x, z, h, vx, vz, yaw, sa, st, g, b, dr, age(受信からの秒), lap, sd, f, ft, bl }
+  stepRemote(e, dt) {
+    const n = e.net;
+    const k = e.kart;
+    if (n) {
+      const age = Math.min(0.3, n.age || 0);
+      const px = n.x + n.vx * age, pz = n.z + n.vz * age;
+      const err = Math.hypot(px - k.x, pz - k.z);
+      const a = err > 8 ? 1 : Math.min(1, dt * 15);
+      k.x += (px - k.x) * a;
+      k.z += (pz - k.z) * a;
+      const ph = n.h + (n.yaw || 0) * age;
+      k.heading += Math.atan2(Math.sin(ph - k.heading), Math.cos(ph - k.heading)) * a;
+      k.vx = n.vx;
+      k.vz = n.vz;
+      k.yawRate = n.yaw || 0;
+      k.steerAngle = n.sa || 0;
+      k.gear = n.g ?? k.gear;
+      k.boost = n.b || 0;
+      k.driftTime = n.dr || 0;
+      k.handbrakeInput = n.hb || 0;
+      e.input = { ...e.input, steer: n.st || 0, throttle: n.th || 0 };
+    }
+    this.applyTerrain(e);
   }
 
   // 路面の種類・坂・バンクをカートに反映し、描画/FFB 用の姿勢 (ride) を更新する
@@ -226,6 +256,18 @@ export class Race {
   updateProgress() {
     const L = this.track.length;
     for (const e of this.karts) {
+      if (e.type === 'remote' && e.net) {
+        // 周回とゴールは本人の判定を使う
+        e.lap = e.net.lap ?? e.lap;
+        e.started = !!e.net.sd;
+        if (e.net.f && !e.finished) e.events.push({ type: 'finish' });
+        e.finished = !!e.net.f;
+        e.finishTime = e.net.ft ?? null;
+        e.bestLap = e.net.bl ?? e.bestLap;
+        const sr = wrapS(this.track, e.loc.s - startS(this.track));
+        e.progress = e.finished ? this.laps * L + 1e6 - e.finishTime : (e.started ? (e.lap - 1) * L : -L) + sr;
+        continue;
+      }
       // スタートラインからの距離
       const s = wrapS(this.track, e.loc.s - startS(this.track));
       const prev = e.prevS ?? s;
