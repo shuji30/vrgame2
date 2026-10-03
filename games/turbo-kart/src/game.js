@@ -112,7 +112,13 @@ export class Game {
     this.track = buildTrack(def);
     applyRendererTheme(this.renderer, this.scene, theme);
     this.world = buildWorld(this.scene, this.track, { theme });
+    this.worldFog = this.scene.fog; // 上から（2D）視点では霧を消すので覚えておく
     this.hud.setTrack(this.track);
+  }
+
+  // 車の中から見る視点か（VR・車内・目線）。ビハインドと上から（2D）は外から
+  get insideView() {
+    return this.xrOn || (!!this.me && (this.cameraMode === 'cockpit' || this.cameraMode === 'eye'));
   }
 
   get xrOn() {
@@ -266,14 +272,14 @@ export class Game {
     cam.removeFromParent();
     cam.position.set(0, 0, 0);
     cam.rotation.set(0, 0, 0);
-    if (this.xrOn || (this.me && this.cameraMode !== 'chase')) {
+    if (this.insideView) {
       this.xrOffset.add(cam);
     } else {
       this.scene.add(cam);
     }
   }
 
-  // mode: 'chase'（ビハインド）| 'cockpit'（車内）| 'eye'（目線: 車体を消してコースを広く見る）
+  // mode: 'chase'（ビハインド）| 'cockpit'（車内）| 'eye'（目線: 車体を消してコースを広く見る）| 'top'（上から 2D）
   setCameraMode(mode) {
     this.cameraMode = mode;
     this.applyView();
@@ -292,7 +298,7 @@ export class Game {
     if (!this.me) return;
     const m = this.models[this.me.index];
     const mode = this.xrOn ? 'cockpit' : this.cameraMode;
-    m.setCockpit(mode !== 'chase');
+    m.setCockpit(mode === 'cockpit' || mode === 'eye');
     this.cockpit.position.copy(m.eye);
     if (!this.xrOn && mode === 'cockpit') m.steerGroup.scale.setScalar(0.5);
     if (!this.xrOn && mode === 'eye') {
@@ -300,7 +306,7 @@ export class Game {
       for (const c of m.eyeHidden) c.visible = false;
       this.cockpit.position.y += 0.1;
     }
-    if (!this.xrOn && mode !== 'chase') {
+    if (!this.xrOn && (mode === 'cockpit' || mode === 'eye')) {
       this.camera.fov = mode === 'eye' ? 88 : 75;
       this.camera.updateProjectionMatrix();
     }
@@ -426,7 +432,7 @@ export class Game {
     if (this.state === 'results') this.resultsInput(inp);
     else if (inp.confirm && this.state === 'paused' && this.xrOn) this.toMenu();
     if (inp.recenter) this.recenter();
-    if (inp.camera && !this.xrOn && this.me) this.setCameraMode({ chase: 'cockpit', cockpit: 'eye', eye: 'chase' }[this.cameraMode] || 'chase');
+    if (inp.camera && !this.xrOn && this.me) this.setCameraMode({ chase: 'cockpit', cockpit: 'eye', eye: 'top', top: 'chase' }[this.cameraMode] || 'chase');
     if (inp.debug) this.showDebug = !this.showDebug;
     if (inp.ffbReset) this.ffb.reset();
     if (inp.shiftUp || inp.shiftDown) this.lastShiftInput = { up: inp.shiftUp, at: performance.now() };
@@ -511,7 +517,7 @@ export class Game {
       const manualDriving = e === this.me && !this.autodrive && !e.finished && this.state === 'race';
       const steer = manualDriving ? inp.wheel.value : e.input.steer || 0;
       // アイテムが当たったスピンと、カミナリでちぢむ効果（見た目だけ）。自分の車内視点・VR では酔わないよう回さない
-      const inside = e === this.me && (this.xrOn || this.cameraMode !== 'chase');
+      const inside = e === this.me && this.insideView;
       if (e.spin > 0 && !inside) pose.heading += (1 - e.spin / (e.spinMax || 1.1)) * Math.PI * 2;
       this.models[i].group.scale.setScalar(e.shrink > 0 && !inside ? 0.6 : 1);
       this.models[i].update(pose, e.kart, steer, dt, this.input.lockDeg || this.input.config.steer.lockDeg);
@@ -528,7 +534,7 @@ export class Game {
     this.fx.update(dt);
     this.screenFx.update(dt);
     if (this.itemView) {
-      const inside = this.me && (this.xrOn || this.cameraMode !== 'chase');
+      const inside = this.insideView;
       this.itemView.update(dt, this.models, inside ? this.me.index : -1);
     }
 
@@ -757,8 +763,42 @@ export class Game {
 
   updateCamera(dt) {
     const focus = this.me || this.race.karts.find((e) => e.position === 1) || this.race.karts[0];
-    if (this.xrOn || (this.me && this.cameraMode !== 'chase')) return; // 車内・目線は自動で追従
+    // 上から（2D）: 真上の高い所から狭い視野で見下ろす（ラリーX 風。北が常に上、進む向きを少し先読み）。霧は消す
+    const top = !!this.me && this.cameraMode === 'top' && !this.xrOn;
+    this.scene.fog = top ? null : this.worldFog;
+    if (this.insideView) return; // 車内・目線は自動で追従
     const pose = focus.renderPose;
+    // 自分の車の目印（上から見たときだけ。進む向きを指す黄色い矢印）
+    if (this.me) {
+      if (!this.topMarker) {
+        const shape = new THREE.Shape([new THREE.Vector2(2.2, 0), new THREE.Vector2(-1.2, 1.4), new THREE.Vector2(-0.5, 0), new THREE.Vector2(-1.2, -1.4)]);
+        const geo = new THREE.ShapeGeometry(shape);
+        geo.rotateX(-Math.PI / 2); // 前方 = +X、地面と平行
+        this.topMarker = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xffe14a, transparent: true, opacity: 0.6, depthTest: false, fog: false }));
+        this.topMarker.renderOrder = 20;
+      }
+      const model = this.models[this.me.index];
+      if (this.topMarker.parent !== model.group) model.group.add(this.topMarker);
+      this.topMarker.position.set((model.rear ? Math.abs(model.rear.x) : 1) + 2.4, 4, 0); // 車の少し前（車体を隠さない）
+      this.topMarker.visible = top;
+    }
+    if (top) {
+      const k = focus.kart;
+      const t = this.topCam ||= { x: pose.x, z: pose.z };
+      const a = 1 - Math.exp(-dt * 4);
+      t.x += (pose.x + k.vx * 0.5 - t.x) * a;
+      t.z += (pose.z + k.vz * 0.5 - t.z) * a;
+      if (Math.abs(this.camera.fov - 14) > 0.01) {
+        this.camera.fov = 14;
+        this.camera.updateProjectionMatrix();
+      }
+      this.camera.position.set(t.x, pose.y + 320, t.z + 0.01);
+      this.camera.up.set(0, 0, -1);
+      this.camera.lookAt(t.x, pose.y, t.z);
+      return;
+    }
+    this.camera.up.set(0, 1, 0);
+    this.topCam = null;
     const c = this.chase;
     if (!c.init) {
       c.heading = pose.heading;

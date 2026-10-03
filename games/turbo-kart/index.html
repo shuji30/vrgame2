@@ -244,6 +244,14 @@
             <option value="manual">MT（パドルシフト）</option>
           </select>
         </label>
+        <label class="field">カメラ（PC。走行中は C キーで切り替え）
+          <select id="opt-camera">
+            <option value="chase">ビハインド</option>
+            <option value="cockpit">車内</option>
+            <option value="eye">目線（車体なし）</option>
+            <option value="top">上から（2D・ラリーX 風）</option>
+          </select>
+        </label>
         <label class="field">ハンドリング（車の挙動）
           <select id="opt-handling">
             <option value="auto">モードに合わせる（パーティー = アーケード、本格 = リアル）</option>
@@ -268,7 +276,7 @@
       <p class="note" id="input-summary"></p>
       <p class="note">
         操作（キーボード）: ↑ アクセル / ↓ ブレーキ・後退 / ←→ ハンドル / Space サイドブレーキ / E・Q シフト /
-        C 視点切替（ビハインド / 車内 / 目線） / Shift アイテム / X アイテムを後ろへ / Esc ポーズ / R VR 視点リセンター / I 入力の確認表示<br>
+        C 視点切替（ビハインド / 車内 / 目線 / 上から 2D） / Shift アイテム / X アイテムを後ろへ / Esc ポーズ / R VR 視点リセンター / I 入力の確認表示<br>
         VR コントローラー: 左スティック ハンドル / 右トリガー アクセル / 左トリガー ブレーキ / グリップ サイドブレーキ / A アイテム（決定） / B 後ろへ / X カメラ / Y ポーズ / スティック押し込み リセンター<br>
         ハンコンは PC の Chrome / Edge で使えます（VR は SteamVR / Pimax / Quest Link などの PC VR）。
         「ハンコン / FFB 設定」→「USB 機器を追加」でブラウザから直接つなげます（インストール不要・初回のみ許可）。

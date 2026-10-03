@@ -102,6 +102,7 @@ try {
   if (m.character && CHARACTERS.some((c) => c.id === m.character)) charSel.value = game.character = m.character;
   if (m.name) $('opt-name').value = m.name;
   if (m.handling) $('opt-handling').value = m.handling;
+  if (m.camera) $('opt-camera').value = m.camera;
   if (m.mode) setMode(m.mode, false);
   if (m.mode && m.mode !== game.theme && !(m.track && TRACKS.some((t) => t.id === m.track))) {
     game.setTrack(trackSel.value, mode);
@@ -134,7 +135,7 @@ $('opt-stability').addEventListener('change', (e) => {
 });
 
 function raceOptions() {
-  const o = { npcs: Number(npcSel.value), level: $('opt-level').value, laps: Number($('opt-laps').value), manual: input.config.transmission === 'manual', shake: Number($('opt-shake').value), vehicle: $('opt-vehicle').value, track: trackSel.value, mode, character: charSel.value, name: driverName(), handling: $('opt-handling').value };
+  const o = { npcs: Number(npcSel.value), level: $('opt-level').value, laps: Number($('opt-laps').value), manual: input.config.transmission === 'manual', shake: Number($('opt-shake').value), vehicle: $('opt-vehicle').value, track: trackSel.value, mode, character: charSel.value, name: driverName(), handling: $('opt-handling').value, camera: $('opt-camera').value };
   game.playerName = o.name;
   game.shake = o.shake;
   try {
@@ -156,8 +157,11 @@ summary();
 
 $('btn-start').addEventListener('click', () => {
   game.audio.init();
-  game.startRace(raceOptions());
+  const o = raceOptions();
+  game.startRace(o);
+  game.setCameraMode(o.camera || 'chase');
 });
+$('opt-camera').addEventListener('change', () => raceOptions());
 $('btn-calib').addEventListener('click', () => {
   ui.showScreen('calib');
   calib.open();
