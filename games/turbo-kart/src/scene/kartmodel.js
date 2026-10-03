@@ -202,6 +202,8 @@ export class KartModel {
     if (!isPlayer && name) this.group.add(this.makeLabel(name, color));
     this.wheelSpin = 0;
     this.flameT = 0;
+    this.eye = EYE;
+    this.rear = { x: -0.65, z: 0.72 }; // 後輪の位置（火花・土煙）
     // ヨー → ピッチ → ロールの順に回す
     this.group.rotation.order = 'YZX';
   }

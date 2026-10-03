@@ -4,8 +4,8 @@ import { locate, pointAt, maxCurvatureAhead, wrapAngle, wrapS } from './track.js
 import { forwardSpeed, KART, steerLimit } from './physics.js';
 import { surfaceParams, bankSlope } from './surface.js';
 
-// 想定する最大横加速度 (m/s²)。カートが実際に出せる横 G（理論値の約 85%）に合わせる
-const MAX_LAT = KART.mu * 9.8 * 0.85;
+// 想定する横 G は、車両が実際に出せる値（理論値の約 85%）に合わせる
+const LAT_MARGIN = 0.85;
 
 export function createDriver(rng, level = 'normal') {
   const base = { easy: 0.9, normal: 1.0, hard: 1.02 }[level] ?? 1.0;
@@ -22,6 +22,7 @@ export function createDriver(rng, level = 'normal') {
 
 // others: 他のカート（{ kart, loc } の配列）。pace: ラバーバンド補正 (≈1)
 export function driveAI(driver, kart, loc, track, others, pace = 1, dt = 1 / 60) {
+  const spec = kart.spec || KART;
   const v = forwardSpeed(kart);
   const sp = Math.abs(v);
   const hw = track.halfWidth;
@@ -52,11 +53,13 @@ export function driveAI(driver, kart, loc, track, others, pace = 1, dt = 1 / 60)
     let ds = wrapS(track, o.loc.s - loc.s);
     if (ds > track.length / 2) ds -= track.length;
     const dl = Math.abs(o.loc.lateral - loc.lateral);
-    if (ds > 0 && ds < 14 && dl < 2.4) {
+    if (ds > 0 && ds < 14 + (spec.length || 2) * 2 && dl < 2.4) {
       block = o.loc.lateral > loc.lateral ? -1 : 1;
       if (Math.abs(o.loc.lateral) > hw * 0.6) block = -Math.sign(o.loc.lateral);
     }
-    if (ds > 0 && ds < 4 + sp * 0.25 && dl < 2.1) follow = Math.min(follow, forwardSpeed(o.kart));
+    // 車の長さに合わせて車間を取る
+    const len = spec.length || 2;
+    if (ds > 0 && ds < len * 2 + sp * 0.25 && dl < 2.1 + (len - 2) * 0.15) follow = Math.min(follow, forwardSpeed(o.kart));
   }
   driver.avoid += ((block * 2.6) - driver.avoid) * Math.min(1, 3 * dt);
   offset = Math.max(-hw + 2.2, Math.min(hw - 2.2, offset + driver.avoid));
@@ -65,25 +68,28 @@ export function driveAI(driver, kart, loc, track, others, pace = 1, dt = 1 / 60)
   const look = 6 + sp * 0.5;
   const target = pointAt(track, loc.s + look, offset);
   const err = wrapAngle(Math.atan2(target.z - kart.z, target.x - kart.x) - kart.heading);
-  const L = KART.dynWheelbase;
+  const L = spec.dynWheelbase;
   const vv = Math.max(sp, 3);
   const rDes = (2 * vv * Math.sin(err)) / look;
   const delta = Math.atan((L * rDes) / vv) + (1.2 * (rDes - kart.yawRate) * L) / vv;
-  const steer = Math.max(-1, Math.min(1, delta / steerLimit(sp, true)));
+  const steer = Math.max(-1, Math.min(1, delta / steerLimit(sp, true, spec)));
 
   // 先のカーブに合わせた目標速度
   const reach = 18 + sp * 1.1;
   const kBrake = Math.abs(maxCurvatureAhead(track, loc.s, reach));
-  const top = KART.gearTop[KART.gearTop.length - 1];
+  const top = spec.gearTop[spec.gearTop.length - 1];
+  const MAX_LAT = spec.mu * 9.8 * LAT_MARGIN;
   // 先の路面（ダートは滑る）とバンク（速く曲がれる）を考慮した横加速度
   let lat = Infinity;
   for (let d = 0; d <= reach; d += 6) {
     const p = surfaceParams(track, loc.s + d);
     const bank = Math.abs(Math.sin(Math.atan(bankSlope(track, loc.s + d))));
     // バンクでは重力の横成分と押しつけによる荷重増の両方で速く曲がれる
-    lat = Math.min(lat, MAX_LAT * (p.maxLat / KART.maxLat) * (1 + bank * 0.9) + 9.8 * bank);
+    lat = Math.min(lat, MAX_LAT * (p.maxLat / 28.4) * (1 + bank * 0.9) + 9.8 * bank);
   }
-  let vTarget = kBrake > 1e-4 ? Math.sqrt(lat / kBrake) : top;
+  // ダウンフォースで速いほど曲がれる: v²κ = lat + μ·c·v²/m → v² = lat / (κ - μ·c/m)
+  const aero = ((spec.downforce || 0) * spec.mu * LAT_MARGIN) / spec.mass;
+  let vTarget = kBrake > 1e-4 ? (kBrake > aero * 1.05 ? Math.sqrt(lat / (kBrake - aero)) : top) : top;
   vTarget = Math.min(vTarget, top) * driver.skill * pace;
   if (kart.surface === 'grass') vTarget = Math.min(vTarget, 12);
   // 抜けないうちは前のカートに合わせて少し控える

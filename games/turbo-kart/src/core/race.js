@@ -1,6 +1,7 @@
 // レース全体: 全カートの物理・衝突・周回・順位（描画やネットワークには依存しない）
 import { locate, pointAt, wrapS } from './track.js';
-import { createKart, stepKart, forwardSpeed, KART } from './physics.js';
+import { createKart, stepKart, forwardSpeed, KART, VEHICLES } from './physics.js';
+import { SURFACES } from './surface.js';
 import { createDriver, driveAI } from './ai.js';
 import { mulberry32 } from './rng.js';
 import { rideState, surfaceParams } from './surface.js';
@@ -27,7 +28,8 @@ export function gridSlot(track, i) {
 
 export class Race {
   // entries: [{ name, color, type: 'player' | 'npc' | 'remote', id }]
-  constructor(track, entries, { laps = 3, seed = 1, level = 'normal', manual = [] } = {}) {
+  constructor(track, entries, { laps = 3, seed = 1, level = 'normal', manual = [], vehicle = 'kart' } = {}) {
+    this.spec = VEHICLES[vehicle] || KART;
     this.track = track;
     this.laps = laps;
     this.level = level;
@@ -36,7 +38,7 @@ export class Race {
     this.state = 'countdown';
     this.karts = entries.map((e, i) => {
       const g = gridSlot(track, i);
-      const kart = createKart(g.x, g.z, g.heading);
+      const kart = createKart(g.x, g.z, g.heading, this.spec);
       return {
         ...e,
         index: i,
@@ -132,8 +134,9 @@ export class Race {
     k.gripBase = p.grip;
     k.maxLatBase = p.maxLat;
     k.rollingExtra = p.rolling;
-    k.mu = p.maxLat / G;
-    k.tireB = p.B;
+    // 路面ごとのグリップは舗装に対する比で、車種の値に掛ける
+    k.mu = this.spec.mu * (p.maxLat / SURFACES.tarmac.maxLat);
+    k.tireB = this.spec.tireB * (p.B / SURFACES.tarmac.B);
     k.slopeAccel = -G * Math.sin(ride.pitch);
     k.bankAccel = -G * Math.sin(ride.roll);
     // バンク上の荷重: 重力の法線成分 + 旋回の遠心力のうちバンクに押しつける成分
@@ -153,7 +156,7 @@ export class Race {
     const abs = Math.abs(lat);
     const type = e.surfaceType || 'tarmac';
     k.surface = abs > t.halfWidth ? 'grass' : abs > t.halfWidth - 0.9 && type !== 'dirt' ? 'curb' : type;
-    const limit = t.halfWidth + t.runoff - KART.radius;
+    const limit = t.halfWidth + t.runoff - this.spec.radius;
     if (abs > limit) {
       const i = e.loc.i;
       // コースの右方向
@@ -176,7 +179,7 @@ export class Race {
 
   collideKarts() {
     const ks = this.karts;
-    const R = KART.radius * 2;
+    const R = this.spec.radius * 2;
     for (let a = 0; a < ks.length; a++) {
       for (let b = a + 1; b < ks.length; b++) {
         const A = ks[a].kart, B = ks[b].kart;

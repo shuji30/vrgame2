@@ -6,7 +6,8 @@ import { Race, NPC_NAMES, KART_COLORS } from './core/race.js';
 import { forwardSpeed } from './core/physics.js';
 import { FFBModel } from './core/ffbmodel.js';
 import { buildWorld } from './scene/world.js';
-import { KartModel, EYE } from './scene/kartmodel.js';
+import { KartModel } from './scene/kartmodel.js';
+import { CarModel } from './scene/carmodel.js';
 import { Hud, fmtTime } from './scene/hud.js';
 import { KartAudio } from './audio.js';
 import { Effects, driftTier } from './scene/fx.js';
@@ -80,13 +81,16 @@ export class Game {
     const playerIndex = opts.attract ? -1 : entries.length - 1;
     this.race = new Race(this.track, entries, {
       laps: opts.laps ?? 3,
+      vehicle: opts.vehicle || 'kart',
       level: opts.level ?? 'normal',
       seed: (Math.random() * 1e9) | 0,
       manual: opts.manual && playerIndex >= 0 ? [playerIndex] : [],
     });
     this.fx.clear();
     this.models = this.race.karts.map((e, i) => {
-      const m = new KartModel(e.color, e.name, { isPlayer: e.type === 'player', number: i + 1 });
+      const mo = { isPlayer: e.type === 'player', number: i + 1 };
+      const v = opts.vehicle || 'kart';
+      const m = v === 'kart' ? new KartModel(e.color, e.name, mo) : new CarModel(v, e.color, e.name, mo);
       this.scene.add(m.group);
       return m;
     });
@@ -102,7 +106,7 @@ export class Game {
     const focus = this.me || this.race.karts[0];
     const model = this.models[focus.index];
     this.cockpit = new THREE.Group();
-    this.cockpit.position.copy(EYE);
+    this.cockpit.position.copy(model.eye);
     this.cockpit.rotation.y = -Math.PI / 2; // -Z をカートの前方 (+X) に向ける
     this.xrOffset = new THREE.Group();
     this.cockpit.add(this.xrOffset);
@@ -346,7 +350,7 @@ export class Game {
       } else if (this.state !== 'paused') {
         this.ffb.update({ constant: 0, damper: 0.2 * this.ffb.settings.gain, spring: 0.3 * this.ffb.settings.gain, rumble: 0, rumbleHz: 0 });
       }
-      this.audio.update(me.kart, Math.abs(forwardSpeed(me.kart)), me.input.throttle || 0, this.state === 'race' || this.state === 'results');
+      this.audio.update(me.kart, Math.abs(forwardSpeed(me.kart)), me.input.throttle || 0, this.state === 'race' || this.state === 'results', this.opts.vehicle || 'kart');
       this.updateDebug(inp);
 
       if (me.finished && !this.finishedShown) {
@@ -404,8 +408,9 @@ export class Game {
       c.init = true;
     }
     c.heading = lerpAngle(c.heading, pose.heading, 1 - Math.exp(-dt * 5));
-    const back = this.me ? 4.8 : 9;
-    const up = this.me ? 1.9 : 4;
+    const big = (this.opts?.vehicle || 'kart') !== 'kart';
+    const back = this.me ? (big ? 7.5 : 4.8) : 11;
+    const up = this.me ? (big ? 2.4 : 1.9) : 4;
     // ブースト中は視野を広げてスピード感を出す
     const fov = 75 + (focus.kart.boost > 0 ? 10 : 0);
     if (Math.abs(this.camera.fov - fov) > 0.05) {

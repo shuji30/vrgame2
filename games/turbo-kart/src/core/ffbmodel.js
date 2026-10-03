@@ -34,7 +34,8 @@ export class FFBModel {
     // 後輪が流れると前輪は進行方向を向こうとし、ハンドルがカウンター側へ切れる
     let force;
     if (speed > 2 && kart.FzF > 0) {
-      const peak = Math.tan(Math.PI / (2 * KART.tireC)) / KART.tireB; // 横力が最大になる滑り角
+      const spec = kart.spec || KART;
+      const peak = Math.tan(Math.PI / (2 * spec.tireC)) / (kart.tireB || spec.tireB); // 横力が最大になる滑り角
       const pneumatic = 0.045 * Math.max(0, 1 - Math.abs(kart.frontSlip) / (peak * 1.7));
       const mech = 0.012; // キャスターによる機械的トレール
       const maxTorque = (kart.mu || KART.mu) * kart.FzF * (0.045 + mech) * 0.7;

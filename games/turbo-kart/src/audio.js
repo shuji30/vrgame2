@@ -66,7 +66,7 @@ export class KartAudio {
   }
 
   // 毎フレーム: kart の状態から音を更新
-  update(kart, speed, throttle, active) {
+  update(kart, speed, throttle, active, vehicle = 'kart') {
     if (!this.running) return;
     const t = this.ctx.currentTime;
     const set = (param, v, tc = 0.05) => param.setTargetAtTime(v, t, tc);
@@ -78,7 +78,9 @@ export class KartAudio {
       return;
     }
     const rpm = Math.min(1.1, kart.rpm);
-    const base = 55 + rpm * 190 + (kart.boost > 0 ? 25 : 0);
+    // 車種ごとのエンジン音: GT3 は低く太く、フォーミュラは高く鋭く
+    const [lo, span] = { kart: [55, 190], gt3: [38, 150], formula: [90, 420] }[vehicle] || [55, 190];
+    const base = lo + rpm * span + (kart.boost > 0 ? 25 : 0);
     set(this.osc1.frequency, base, 0.03);
     set(this.osc2.frequency, base * 0.5, 0.03);
     set(this.engFilter.frequency, 500 + throttle * 1400 + rpm * 800, 0.05);

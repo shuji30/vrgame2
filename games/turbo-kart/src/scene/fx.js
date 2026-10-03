@@ -120,8 +120,9 @@ export class Effects {
     const g = model.group;
     const tier = driftTier(kart.driftTime || 0);
     const rate = dt * 60;
-    for (const z of [-0.72, 0.72]) {
-      const p = this.tmp.set(-0.65, 0.05, z).applyMatrix4(g.matrixWorld);
+    const rear = model.rear || { x: -0.65, z: 0.72 };
+    for (const z of [-rear.z, rear.z]) {
+      const p = this.tmp.set(rear.x, 0.05, z).applyMatrix4(g.matrixWorld);
       if (kart.driftTime > 0.25 && speed > 7) {
         const color = TIER_COLORS[tier];
         for (let n = 0; n < (tier ? 2 : 1) * rate; n++) {

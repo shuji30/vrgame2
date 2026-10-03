@@ -35,25 +35,60 @@ export const KART = {
   tireE: 0.2,
   steerLock: 0.42, // ハンコンでのフルロック時の前輪の切れ角 (rad)
   steerHigh: 0.1, // キーボード等の補助ありで高速時に絞る切れ角 (rad)
+  assistSpeed: 35, // この速度で steerHigh まで絞る (m/s)
+  downforce: 0, // ダウンフォース係数 (N/(m/s)²)
+  aeroFront: 0.45,
+  modelRadius: 0.95,
+  length: 2,
 };
 
+// 車両の諸元。物理はすべて同じ 2 輪モデルで、値だけが違う
+export const VEHICLES = {
+  kart: { ...KART, id: 'kart', name: 'カート' },
+  // GT3: 重くて安定。中程度のダウンフォース。約 270km/h
+  gt3: {
+    ...KART, id: 'gt3', name: 'GT3',
+    radius: 1.35, length: 4.6, wheelbase: 2.7, dynWheelbase: 2.7, cgFront: 1.3, cgHeight: 0.42,
+    mass: 1300, Iz: 1900,
+    gearTop: [0, 22, 33, 44, 55, 66, 76], baseAccel: 9, brakeDecel: 15, drag: 0.00055, rolling: 0.15,
+    reverseAccel: 3, reverseTop: 7, handbrakeDecel: 2,
+    mu: 1.9, maxLat: 18.6, tireB: 12, rearGrip: 1.08,
+    downforce: 1.3, aeroFront: 0.42,
+    steerLock: 0.32, steerHigh: 0.05, assistSpeed: 60, shiftTime: 0.1, boostAccel: 6,
+  },
+  // フォーミュラ: 軽量・強烈なダウンフォース。約 320km/h
+  formula: {
+    ...KART, id: 'formula', name: 'フォーミュラ',
+    radius: 1.35, length: 5.2, wheelbase: 3.2, dynWheelbase: 3.2, cgFront: 1.8, cgHeight: 0.28,
+    mass: 800, Iz: 1100,
+    gearTop: [0, 25, 38, 51, 64, 77, 90], baseAccel: 13, brakeDecel: 22, drag: 0.0006, rolling: 0.12,
+    reverseAccel: 3, reverseTop: 7, handbrakeDecel: 2,
+    mu: 2.15, maxLat: 21, tireB: 13, rearGrip: 1.1,
+    downforce: 3.0, aeroFront: 0.44,
+    steerLock: 0.3, steerHigh: 0.04, assistSpeed: 70, shiftTime: 0.06, boostAccel: 7,
+  },
+};
+export const VEHICLE_ORDER = ['kart', 'gt3', 'formula'];
+
 // 操舵の上限（前輪の切れ角 rad）。補助ありは高速で絞る
-export function steerLimit(speed, assist = true) {
-  const lock = KART.steerLock;
-  return assist ? lock + (KART.steerHigh - lock) * Math.min(1, Math.abs(speed) / 35) : lock;
+export function steerLimit(speed, assist = true, spec = KART) {
+  const lock = spec.steerLock;
+  return assist ? lock + (spec.steerHigh - lock) * Math.min(1, Math.abs(speed) / spec.assistSpeed) : lock;
 }
 
 // タイヤの横力（Pacejka のマジックフォーミュラ）。alpha: スリップ角、D: 最大の力
-export function tireForce(alpha, D, B = KART.tireB) {
-  const C = KART.tireC, E = KART.tireE;
+export function tireForce(alpha, D, B = KART.tireB, C = KART.tireC, E = KART.tireE) {
   const x = B * alpha;
   return D * Math.sin(C * Math.atan(x - E * (x - Math.atan(x))));
 }
 
 export const MAX_GEAR = KART.gearTop.length - 1;
+const maxGear = (k) => (k.spec || KART).gearTop.length - 1;
 
-export function createKart(x, z, heading) {
+// spec: 車両の諸元（VEHICLES のいずれか。省略時はカート）
+export function createKart(x, z, heading, spec = KART) {
   return {
+    spec,
     x, z, heading,
     vx: 0, vz: 0,
     yawRate: 0,
@@ -67,14 +102,14 @@ export function createKart(x, z, heading) {
     boost: 0,
     surface: 'tarmac', // tarmac | rough | dirt | curb | grass
     // 路面と地形から毎ステップ与えられる値（race.js が設定）
-    gripBase: KART.grip,
-    maxLatBase: KART.maxLat,
+    gripBase: spec.grip,
+    maxLatBase: spec.maxLat,
     rollingExtra: 0,
     slopeAccel: 0, // 坂による前後方向の加速度
     bankAccel: 0, // 傾きによる横方向の加速度（右が正）
     latBonus: 0, // （旧モデルの名残。未使用）
-    mu: KART.mu, // 路面の摩擦係数（race.js が設定）
-    tireB: KART.tireB,
+    mu: spec.mu, // 路面の摩擦係数（race.js が設定）
+    tireB: spec.tireB,
     yawRate: 0,
     frontForce: 0, // 前輪の横力 (N)。FFB のセルフアライニングトルクに使う
     frontSlip: 0,
@@ -100,20 +135,21 @@ function engineFactor(rpm) {
 export function shift(k, dir) {
   if (dir > 0) {
     if (k.gear === -1) k.gear = 1;
-    else if (k.gear < MAX_GEAR) k.gear++;
+    else if (k.gear < maxGear(k)) k.gear++;
     else return false;
   } else {
     if (k.gear > 1) k.gear--;
     else if (k.gear === 1 && Math.abs(forwardSpeed(k)) < 1) k.gear = -1;
     else return false;
   }
-  k.shiftTimer = KART.shiftTime;
+  k.shiftTimer = (k.spec || KART).shiftTime;
   return true;
 }
 
 // manual: true ならパドルでのみ変速。false なら自動変速
 export function stepKart(k, input, dt, { manual = false } = {}) {
-  const P = KART;
+  const P = k.spec || KART;
+  const MAXG = P.gearTop.length - 1;
   const c = Math.cos(k.heading), s = Math.sin(k.heading);
   let vF = k.vx * c + k.vz * s;
   let vL = k.vx * -s + k.vz * c;
@@ -134,7 +170,7 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
       const first = k.lastHGear === undefined;
       if ((!first || input.hGear !== 0) && k.gear !== input.hGear) {
         k.gear = input.hGear;
-        k.shiftTimer = KART.shiftTime;
+        k.shiftTimer = P.shiftTime;
       }
       k.lastHGear = input.hGear;
     }
@@ -149,10 +185,10 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
   } else if (k.manualHold > 0) {
     k.manualHold -= dt;
     // 回転が上がり切ったら保持中でもシフトアップ（レブリミットで止まらないように）
-    if (k.gear > 0 && k.gear < MAX_GEAR && vF / P.gearTop[k.gear] > 1.0 && k.shiftTimer <= 0) shift(k, 1);
+    if (k.gear > 0 && k.gear < MAXG && vF / P.gearTop[k.gear] > 1.0 && k.shiftTimer <= 0) shift(k, 1);
   } else if (k.gear > 0 && k.shiftTimer <= 0) {
     const r = vF / P.gearTop[k.gear];
-    if (r > 0.95 && k.gear < MAX_GEAR && throttle > 0.1) shift(k, 1);
+    if (r > 0.95 && k.gear < MAXG && throttle > 0.1) shift(k, 1);
     else if (r < 0.5 && k.gear > 1) shift(k, -1);
   }
   const top = k.gear > 0 ? P.gearTop[k.gear] * (k.boost > 0 ? 1.15 : 1) : P.reverseTop;
@@ -202,7 +238,7 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
   // キーボード・ゲームパッド・AI は補助あり（高速で切れ角を絞る・スピンしにくくする）。ハンコンは補助なし
   const assist = input.assist !== false;
   const sp0 = Math.abs(vF);
-  const steerMax = steerLimit(sp0, assist);
+  const steerMax = steerLimit(sp0, assist, P);
   const d = Math.max(-1, Math.min(1, input.steer || 0)) * steerMax;
   k.steerAngle = d;
   const mu = grass ? P.muGrass : k.mu ?? P.mu;
@@ -212,12 +248,14 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
   // 実際の速度変化（前のステップ。タイヤの横力による減速も含む）をならして使う
   const aLong = k.longAccel || 0;
   // バンクでは遠心力の分だけタイヤが路面に押しつけられ、グリップが増える（race.js が loadScale を設定）
+  // ダウンフォースは速度の 2 乗に比例して前後に分かれてかかる
+  const down = (P.downforce || 0) * vF * vF;
   const W = m * 9.8 * (k.loadScale ?? 1);
   // 荷重移動は静止時の ±45% までに抑える（急ブレーキで後輪が完全に抜けないように）
   const FzF0 = (W * b) / L, FzR0 = (W * a) / L;
   const dFz = Math.max(-0.45 * Math.min(FzF0, FzR0), Math.min(0.45 * Math.min(FzF0, FzR0), (m * aLong * P.cgHeight) / L));
-  const FzF = FzF0 - dFz;
-  const FzR = FzR0 + dFz;
+  const FzF = FzF0 - dFz + down * (P.aeroFront ?? 0.45);
+  const FzR = FzR0 + dFz + down * (1 - (P.aeroFront ?? 0.45));
   // 後輪の摩擦円: 駆動力やサイドブレーキで縦に使うほど横に使える力が減る（→ テールが流れる）
   // 補助ありのサイドブレーキはロックを弱め、滑らせながら立て直せるようにする
   const hbLock = assist ? 0.62 : 0.9;
@@ -236,8 +274,8 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
     } else {
       af = Math.atan2(vL + a * k.yawRate, vF) - d;
       ar = Math.atan2(vL - b * k.yawRate, vF);
-      FyF = -tireForce(af, mu * FzF, B);
-      FyR = Math.max(-capR, Math.min(capR, -tireForce(ar, muR * FzR, B * 1.1)));
+      FyF = -tireForce(af, mu * FzF, B, P.tireC, P.tireE);
+      FyR = Math.max(-capR, Math.min(capR, -tireForce(ar, muR * FzR, B * 1.1, P.tireC, P.tireE)));
       ay = (FyF * Math.cos(d) + FyR) / m;
       vL += (ay - vF * k.yawRate + (k.bankAccel || 0)) * h;
       k.yawRate += ((a * FyF * Math.cos(d) - b * FyR) / P.Iz) * h;

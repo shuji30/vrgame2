@@ -51,6 +51,7 @@ try {
   if (m.level) $('opt-level').value = m.level;
   if (m.laps) $('opt-laps').value = m.laps;
   if (m.shake != null) $('opt-shake').value = m.shake;
+  if (m.vehicle) $('opt-vehicle').value = m.vehicle;
 } catch {
   // 既定値
 }
@@ -61,7 +62,7 @@ $('opt-trans').addEventListener('change', (e) => {
 });
 
 function raceOptions() {
-  const o = { npcs: Number(npcSel.value), level: $('opt-level').value, laps: Number($('opt-laps').value), manual: input.config.transmission === 'manual', shake: Number($('opt-shake').value) };
+  const o = { npcs: Number(npcSel.value), level: $('opt-level').value, laps: Number($('opt-laps').value), manual: input.config.transmission === 'manual', shake: Number($('opt-shake').value), vehicle: $('opt-vehicle').value };
   game.shake = o.shake;
   try {
     localStorage.setItem(STORE, JSON.stringify(o));
