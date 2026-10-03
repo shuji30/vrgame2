@@ -40,7 +40,9 @@ export class FFBModel {
       const fade = spec.real ? 1.25 : 1.7;
       const pneumatic = 0.045 * Math.max(0, 1 - Math.abs(kart.frontSlip) / (peak * fade));
       const mech = 0.012; // キャスターによる機械的トレール
-      const maxTorque = (kart.mu || KART.mu) * kart.FzF * (0.045 + mech) * 0.7;
+      // 手ごたえは実際の横 G に比例させる（基準は実車並みの摩擦係数 1.8 の限界）。
+      // 摩擦係数で割ると、グリップの高い車ほど普通のコーナーで軽くなってしまうため
+      const maxTorque = Math.min(kart.mu || KART.mu, 1.8) * kart.FzF * (0.045 + mech) * 0.7;
       force = (-kart.frontForce * (pneumatic + mech)) / maxTorque * s.align;
     } else {
       // 停止・低速はタイヤが路面をこする重さ
@@ -51,13 +53,21 @@ export class FFBModel {
     let jolt = 0;
     if (ride && prevRide && rideDt > 0) {
       const diff = (ride.fr - ride.fl) - (prevRide.fr - prevRide.fl);
-      force += clamp((diff / rideDt) * 0.5, -0.6, 0.6) * s.road;
+      force += clamp((diff / rideDt) * 0.25, -0.4, 0.4) * s.road;
       // 前輪の上下の速さ → 突き上げ
       const vz = ((ride.fl + ride.fr) - (prevRide.fl + prevRide.fr)) / 2 / rideDt;
       // 舗装の細かい継ぎ目程度は拾わない（直線でハンドルがゴリゴリ震えないように）
       jolt = clamp((Math.abs(vz - (this.prevVz || 0)) - 0.12) * 0.25, 0, 1);
       this.prevVz = vz;
     }
+
+    // ハンドルを回す速さに応じた抵抗（ゲーム側のダンパー）。手ごたえが強くなっても中央付近で行き過ぎて
+    // 左右に振られないようにする（機器のダンパーは機種によって弱い・効かないことがある）
+    if (dt > 0 && this.prevWheel !== undefined) {
+      const wv = (wheel.value - this.prevWheel) / dt;
+      force -= clamp(wv * 0.06, -0.35, 0.35) * (s.damper / 0.25) * Math.min(1, speed / 10);
+    }
+    this.prevWheel = wheel.value;
 
     // 衝突
     for (const e of events) {

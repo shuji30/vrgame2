@@ -137,6 +137,14 @@ export class FFBBridge {
     if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(msg));
   }
 
+  // 力の向きの反転の設定名: WebHID は invertHid、ブリッジは invert
+  invertKey() {
+    if (!this.webTarget()) return 'invert';
+    // WebHID 側を初めて使うときはブリッジ側の設定を引き継ぐ（多くの機種で向きは同じ）
+    if (this.settings.invertHid === undefined) this.settings.invertHid = !!this.settings.invert;
+    return 'invertHid';
+  }
+
   // WebHID 側の FFB 出力先（なければ null）
   webTarget() {
     if (!this.hid || this.settings.output === 'bridge') return null;
@@ -154,7 +162,8 @@ export class FFBBridge {
   update(out, force = false) {
     if (!this.settings.enabled && !force) return;
     // 力の向きの反転はここで一括（レース・テスト・リセットのどれにも効く）
-    if (this.settings.invert) out = { ...out, constant: -out.constant };
+    // 反転の設定は出力先ごと（WebHID とブリッジでは力の向きの伝わり方が違う）
+    if (this.settings[this.invertKey()]) out = { ...out, constant: -out.constant };
     this.lastOut = out;
     const web = this.webTarget();
     if (web) {

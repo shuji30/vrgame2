@@ -15,7 +15,8 @@ export class CalibrationUI {
     this.raf = 0;
     this.build();
     ffb.onStatus(() => this.renderFFBStatus());
-    hid?.onChange(() => { this.renderHid(); this.renderFFBStatus(); });
+    // 機器が変わると出力先（と反転の設定）が変わるので、フォームも合わせる
+    hid?.onChange(() => { this.renderHid(); this.renderFFBStatus(); this.syncForm(); });
   }
 
   get cfg() {
@@ -66,7 +67,8 @@ export class CalibrationUI {
     // FFB 設定
     for (const el of r.querySelectorAll('[data-ffb]')) {
       el.addEventListener('input', () => {
-        const k = el.dataset.ffb;
+        // 力の向きの反転は、出力先（WebHID / ブリッジ）ごとに別々に持つ
+        const k = el.dataset.ffb === 'invert' ? this.ffb.invertKey() : el.dataset.ffb;
         if (k === 'enabled') this.ffb.setEnabled(el.checked);
         else if (el.tagName === 'SELECT') { this.ffb.stop(); this.ffb.settings[k] = el.value; this.renderFFBStatus(); }
         else this.ffb.settings[k] = el.type === 'checkbox' ? el.checked : Number(el.value);
@@ -87,7 +89,8 @@ export class CalibrationUI {
     }
     for (const el of r.querySelectorAll('[name=transmission]')) el.checked = el.value === this.cfg.transmission;
     for (const el of r.querySelectorAll('[data-ffb]')) {
-      const v = el.dataset.ffb === 'enabled' ? this.ffb.settings.enabled : this.ffb.settings[el.dataset.ffb];
+      const key = el.dataset.ffb === 'invert' ? this.ffb.invertKey() : el.dataset.ffb;
+      const v = key === 'enabled' ? this.ffb.settings.enabled : this.ffb.settings[key];
       if (el.type === 'checkbox') el.checked = !!v;
       else el.value = v;
     }

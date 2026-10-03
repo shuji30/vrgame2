@@ -146,13 +146,14 @@ test('FFB: 速度が出るとセンターへ戻す力、ロック超えで押し
   const still = m.compute(k, { value: 0.5, beyond: 0.5 }, [], {}, 1 / 60);
   assert.ok(Math.abs(still.constant) < 0.15, `停止中はタイヤがこする程度の軽い手応え ${still.constant}`);
   run(k, { throttle: 1 }, 4);
-  const straight = m.compute(k, { value: 0, beyond: 0 }, [], {}, 1 / 60);
+  // ハンドルの速さで抵抗（ダンパー）が出るので、測るたびに新しい計算器を使う
+  const straight = new FFBModel().compute(k, { value: 0, beyond: 0 }, [], {}, 1 / 60);
   assert.ok(Math.abs(straight.constant) < 0.05, '直進中はほぼ無負荷');
   // 実際に右へ曲がっている状態（前輪の横力）から、左へ戻す力が出る
   run(k, { throttle: 0.6, steer: 0.08, assist: false }, 1.5);
-  const moving = m.compute(k, { value: 0.5, beyond: 0.5 }, [], {}, 1 / 60);
+  const moving = new FFBModel().compute(k, { value: 0.5, beyond: 0.5 }, [], {}, 1 / 60);
   assert.ok(moving.constant < -0.1, `右に切ると左へ戻す ${moving.constant}`);
-  const lock = m.compute(k, { value: 1, beyond: 1.3 }, [], {}, 1 / 60);
+  const lock = new FFBModel().compute(k, { value: 1, beyond: 1.3 }, [], {}, 1 / 60);
   assert.ok(lock.constant < moving.constant);
   const hit = new FFBModel().compute(k, { value: 0, beyond: 0 }, [{ type: 'wall', strength: 6, side: 1 }], { gain: 0.6 }, 1 / 60);
   assert.ok(hit.constant < -0.2, '右の壁に当たると左へ');
@@ -212,4 +213,18 @@ test('FFB: 「力の向きを反転」はレース・テスト・リセットの
   b.update({ constant: 0.4, damper: 0, spring: 0, rumble: 0, rumbleHz: 0 });
   assert.deepEqual(sent.filter((m) => m.t === 'ffb').map((m) => m.c), [0.4, -0.4]);
   clearTimeout(b.retry);
+});
+
+test('FFB: 普通のコーナー（横 1G 前後）でもしっかり重い。ハンドルを速く回すと抵抗が出る', () => {
+  const k = createKart(0, 0, 0);
+  run(k, { throttle: 0.6 }, 3);
+  run(k, { throttle: 0.6, steer: 0.06, assist: false }, 1.5);
+  const g = Math.abs(k.lateralAccel) / 9.8;
+  const f = new FFBModel().compute(k, { value: 0.3, beyond: 0.3 }, [], { gain: 1 }, 1 / 60);
+  assert.ok(Math.abs(f.constant) > 0.3, `横 ${g.toFixed(2)}G で ${f.constant.toFixed(2)}`);
+  const m = new FFBModel();
+  m.compute(k, { value: 0, beyond: 0 }, [], { gain: 1 }, 1 / 60);
+  const fast = m.compute(k, { value: 0.1, beyond: 0.1 }, [], { gain: 1 }, 1 / 60);
+  const slow = new FFBModel().compute(k, { value: 0.1, beyond: 0.1 }, [], { gain: 1 }, 1 / 60);
+  assert.ok(fast.constant < slow.constant, '右へ速く回すと左向きの抵抗');
 });
