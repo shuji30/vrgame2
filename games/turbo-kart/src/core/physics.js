@@ -39,7 +39,7 @@ export const KART = {
   assistSpeed: 35, // この速度で steerHigh まで絞る (m/s)
   wheelHigh: 0.55, // ハンコンで assistSpeed のときの切れ角の倍率（車速感応）
   aiBrakePlan: true, // NPC: ブレーキで間に合う速さまで踏み続ける
-  npcBoost: { mu: 1.6, accel: 1.4, top: 1.1 }, // NPC のカートだけの見えない性能アップ（グリップ・加速・最高速の倍率）
+  npcBoost: { mu: 1.7, accel: 1.45, top: 1.12 }, // NPC のカートだけの見えない性能アップ（グリップ・加速・最高速の倍率）
   downforce: 0, // ダウンフォース係数 (N/(m/s)²)
   aeroFront: 0.45,
   modelRadius: 0.95,
@@ -78,7 +78,7 @@ export const VEHICLE_ORDER = ['kart', 'gt3', 'formula'];
 // アクセルオフやトレイルブレーキで向きが変わる、限界の手前からジワッと滑る（C・E）、ハンドルは実車のロック角
 //   lockDeg: ハンドルを端から端まで回したときの角度（ハンコンの設定より優先）。wheelHigh 1 = 車速で切れ角を絞らない
 const REAL = {
-  kart: { mu: 1.9, maxLat: 18.6, rearGrip: 1.1, tireB: 11, tireC: 1.35, tireE: 0.6, wheelHigh: 1, brakeRear: 0.75, loadTransferMax: 0.35, lockDeg: 200, brakeDecel: 15 },
+  kart: { mu: 1.9, maxLat: 18.6, rearGrip: 1.1, tireB: 11, tireC: 1.35, tireE: 0.6, wheelHigh: 1, brakeRear: 0.75, loadTransferMax: 0.35, lockDeg: 200, brakeDecel: 15, npcBoost: { mu: 2.5, accel: 1.6, top: 1.14 } },
   gt3: { mu: 1.45, maxLat: 14.2, downforce: 1.6, rearGrip: 1.12, tireB: 10, tireC: 1.35, tireE: 0.6, wheelHigh: 1, brakeRear: 0.75, loadTransferMax: 0.35, lockDeg: 540, brakeDecel: 13 },
   formula: { mu: 1.7, maxLat: 16.7, downforce: 3.6, rearGrip: 1.1, tireB: 11, tireC: 1.35, tireE: 0.6, wheelHigh: 1, brakeRear: 0.75, loadTransferMax: 0.3, lockDeg: 360, brakeDecel: 26 },
 };
