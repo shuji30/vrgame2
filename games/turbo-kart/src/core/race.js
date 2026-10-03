@@ -14,6 +14,24 @@ export const NPC_NAMES = ['Blaze', 'Nova', 'Rex', 'Luna', 'Turbo', 'Pixel', 'Vip
 export const KART_COLORS = [0xff3b3b, 0x2f8cff, 0x2fd06a, 0xffc42e, 0xb05cff, 0xff7a1f, 0x18d6d6, 0xff5ab4, 0xf2f2f2, 0x6b6b7a, 0x9be03a, 0x3a4bff, 0xc98a4a, 0x00a37a];
 const COUNTDOWN = 3;
 
+// NPC 用の諸元: npcBoost（グリップ・加速・最高速の倍率）があれば上乗せする。プレイヤーの車は変えない
+const npcSpecs = new Map();
+export function npcSpec(spec) {
+  const b = spec.npcBoost;
+  if (!b) return spec;
+  if (!npcSpecs.has(spec)) {
+    npcSpecs.set(spec, {
+      ...spec,
+      mu: spec.mu * (b.mu ?? 1),
+      maxLat: spec.maxLat * (b.mu ?? 1),
+      muGrass: spec.muGrass * (b.mu ?? 1),
+      baseAccel: spec.baseAccel * (b.accel ?? 1),
+      gearTop: spec.gearTop.map((v) => v * (b.top ?? 1)),
+    });
+  }
+  return npcSpecs.get(spec);
+}
+
 // スタートラインの位置（弧長）
 export function startS(track) {
   return track.def.startS || 0;
@@ -43,7 +61,8 @@ export class Race {
     this.state = 'countdown';
     this.karts = entries.map((e, i) => {
       const g = gridSlot(track, i);
-      const kart = createKart(g.x, g.z, g.heading, this.spec);
+      // NPC の車は、車種によっては見えない性能アップ（spec.npcBoost）を持つ
+      const kart = createKart(g.x, g.z, g.heading, e.type === 'npc' ? npcSpec(this.spec) : this.spec);
       return {
         ...e,
         index: i,
@@ -185,8 +204,9 @@ export class Race {
     k.maxLatBase = p.maxLat;
     k.rollingExtra = p.rolling;
     // 路面ごとのグリップは舗装に対する比で、車種の値に掛ける
-    k.mu = this.spec.mu * (p.maxLat / SURFACES.tarmac.maxLat);
-    k.tireB = this.spec.tireB * (p.B / SURFACES.tarmac.B);
+    const spec = k.spec || this.spec;
+    k.mu = spec.mu * (p.maxLat / SURFACES.tarmac.maxLat);
+    k.tireB = spec.tireB * (p.B / SURFACES.tarmac.B);
     k.slopeAccel = -G * Math.sin(ride.pitch);
     k.bankAccel = -G * Math.sin(ride.roll);
     // バンク上の荷重: 重力の法線成分 + 旋回の遠心力のうちバンクに押しつける成分

@@ -39,6 +39,7 @@ export const KART = {
   assistSpeed: 35, // この速度で steerHigh まで絞る (m/s)
   wheelHigh: 0.55, // ハンコンで assistSpeed のときの切れ角の倍率（車速感応）
   aiBrakePlan: true, // NPC: ブレーキで間に合う速さまで踏み続ける
+  npcBoost: { mu: 1.6, accel: 1.4, top: 1.1 }, // NPC のカートだけの見えない性能アップ（グリップ・加速・最高速の倍率）
   downforce: 0, // ダウンフォース係数 (N/(m/s)²)
   aeroFront: 0.45,
   modelRadius: 0.95,
@@ -55,7 +56,7 @@ export const VEHICLES = {
     mass: 1300, Iz: 1900,
     gearTop: [0, 22, 33, 44, 55, 66, 74.7], baseAccel: 9, brakeDecel: 15, drag: 0.00055, rolling: 0.15,
     reverseAccel: 3, reverseTop: 7, handbrakeDecel: 2,
-    mu: 3.1, maxLat: 30.4, tireB: 12, rearGrip: 1.3,
+    mu: 3.1, maxLat: 30.4, tireB: 12, rearGrip: 1.3, npcBoost: null,
     downforce: 1.3, aeroFront: 0.42,
     steerLock: 0.32, steerHigh: 0.05, assistSpeed: 60, wheelHigh: 0.8, shiftTime: 0.1, boostAccel: 6,
   },
@@ -66,7 +67,7 @@ export const VEHICLES = {
     mass: 800, Iz: 1100,
     gearTop: [0, 25, 38, 51, 64, 77, 88.6], baseAccel: 13, brakeDecel: 22, drag: 0.0006, rolling: 0.12,
     reverseAccel: 3, reverseTop: 7, handbrakeDecel: 2,
-    mu: 3.3, maxLat: 32.3, tireB: 13, rearGrip: 1.3,
+    mu: 3.3, maxLat: 32.3, tireB: 13, rearGrip: 1.3, npcBoost: null,
     downforce: 3.0, aeroFront: 0.44,
     steerLock: 0.3, steerHigh: 0.04, assistSpeed: 70, wheelHigh: 0.8, aiMargin: 0.95, aiAero: 0.75, aiBrakePlan: true, shiftTime: 0.06, boostAccel: 7,
   },
