@@ -66,3 +66,21 @@ test('ハンコン: 高速の直進中にハンドルを急に切っても、ス
     assert.ok(maxSlip < 0.6, `${id}: 横滑り ${(maxSlip * 57.3).toFixed(0)}°`);
   }
 });
+
+test('ハンコン: 高速でブレーキを踏みながらハンドルを切っても、スピン防止なしでスピンしない', () => {
+  for (const id of VEHICLE_ORDER) {
+    const P = VEHICLES[id];
+    for (const [steer, brake] of [[0.05, 1], [0.2, 1], [0.4, 1], [0.1, 0.5]]) {
+      const k = createKart(0, 0, 0, P);
+      k.vx = P.gearTop.at(-1) * 0.85;
+      k.gear = P.gearTop.length - 1;
+      let maxSlip = 0;
+      for (let t = 0; t < 3 && Math.hypot(k.vx, k.vz) > 3; t += 1 / 120) {
+        stepKart(k, { steer, brake, assist: false }, 1 / 120, { manual: true });
+        const vel = Math.atan2(k.vz, k.vx);
+        maxSlip = Math.max(maxSlip, Math.abs(Math.atan2(Math.sin(vel - k.heading), Math.cos(vel - k.heading))));
+      }
+      assert.ok(maxSlip < 0.25, `${id} 舵 ${steer} ブレーキ ${brake}: 横滑り ${(maxSlip * 57.3).toFixed(0)}°`);
+    }
+  }
+});

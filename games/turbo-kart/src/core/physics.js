@@ -30,7 +30,7 @@ export const KART = {
   mu: 2.9, // 舗装の摩擦係数（アーケード寄りの高グリップ）
   muGrass: 1.1,
   tireB: 14, // タイヤの立ち上がりの鋭さ（大きいほどピークが小さな滑り角で来る）
-  rearGrip: 1.08, // 後輪のグリップを少し高くして弱アンダーステアに（安定方向）
+  rearGrip: 1.3, // 後輪のグリップを高くしてアンダーステア寄りに（ブレーキ中も後輪が先に限界にならない）
   tireC: 1.45,
   tireE: 0.2,
   steerLock: 0.42, // ハンコンでのフルロック時の前輪の切れ角 (rad)
@@ -53,7 +53,7 @@ export const VEHICLES = {
     mass: 1300, Iz: 1900,
     gearTop: [0, 22, 33, 44, 55, 66, 76], baseAccel: 9, brakeDecel: 15, drag: 0.00055, rolling: 0.15,
     reverseAccel: 3, reverseTop: 7, handbrakeDecel: 2,
-    mu: 1.9, maxLat: 18.6, tireB: 12, rearGrip: 1.08,
+    mu: 1.9, maxLat: 18.6, tireB: 12, rearGrip: 1.3,
     downforce: 1.3, aeroFront: 0.42,
     steerLock: 0.32, steerHigh: 0.05, assistSpeed: 60, wheelHigh: 0.8, shiftTime: 0.1, boostAccel: 6,
   },
@@ -64,7 +64,7 @@ export const VEHICLES = {
     mass: 800, Iz: 1100,
     gearTop: [0, 25, 38, 51, 64, 77, 90], baseAccel: 13, brakeDecel: 22, drag: 0.0006, rolling: 0.12,
     reverseAccel: 3, reverseTop: 7, handbrakeDecel: 2,
-    mu: 2.15, maxLat: 21, tireB: 13, rearGrip: 1.1,
+    mu: 2.15, maxLat: 21, tireB: 13, rearGrip: 1.3,
     downforce: 3.0, aeroFront: 0.44,
     steerLock: 0.3, steerHigh: 0.04, assistSpeed: 70, wheelHigh: 0.8, shiftTime: 0.06, boostAccel: 7,
   },
@@ -88,6 +88,14 @@ export function tireForce(alpha, D, B = KART.tireB, C = KART.tireC, E = KART.tir
 export const MAX_GEAR = KART.gearTop.length - 1;
 // スピン防止（ハンコン用）が効き始める後輪の滑り角 (rad)
 const STAB_SLIP = 0.16;
+// 後輪のコーナリングスティフネスの倍率（前輪より硬くして直進安定性を持たせる）
+const REAR_B = 1.1;
+// 後輪のブレーキ配分（荷重に比例した配分に対する倍率。1 未満で前寄り）
+const BRAKE_REAR = 0.5;
+// 前後の荷重移動の上限（静止時の軸荷重に対する比）
+const LOAD_TRANSFER_MAX = 0.25;
+// 摩擦係数の荷重感度（荷重が 10% 増えると摩擦係数が MU_LOAD × 10% 下がる）
+const MU_LOAD = 0.2;
 const maxGear = (k) => (k.spec || KART).gearTop.length - 1;
 
 // spec: 車両の諸元（VEHICLES のいずれか。省略時はカート）
@@ -256,16 +264,29 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
   // ダウンフォースは速度の 2 乗に比例して前後に分かれてかかる
   const down = (P.downforce || 0) * vF * vF;
   const W = m * 9.8 * (k.loadScale ?? 1);
-  // 荷重移動は静止時の ±45% までに抑える（急ブレーキで後輪が完全に抜けないように）
+  // 荷重移動は静止時の ±25% までに抑える（急ブレーキで後輪が抜けすぎないように）
   const FzF0 = (W * b) / L, FzR0 = (W * a) / L;
-  const dFz = Math.max(-0.45 * Math.min(FzF0, FzR0), Math.min(0.45 * Math.min(FzF0, FzR0), (m * aLong * P.cgHeight) / L));
-  const FzF = FzF0 - dFz + down * (P.aeroFront ?? 0.45);
-  const FzR = FzR0 + dFz + down * (1 - (P.aeroFront ?? 0.45));
+  const dMax = LOAD_TRANSFER_MAX * Math.min(FzF0, FzR0);
+  const dFz = Math.max(-dMax, Math.min(dMax, (m * aLong * P.cgHeight) / L));
+  const FzFn = FzF0 + down * (P.aeroFront ?? 0.45), FzRn = FzR0 + down * (1 - (P.aeroFront ?? 0.45));
+  const FzF = FzFn - dFz;
+  const FzR = FzRn + dFz;
+  // タイヤの荷重感度: コーナリングスティフネスは荷重に比例せず、およそ平方根でしか変わらない。
+  // （比例させると、ブレーキで後輪の荷重が抜けたときに後輪の横の踏ん張りが極端に減り、少しの舵でスピンする）
+  const BF = B * Math.sqrt(FzFn / Math.max(1, FzF));
+  const BR = B * REAR_B * Math.sqrt(FzRn / Math.max(1, FzR));
   // 後輪の摩擦円: 駆動力やサイドブレーキで縦に使うほど横に使える力が減る（→ テールが流れる）
   // 補助ありのサイドブレーキはロックを弱め、滑らせながら立て直せるようにする
-  const hbLock = assist ? 0.62 : 0.9;
-  const FxR = hb > 0.3 ? mu * FzR * Math.min(1, hb) * hbLock : Math.min(mu * FzR * 0.9, Math.abs(drive) * m * 0.5);
-  const muR = mu * P.rearGrip;
+  const hbLock = assist ? 0.76 : 0.9;
+  // 摩擦係数の荷重感度: 荷重が増えたタイヤほど摩擦係数は少し下がる（荷重移動の影響がなだらかになる）
+  const muF = mu * (1 - MU_LOAD * (FzF / FzFn - 1));
+  const muR = mu * P.rearGrip * (1 - MU_LOAD * (FzR / FzRn - 1));
+  // フットブレーキの前後配分（摩擦円）: ブレーキに使った分だけ横に使える力が減る。
+  // 実車と同じく前寄りの配分にして、強く踏むと先に前輪が限界になる（まっすぐ止まる・アンダーステア側）
+  const Fb = k.reversing || vF <= 0.5 ? 0 : brake * P.brakeDecel * m;
+  const FxRb = ((Fb * FzR) / Math.max(1, FzF + FzR)) * BRAKE_REAR, FxFb = Fb - FxRb;
+  const capF = Math.sqrt(Math.max(0, (muF * FzF) ** 2 - FxFb ** 2));
+  const FxR = Math.min(muR * FzR * 0.95, (hb > 0.3 ? muR * FzR * Math.min(1, hb) * hbLock : Math.min(mu * FzR * 0.9, Math.abs(drive) * m * 0.5)) + FxRb);
   const capR = Math.sqrt(Math.max(0, (muR * FzR) ** 2 - FxR ** 2));
   const n = 4, h = dt / n;
   let FyF = 0, FyR = 0, af = 0, ar = 0, ay = 0;
@@ -279,8 +300,8 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
     } else {
       af = Math.atan2(vL + a * k.yawRate, vF) - d;
       ar = Math.atan2(vL - b * k.yawRate, vF);
-      FyF = -tireForce(af, mu * FzF, B, P.tireC, P.tireE);
-      FyR = Math.max(-capR, Math.min(capR, -tireForce(ar, muR * FzR, B * 1.1, P.tireC, P.tireE)));
+      FyF = Math.max(-capF, Math.min(capF, -tireForce(af, muF * FzF, BF, P.tireC, P.tireE)));
+      FyR = Math.max(-capR, Math.min(capR, -tireForce(ar, muR * FzR, BR, P.tireC, P.tireE)));
       ay = (FyF * Math.cos(d) + FyR) / m;
       vL += (ay - vF * k.yawRate + (k.bankAccel || 0)) * h;
       k.yawRate += ((a * FyF * Math.cos(d) - b * FyR) / P.Iz) * h;
