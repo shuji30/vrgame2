@@ -44,3 +44,36 @@ test('WebHID FFB: 毎フレーム start を呼んでも初期化は 1 回だけ�
   // 開始の操作も送っている
   assert.ok(dev.sent.some((s) => s.id === 10));
 });
+
+// CAMMUS DDWB 2021 の実際の記述（Chrome が返したもの）: 種類は逆順で範囲 12〜0、操作は 3〜0、制御はオン/オフのビット、1 ビット項目は 0〜0
+function cammus() {
+  const v = (u, size, min, max, count = 1) => item([u], size, count, min, max);
+  const a = (us, min, max) => item(us, 8, 1, min, max, { isArray: true });
+  const outputReports = [
+    { reportId: 1, items: [v(PID(0x22), 8, 1, 40), a([0x28, 0x43, 0x42, 0x41, 0x40, 0x34, 0x33, 0x32, 0x31, 0x30, 0x27, 0x26].map(PID), 12, 0),
+      v(PID(0x50), 16, 0, 32767), v(PID(0x54), 16, 0, 32767), v(PID(0x51), 16, 0, 32767), v(PID(0x52), 8, 0, 255), v(PID(0x53), 8, 1, 8),
+      v(0x10030, 1, 0, 0), v(0x10031, 1, 0, 0), v(PID(0x56), 1, 0, 0), item([], 5, 1, 0, 0, { isConstant: true }),
+      v(0xa0001, 8, 0, 255), v(0xa0002, 8, 0, 255), v(0xa0001, 16, 0, 32765), v(0xa0002, 16, 0, 32765)] },
+    { reportId: 5, items: [v(PID(0x22), 8, 1, 40), v(PID(0x70), 16, -32767, 32767)] },
+    { reportId: 10, items: [v(PID(0x22), 8, 1, 40), a([0x7a, 0x79, 0x7b].map(PID), 3, 0), v(PID(0x7c), 8, 0, 255), item([], 112, 1, 0, 0, { isConstant: true })] },
+    { reportId: 12, items: [v(PID(0x97), 1, 0, 0), v(PID(0x98), 1, 0, 0), v(PID(0x99), 1, 0, 0), v(PID(0x9a), 1, 0, 0), v(PID(0x9b), 1, 0, 0), v(PID(0x9c), 1, 0, 0, 3), item([], 128, 1, 0, 0, { isConstant: true })] },
+  ];
+  const sent = [];
+  return { sent, collections: [{ usagePage: 1, usage: 5, outputReports, featureReports: [], children: [] }], sendReport: async (id, data) => { sent.push({ id, data: [...data] }); } };
+}
+
+test('WebHID FFB: CAMMUS DDWB の記述でも、有効化・種類（一定の力 = 1）・軸と方向の有効・開始（= 1）を正しく送る', async () => {
+  const dev = cammus();
+  const p = new PIDForce(dev);
+  assert.ok(p.ok);
+  await p.start();
+  await p.apply({ constant: 0.5, damper: 0, rumble: 0, rumbleHz: 0 });
+  // 最初はリセット（ビット 3）、次に有効化（ビット 0）
+  const ctl = dev.sent.filter((s) => s.id === 12).map((s) => s.data[0]);
+  assert.deepEqual(ctl.slice(0, 2), [8, 1], `制御 ${ctl}`);
+  const set = dev.sent.find((s) => s.id === 1);
+  assert.equal(set.data[1], 1, `種類 ${set.data[1]}`);
+  assert.equal(set.data[10] & 0b101, 0b101, `X 軸と方向の有効 ${set.data[10]}`);
+  const op = dev.sent.find((s) => s.id === 10);
+  assert.equal(op.data[1], 1, `開始 ${op.data[1]}`);
+});

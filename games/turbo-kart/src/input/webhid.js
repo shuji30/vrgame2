@@ -34,10 +34,12 @@ function fieldUsages(item) {
   return (item.usages || []).map((u) => u >>> 0);
 }
 
-// 論理範囲（Chrome が符号付きで返すと最大値が負になることがあるので補正）
+// 論理範囲（Chrome が符号付きで返すと最大値が負になることがあるので補正）。
+// 1 ビットの項目が「0〜0」と返ってくる機種（CAMMUS など）があるので、幅の無い範囲はビット幅いっぱいとみなす
 function logicalRange(item) {
   let min = item.logicalMinimum, max = item.logicalMaximum;
   if (max < min) max += 2 ** item.reportSize;
+  if (max === min) { min = 0; max = 2 ** item.reportSize - 1; }
   return [min, max];
 }
 
@@ -195,7 +197,25 @@ export function describeDevice(device) {
   return `窓口 ${tops || 'なし'} / 入力レポート ${inR} / 出力レポート ${outR} / 機能レポート ${featR} / FFB(PID) の項目 ${pidItems}（VID 0x${(device.vendorId || 0).toString(16)} PID 0x${(device.productId || 0).toString(16)}）`;
 }
 
-// レポートの書き込み: values は usage → 正規化値 {n} / 生値 {raw}、select は配列項目で選ぶ usage
+// 選択式（配列）の項目の値は、USB HID PID の規格で決まっている並び（1 から）で決める。
+// Chrome が返す usages の並びと範囲は機種によって逆順・壊れていることがある（CAMMUS DDWB では種類が逆順、範囲は 12〜0）
+const CANONICAL = [
+  [0x26, 0x27, 0x30, 0x31, 0x32, 0x33, 0x34, 0x40, 0x41, 0x42, 0x43, 0x28], // エフェクトの種類
+  [0x79, 0x7a, 0x7b], // エフェクトの操作: 開始 / 単独で開始 / 停止
+  [0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c], // デバイス制御: 有効 / 無効 / 全停止 / リセット / 一時停止 / 再開
+].map((list) => list.map((id) => ((0x0f << 16) | id) >>> 0));
+
+function arrayValue(usages, select, min) {
+  for (const list of CANONICAL) {
+    if (!usages.some((u) => list.includes(u))) continue;
+    const i = list.findIndex((u) => select.has(u));
+    return i >= 0 ? i + 1 : null;
+  }
+  const idx = usages.findIndex((u) => select.has(u));
+  return idx >= 0 ? Math.max(1, min) + idx : null;
+}
+
+// レポートの書き込み: values は usage → 正規化値 {n} / 生値 {raw}、select は選ぶ usage（配列項目の値、またはオン/オフの項目を 1 に）
 function buildReport(r, values = new Map(), select = new Set()) {
   let bits = 0;
   for (const it of r.items) bits += it.reportSize * it.reportCount;
@@ -209,12 +229,13 @@ function buildReport(r, values = new Map(), select = new Set()) {
       bit += it.reportSize;
       if (it.isConstant) continue;
       if (it.isArray) {
-        const idx = usages.findIndex((u) => select.has(u));
-        if (idx >= 0) writeBits(bytes, off, it.reportSize, min + idx);
+        const val = arrayValue(usages, select, it.logicalMinimum);
+        if (val !== null) writeBits(bytes, off, it.reportSize, val);
         continue;
       }
       const u = usages[Math.min(k, usages.length - 1)];
-      const v = values.get(u);
+      // オン/オフの項目（デバイス制御をビットで受け取る機種など）は、選ばれていれば 1
+      const v = values.get(u) ?? (select.has(u) ? { raw: 1 } : undefined);
       if (v === undefined) continue;
       // null: 範囲外の値（0）をそのまま書く＝「指定なし」（トリガーボタン無しなど）
       if (v.null) {
