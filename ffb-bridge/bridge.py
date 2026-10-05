@@ -25,10 +25,12 @@ import math
 import os
 import sys
 import time
-import warnings
 
-# pysdl2-dll の「同梱の SDL2 を使います」という警告は出さない
-warnings.filterwarnings("ignore", message="Using SDL2 binaries")
+# 同梱の SDL2（pysdl2-dll）の場所を先に決めておく（pysdl2 が毎回出す「同梱の SDL2 を使います」の警告を出さない）
+try:
+    import sdl2dll  # noqa: F401  読み込むと PYSDL2_DLL_PATH が設定される
+except ImportError:
+    pass
 
 try:
     from websockets.exceptions import ConnectionClosed
