@@ -59,6 +59,7 @@ export const VEHICLES = {
     mu: 3.1, maxLat: 30.4, tireB: 12, rearGrip: 1.3, npcBoost: null,
     downforce: 1.3, aeroFront: 0.42,
     steerLock: 0.32, steerHigh: 0.05, assistSpeed: 60, wheelHigh: 0.8, shiftTime: 0.1, boostAccel: 6,
+    ffbScale: 1.4, // FFB の手ごたえの倍率（ffbmodel.js）
   },
   // フォーミュラ: 軽量・強烈なダウンフォース。グリップは最も高い。約 320km/h
   formula: {
@@ -70,6 +71,7 @@ export const VEHICLES = {
     mu: 3.3, maxLat: 32.3, tireB: 13, rearGrip: 1.3, npcBoost: null,
     downforce: 3.0, aeroFront: 0.44,
     steerLock: 0.3, steerHigh: 0.04, assistSpeed: 70, wheelHigh: 0.8, aiMargin: 0.95, aiAero: 0.75, aiBrakePlan: true, shiftTime: 0.06, boostAccel: 7,
+    ffbScale: 1.5, // ダウンフォースで前輪荷重が増え、横 G あたりの手ごたえがさらに軽くなるぶん
   },
 };
 export const VEHICLE_ORDER = ['kart', 'gt3', 'formula'];
@@ -79,7 +81,9 @@ export const VEHICLE_ORDER = ['kart', 'gt3', 'formula'];
 //   lockDeg: ハンドルを端から端まで回したときの角度（ハンコンの設定より優先）。wheelHigh 1 = 車速で切れ角を絞らない
 const REAL = {
   kart: { mu: 1.9, maxLat: 18.6, rearGrip: 1.1, tireB: 11, tireC: 1.35, tireE: 0.6, wheelHigh: 1, brakeRear: 0.75, loadTransferMax: 0.35, lockDeg: 200, brakeDecel: 15, npcBoost: { mu: 2.5, accel: 1.6, top: 1.14 } },
-  gt3: { mu: 1.45, maxLat: 14.2, downforce: 1.6, rearGrip: 1.12, tireB: 10, tireC: 1.35, tireE: 0.6, wheelHigh: 1, brakeRear: 0.75, loadTransferMax: 0.35, lockDeg: 540, brakeDecel: 13 },
+  gt3: { mu: 1.45, maxLat: 14.2, downforce: 1.6, rearGrip: 1.12, tireB: 10, tireC: 1.35, tireE: 0.6, wheelHigh: 1, brakeRear: 0.75, loadTransferMax: 0.35, lockDeg: 540, brakeDecel: 13,
+    // NPC の見えない性能アップ。ふつう（半分だけ効く）で Thunder Ring 0:44.7 前後
+    npcBoost: { mu: 1.9, accel: 1.5, top: 1.12 } },
   formula: { mu: 1.7, maxLat: 16.7, downforce: 3.6, rearGrip: 1.1, tireB: 11, tireC: 1.35, tireE: 0.6, wheelHigh: 1, brakeRear: 0.75, loadTransferMax: 0.3, lockDeg: 360, brakeDecel: 26 },
 };
 const realCache = new Map();

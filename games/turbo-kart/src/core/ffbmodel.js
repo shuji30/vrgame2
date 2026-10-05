@@ -43,7 +43,9 @@ export class FFBModel {
       // 手ごたえは実際の横 G に比例させる（基準は実車並みの摩擦係数 1.8 の限界）。
       // 摩擦係数で割ると、グリップの高い車ほど普通のコーナーで軽くなってしまうため
       const maxTorque = Math.min(kart.mu || KART.mu, 1.8) * kart.FzF * (0.045 + mech) * 0.7;
-      force = (-kart.frontForce * (pneumatic + mech)) / maxTorque * s.align;
+      // ffbScale: 車種ごとの重さ。GT3・フォーミュラはロック角が大きく切れ角も小さいので、
+      // 横 G 基準のままだとハンドルを回した量に対して軽すぎる
+      force = (-kart.frontForce * (pneumatic + mech)) / maxTorque * s.align * (spec.ffbScale ?? 1);
     } else {
       // 停止・低速はタイヤが路面をこする重さ
       force = -wheel.value * 0.25 * s.align;

@@ -229,6 +229,20 @@ test('FFB: 普通のコーナー（横 1G 前後）でもしっかり重い。�
   assert.ok(fast.constant < slow.constant, '右へ速く回すと左向きの抵抗');
 });
 
+test('FFB: GT3・フォーミュラは同じ横 G でもカートより重い（ロック角が大きく軽く感じるぶん）', async () => {
+  const { VEHICLES } = await import('../src/core/physics.js');
+  const perG = (spec) => {
+    const k = createKart(0, 0, 0, spec);
+    k.vx = 25;
+    for (let i = 0; i < 300; i++) stepKart(k, { throttle: forwardSpeed(k) < 25 ? 0.6 : 0, steer: 0.1, assist: false }, 1 / 60);
+    const f = new FFBModel().compute(k, { value: 0.1, beyond: 0 }, [], { gain: 1, align: 1, damper: 0 }, 1 / 60);
+    return Math.abs(f.constant) / (Math.abs(k.yawRate * forwardSpeed(k)) / 9.8);
+  };
+  const kart = perG(VEHICLES.kart);
+  assert.ok(perG(VEHICLES.gt3) > kart * 1.2, 'GT3');
+  assert.ok(perG(VEHICLES.formula) > kart * 1.05, 'フォーミュラ');
+});
+
 test('壁: 急なカーブの内側では壁が手前（袋小路にならない）。壁ぎわで 3 秒動けなければコース中央に戻す', async () => {
   const { wallAt } = await import('../src/core/track.js');
   for (const def of TRACKS) {

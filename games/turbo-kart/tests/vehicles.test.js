@@ -125,3 +125,13 @@ test('リアルなハンドリング: 実車並みのグリップとロック角
   assert.equal(race.state, 'finished');
   assert.ok(walls < 30, `壁 ${walls}`);
 });
+
+test('本格モードの GT3: NPC（ふつう）は Thunder Ring を 0:44.7 前後で回る', () => {
+  const t = buildTrack(TRACKS.find((d) => d.id === 'thunder-ring'));
+  const race = new Race(t, NPC_NAMES.slice(0, 8).map((name) => ({ name, type: 'npc' })), { laps: 4, seed: 3, level: 'normal', vehicle: 'gt3', realistic: true });
+  while (race.state !== 'finished' && race.time < 300) race.step(1 / 60);
+  // 1 周目はスタンディングスタートなので除く
+  const laps = race.karts.flatMap((e) => e.lapTimes.slice(1)).sort((a, b) => a - b);
+  const median = laps[laps.length >> 1];
+  assert.ok(median > 43.7 && median < 45.7, `中央値 ${median.toFixed(3)}`);
+});
