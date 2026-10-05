@@ -85,7 +85,9 @@ class SDLHaptic:
         self.name = sdl2.SDL_JoystickName(self.js).decode(errors="replace")
         self.h = sdl2.SDL_HapticOpenFromJoystick(self.js)
         if not self.h:
-            raise RuntimeError(f"{self.name}: FFB 非対応、または開けません ({sdl2.SDL_GetError().decode()})")
+            err = sdl2.SDL_GetError().decode()
+            sdl2.SDL_JoystickClose(self.js)
+            raise RuntimeError(f"{self.name}: FFB 非対応、または開けません ({err})")
         q = sdl2.SDL_HapticQuery(self.h)
         self.features = [n for n, bit in (
             ("constant", sdl2.SDL_HAPTIC_CONSTANT), ("sine", sdl2.SDL_HAPTIC_SINE),
@@ -231,24 +233,37 @@ class Bridge:
             self.dev = None
         self.scan()
         cands = [d for d in self.devices if d["haptic"]]
-        pick = None
-        if want:
-            pick = next((d for d in cands if d["name"] == want), None) or \
-                next((d for d in cands if want.lower() in d["name"].lower()), None)
-        if not pick:
-            pick = next((d for d in cands if any(h in d["name"].lower() for h in WHEEL_HINTS)), None) or (cands[0] if cands else None)
-        if not pick:
-            self.error = "FFB 対応のデバイスが見つかりません（ハンコンの接続とドライバーを確認してください）"
+
+        def rank(d):
+            n = d["name"].lower()
+            if want and d["name"] == want:
+                return 0
+            if want and want.lower() in n:
+                return 1
+            return 2 if any(h in n for h in WHEEL_HINTS) else 3
+        # 同じ名前で複数見えるホイールベース（Fanatec の PC モードなど）は、開けるものが 1 つだけのことがあるので順に試す
+        cands.sort(key=rank)
+        if not cands:
+            wheel = next((d for d in self.devices if any(h in d["name"].lower() for h in WHEEL_HINTS)), None)
+            if wheel:
+                # 入力は見えているのに FFB が無い = PS4 などのコンソールモードか、メーカーの PC 用ドライバーが効いていない
+                self.error = (f"{wheel['name']} は見えていますが FFB が使えません"
+                              "（ホイールベースを PC モードにする / メーカーの PC 用ドライバーを入れる）")
+            else:
+                self.error = "FFB 対応のデバイスが見つかりません（ハンコンの接続とドライバーを確認してください）"
             print("  ! " + self.error)
             return
-        try:
-            self.dev = SDLHaptic(self.sdl2, pick["index"])
+        for pick in cands:
+            try:
+                self.dev = SDLHaptic(self.sdl2, pick["index"])
+            except RuntimeError as e:
+                self.error = str(e)
+                continue
             pick["features"] = self.dev.features
             self.error = None
             print(f"  FFB デバイス: {self.dev.name}  対応: {', '.join(self.dev.features)}")
-        except RuntimeError as e:
-            self.error = str(e)
-            print("  ! " + self.error)
+            return
+        print("  ! " + self.error)
 
     def open_all(self):
         """入力の中継用に、すべてのジョイスティックを開いておく"""
