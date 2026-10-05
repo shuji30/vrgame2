@@ -270,3 +270,16 @@ test('壁: 急なカーブの内側では壁が手前（袋小路にならない
   assert.ok(rescued, '自動復帰しない');
   assert.ok(Math.abs(e.loc.lateral) < 1, `中央に戻っていない ${e.loc.lateral}`);
 });
+
+test('オンライン対戦のタイミング表: 参加者だけを順位順に、直前のラップとベストラップ、全体の最速ラップ', async () => {
+  const { timingRows } = await import('../src/core/timing.js');
+  const race = { karts: [
+    { name: 'NPC', type: 'npc', position: 1, bestLap: 40.1, lastLap: 40.5, color: 0 },
+    { name: 'B', type: 'remote', human: true, position: 3, bestLap: 42, lastLap: 43, color: 0 },
+    { name: 'A', type: 'player', human: true, position: 2, bestLap: 41, lastLap: 41, color: 0 },
+    { name: 'NPC2', type: 'remote', position: 4, bestLap: null, color: 0 },
+  ] };
+  const t = timingRows(race);
+  assert.deepEqual(t.rows.map((r) => [r.name, r.last, r.best, r.me]), [['A', 41, 41, true], ['B', 43, 42, false]]);
+  assert.deepEqual(t.fastest, { time: 40.1, name: 'NPC' });
+});

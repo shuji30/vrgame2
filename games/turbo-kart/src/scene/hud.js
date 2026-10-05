@@ -4,13 +4,21 @@ import { forwardSpeed, MAX_GEAR } from '../core/physics.js';
 import { ITEMS } from '../core/items.js';
 import { COIN_BONUS } from '../core/coins.js';
 import { fmtMs } from '../net/laps.js';
+import { fastestLap, timingRows } from '../core/timing.js';
 
-// このレースで最も速いラップ { time, name }（まだ誰も 1 周していなければ null）
-export function fastestLap(race) {
-  let best = null;
-  for (const e of race.karts) if (e.bestLap && (!best || e.bestLap < best.time)) best = { time: e.bestLap, name: e.name };
-  return best;
+export { fastestLap, timingRows };
+
+const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+// PC の画面右上の表
+export function timingHtml({ rows, fastest }, rec) {
+  const head = `<div class="tm-rec">🏁 最速ラップ <b>${fastest ? fmtTime(fastest.time) : '--:--.--'}</b> ${fastest ? escHtml(fastest.name) : ''}</div>`
+    + `<div class="tm-rec gold">🏆 コースレコード <b>${rec ? fmtTime(rec.ms / 1000) : '--:--.--'}</b> ${rec ? escHtml(rec.name) : ''}</div>`;
+  const body = rows.map((r) => `<tr class="${r.me ? 'me' : ''}"><td>${r.pos}</td><td><i style="background:#${new THREE.Color(r.color).getHexString()}"></i>${escHtml(r.name)}</td>`
+    + `<td>${fmtTime(r.last)}</td><td class="${fastest && r.best === fastest.time ? 'purple' : ''}">${fmtTime(r.best)}</td></tr>`).join('');
+  return `${head}<table><tr><th>#</th><th>DRIVER</th><th>LAST</th><th>BEST</th></tr>${body}</table>`;
 }
+
 
 export function fmtTime(t) {
   if (t == null || !isFinite(t)) return '--:--.--';
@@ -104,6 +112,7 @@ export class Hud {
       pop: root.querySelector('[data-hud=pop]'),
       item: root.querySelector('[data-hud=item]'),
       itemHint: root.querySelector('[data-hud=itemhint]'),
+      timing: root.querySelector('[data-hud=timing]'),
     };
     this.rouletteT = 0;
     this.lastPos = null;
@@ -114,6 +123,8 @@ export class Hud {
     this.banner = new CanvasPlane(2.4, 0.9, 1024);
     // VR のリザルト（ゴール後に目の前に出す）。左にレースの順位、右にベストラップのランキング（10 位まで）
     this.results = new CanvasPlane(2.5, 1.45, 1536);
+    this.timing = new CanvasPlane(0.9, 0.6, 600);
+    this.timingAt = 0;
     this.lastDash = 0;
     this.bannerText = null;
   }
@@ -173,7 +184,7 @@ export class Hud {
     return { icon: '', count: '', spin: false };
   }
 
-  update(race, me, { vr = false, manual = false, dt = 0, party = false } = {}) {
+  update(race, me, { vr = false, manual = false, dt = 0, party = false, online = false } = {}) {
     const k = me.kart;
     this.party = party;
     this.coinFlash = Math.max(0, (this.coinFlash || 0) - dt);
@@ -224,6 +235,16 @@ export class Hud {
       drawMinimap(ctx, this.track, this.shape, race, 0, 0, S);
     } else {
       this.root.hidden = true;
+    }
+    // オンライン対戦: 参加者のラップタイムと最速ラップ（0.25 秒ごとに書き換え）
+    this.timingAt += dt;
+    this.el.timing.hidden = !online || vr;
+    this.timing.mesh.visible = online && vr;
+    if (online && this.timingAt > 0.25) {
+      this.timingAt = 0;
+      const t = timingRows(race);
+      if (vr) this.drawTiming(t, race);
+      else this.el.timing.innerHTML = timingHtml(t, this.courseRecord);
     }
     this.lastDash += dt;
     if ((vr || this.dash.mesh.visible) && this.lastDash > 1 / 20) {
@@ -380,6 +401,56 @@ export class Hud {
       ctx.fillText(`ハンドルで選んで、アクセルを踏み込むと決定${extra.next ? `（次は ${extra.next}）` : ''}`, W / 2, H - 22);
     }
     this.results.commit();
+  }
+
+  // VR: オンライン対戦のタイミング表
+  drawTiming({ rows, fastest }) {
+    const { ctx, canvas } = this.timing;
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(10,12,24,0.8)';
+    ctx.beginPath();
+    ctx.roundRect(2, 2, W - 4, H - 4, 22);
+    ctx.fill();
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 24px system-ui, sans-serif';
+    ctx.fillStyle = '#c58aff';
+    ctx.textAlign = 'left';
+    ctx.fillText(`🏁 最速ラップ ${fastest ? `${fmtTime(fastest.time)}  ${fastest.name}` : '--:--.--'}`, 20, 32);
+    const rec = this.courseRecord;
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillText(`🏆 コースレコード ${rec ? `${fmtTime(rec.ms / 1000)}  ${rec.name}` : '--:--.--'}`, 20, 66);
+    ctx.font = 'bold 18px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillText('#', 20, 104);
+    ctx.fillText('DRIVER', 52, 104);
+    ctx.textAlign = 'right';
+    ctx.fillText('LAST', 450, 104);
+    ctx.fillText('BEST', W - 20, 104);
+    const rowH = Math.min(40, (H - 130) / Math.max(1, rows.length));
+    ctx.font = `bold ${Math.round(rowH * 0.6)}px system-ui, sans-serif`;
+    rows.forEach((r, i) => {
+      const y = 134 + i * rowH;
+      if (r.me) {
+        ctx.fillStyle = 'rgba(255,210,63,0.18)';
+        ctx.fillRect(12, y - rowH / 2, W - 24, rowH);
+      }
+      ctx.fillStyle = r.me ? '#ffd23f' : '#fff';
+      ctx.textAlign = 'left';
+      ctx.fillText(String(r.pos), 20, y);
+      ctx.fillStyle = '#' + new THREE.Color(r.color).getHexString();
+      ctx.fillRect(52, y - rowH * 0.22, rowH * 0.44, rowH * 0.44);
+      ctx.fillStyle = r.me ? '#ffd23f' : '#fff';
+      let name = r.name;
+      while (name.length > 1 && ctx.measureText(name).width > 220) name = name.slice(0, -1);
+      ctx.fillText(name, 52 + rowH * 0.6, y);
+      ctx.textAlign = 'right';
+      ctx.fillText(fmtTime(r.last), 450, y);
+      // 全員の中の最速ラップは紫（モータースポーツの表示と同じ）
+      ctx.fillStyle = fastest && r.best === fastest.time ? '#c58aff' : r.me ? '#ffd23f' : '#fff';
+      ctx.fillText(fmtTime(r.best), W - 20, y);
+    });
+    this.timing.commit();
   }
 
   // VR のリザルトの右側: ベストラップ ランキング（上位 10 人）

@@ -67,6 +67,16 @@
     .hud-center.small { font-size: 34px; }
     .hud-center.roul { font-size: 96px; font-style: normal; }
     .hud-fast { font-size: 15px; opacity: 0.9; }
+    .hud-timing { position: absolute; top: 56px; right: 16px; padding: 8px 12px; border-radius: 12px; background: rgba(10,12,24,0.55); font-size: 14px; }
+    .hud-timing .tm-rec { color: #c58aff; font-weight: 700; }
+    .hud-timing .tm-rec.gold { color: #ffd23f; margin-bottom: 4px; }
+    .hud-timing table { border-collapse: collapse; }
+    .hud-timing th { font-size: 11px; opacity: 0.6; text-align: left; padding: 0 6px; }
+    .hud-timing td { padding: 1px 6px; font-variant-numeric: tabular-nums; }
+    .hud-timing tr.me td { color: #ffd23f; }
+    .hud-timing td.purple { color: #c58aff; font-weight: 800; }
+    body.touch-ui .hud-timing { top: 8px; font-size: 11px; padding: 4px 8px; }
+    .hud-timing i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; }
     .hud-draft { margin-top: 4px; font-size: 18px; font-weight: 900; color: #7fe8ff; }
     .hud-coins small { font-size: 15px; color: #fff; text-shadow: 0 1px 2px #000; }
     .hud-coins { margin-top: 6px; font-size: 26px; font-weight: 900; color: #ffd23f; text-shadow: 0 2px 0 #7a4a00; }
@@ -196,6 +206,7 @@
       <div class="hud-coins" data-hud="coins" hidden></div>
       <div class="hud-draft" data-hud="draft"></div>
     </div>
+    <div class="hud-timing" data-hud="timing" hidden></div>
     <div class="hud-center" data-hud="center"></div>
     <div class="hud-pop" data-hud="pop"></div>
     <div class="hud-item" data-hud="item" hidden><b></b><small></small><i data-hud="itemhint"></i></div>

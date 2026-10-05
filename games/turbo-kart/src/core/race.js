@@ -88,6 +88,7 @@ export class Race {
         lapTimes: [],
         lapStart: 0,
         bestLap: null,
+        lastLap: null,
         progress: 0,
         position: i + 1,
         input: { steer: 0, throttle: 0, brake: 0, handbrake: 0 },
@@ -375,6 +376,7 @@ export class Race {
         e.finished = !!e.net.f;
         e.finishTime = e.net.ft ?? null;
         e.bestLap = e.net.bl ?? e.bestLap;
+        e.lastLap = e.net.ll ?? e.lastLap;
         const sr = wrapS(this.track, e.loc.s - startS(this.track));
         e.progress = e.finished ? this.laps * L + 1e6 - e.finishTime : (e.started ? (e.lap - 1) * L : -L) + sr;
         continue;
@@ -394,6 +396,7 @@ export class Race {
         } else {
           const lt = this.time - e.lapStart;
           e.lapTimes.push(lt);
+          e.lastLap = lt;
           if (e.bestLap == null || lt < e.bestLap) e.bestLap = lt;
           e.lapStart = this.time;
           if (e.lap >= this.laps) {

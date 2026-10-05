@@ -165,7 +165,7 @@ export class Game {
       // オンライン: 参加者をグリッド順に、そのあと NPC（ホストだけが走らせ、他の人には位置を配る）
       on.grid.forEach((p, i) => entries.push({
         name: p.name, color: KART_COLORS[i % KART_COLORS.length], netId: p.id, char: p.char || CHARACTERS[i % CHARACTERS.length].id,
-        type: p.id === on.session.self ? 'player' : 'remote',
+        type: p.id === on.session.self ? 'player' : 'remote', human: true,
       }));
       for (let i = 0; i < n; i++) {
         entries.push({ name: NPC_NAMES[i], color: KART_COLORS[(on.grid.length + i) % KART_COLORS.length], netId: `npc${i}`, char: npcChars[i], type: on.session.isHost ? 'npc' : 'remote' });
@@ -236,6 +236,11 @@ export class Game {
     this.hud.results.mesh.position.set(0, 0.05, -2.1);
     this.cockpit.add(this.hud.results.mesh);
     this.hud.results.mesh.visible = false;
+    // オンライン対戦中: 左上に参加者のラップタイム
+    this.hud.timing.mesh.position.set(-1.25, 0.6, -2.3);
+    this.hud.timing.mesh.rotation.set(0, 0.45, 0);
+    this.cockpit.add(this.hud.timing.mesh);
+    this.hud.timing.mesh.visible = false;
     this.resultsDrawnAt = 0;
     this.rankText = '';
     this.rankBoard = null;
@@ -602,7 +607,7 @@ export class Game {
       const vr = this.xrOn;
       this.hud.dash.mesh.visible = vr || this.cameraMode === 'cockpit';
       this.hud.banner.mesh.visible = vr && this.state !== 'results'; // ゴール後はリザルトに場所を譲る
-      this.hud.update(race, me, { vr, manual: me.manual, dt, party });
+      this.hud.update(race, me, { vr, manual: me.manual, dt, party, online: !!this.online && this.state !== 'results' });
       // ルーレットの絵柄が変わるたびにカチッと鳴らす
       if (me.roulette > 0 && this.hud.rouletteIdx !== this.lastRouletteIdx) this.audio.tick();
       this.lastRouletteIdx = me.roulette > 0 ? this.hud.rouletteIdx : null;
@@ -688,7 +693,7 @@ export class Game {
         id: e.netId, x: +k.x.toFixed(2), z: +k.z.toFixed(2), h: +k.heading.toFixed(4), vx: +k.vx.toFixed(2), vz: +k.vz.toFixed(2),
         yaw: +k.yawRate.toFixed(3), sa: +k.steerAngle.toFixed(3), st: +(e.input.steer || 0).toFixed(2), th: +(e.input.throttle || 0).toFixed(2),
         g: k.gear, b: +k.boost.toFixed(2), dr: +(k.driftTime || 0).toFixed(2), hb: +(k.handbrakeInput || 0).toFixed(2),
-        lap: e.lap, sd: e.started ? 1 : 0, f: e.finished ? 1 : 0, ft: e.finishTime, bl: e.bestLap,
+        lap: e.lap, sd: e.started ? 1 : 0, f: e.finished ? 1 : 0, ft: e.finishTime, bl: e.bestLap, ll: e.lastLap ?? null,
       };
     };
     // アイテム: ホストは参加者の使用を処理して状態を配り、参加者は届いた状態を写す
