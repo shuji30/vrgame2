@@ -5,6 +5,9 @@ import { FFB_DEFAULTS } from './core/ffbmodel.js';
 // 8765 は Pimax のクライアントなどと衝突するので避ける
 const URL_DEFAULT = 'ws://127.0.0.1:18765';
 const STORE = 'turbokart:ffb';
+// ハンコンごとに覚えておく設定（ハンコンを替えると自動で切り替わる）
+export const PROFILE_KEYS = ['gain', 'align', 'road', 'impact', 'damper', 'softLock', 'invert', 'invertHid', 'maxForce'];
+const PROFILE_DEFAULTS = { ...FFB_DEFAULTS, invertHid: false, maxForce: 0.6 };
 
 export class FFBBridge {
   constructor() {
@@ -26,6 +29,8 @@ export class FFBBridge {
     this.ws = null;
     this.status = { connected: false, devices: [], selected: null, error: null };
     this.listeners = new Set();
+    this.profileListeners = new Set();
+    this.settings.profiles ||= {};
     this.lastSend = 0;
     this.retry = null;
     // 入力の中継にも使うので、FFB を切っていても接続は保つ
@@ -33,6 +38,9 @@ export class FFBBridge {
   }
 
   save() {
+    // いまのハンコンの設定として覚える
+    const name = this.settings.wheel;
+    if (name) this.settings.profiles[name] = pick(this.settings, PROFILE_KEYS);
     try {
       localStorage.setItem(STORE, JSON.stringify(this.settings));
     } catch {
@@ -47,7 +55,39 @@ export class FFBBridge {
   }
 
   emit() {
+    this.syncProfile();
     for (const fn of this.listeners) fn(this.status);
+  }
+
+  // 設定がハンコンの切り替えで入れ替わったときに呼ばれる（画面の表示を合わせ直す）
+  onProfile(fn) {
+    this.profileListeners.add(fn);
+    return () => this.profileListeners.delete(fn);
+  }
+
+  // FFB を出しているハンコンの名前（出力先がなければ null）
+  activeWheel() {
+    const w = this.webTarget();
+    if (w) return w.device.productName || null;
+    if (this.settings.output !== 'webhid' && this.status.connected && this.status.selected) return this.status.selected;
+    return null;
+  }
+
+  // 出力先のハンコンが変わったら、前のハンコンの設定を保存して、新しいハンコンの設定に切り替える。
+  // はじめてのハンコンは、最初の 1 台ならいまの設定をそのまま引き継ぎ、2 台目以降は安全のため既定値から始める
+  syncProfile() {
+    const name = this.activeWheel();
+    if (!name || name === this.settings.wheel) return;
+    const profiles = this.settings.profiles;
+    const prev = this.settings.wheel;
+    if (prev) profiles[prev] = pick(this.settings, PROFILE_KEYS);
+    const first = !prev && !Object.keys(profiles).length;
+    const known = !!profiles[name];
+    if (known) Object.assign(this.settings, PROFILE_DEFAULTS, pick(profiles[name], PROFILE_KEYS));
+    else if (!first) Object.assign(this.settings, PROFILE_DEFAULTS);
+    this.settings.wheel = name;
+    this.save();
+    for (const fn of this.profileListeners) fn(name, { isNew: !known });
   }
 
   connect() {
@@ -170,6 +210,7 @@ export class FFBBridge {
     // 反転の設定は出力先ごと（WebHID とブリッジでは力の向きの伝わり方が違う）
     if (this.settings[this.invertKey()]) out = { ...out, constant: -out.constant };
     this.lastOut = out;
+    this.syncProfile();
     const web = this.webTarget();
     if (web) {
       const mx = Math.max(0, Math.min(1, this.settings.maxForce ?? 0.6));
@@ -257,4 +298,5 @@ export class FFBBridge {
   }
 }
 
+const pick = (o, keys) => Object.fromEntries(keys.filter((k) => o[k] !== undefined).map((k) => [k, o[k]]));
 const round = (v) => Math.round((v || 0) * 1000) / 1000;

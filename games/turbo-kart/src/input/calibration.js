@@ -15,6 +15,8 @@ export class CalibrationUI {
     this.raf = 0;
     this.build();
     ffb.onStatus(() => this.renderFFBStatus());
+    // ハンコンが替わって FFB の設定が切り替わったら、スライダーなどを合わせ直す
+    ffb.onProfile?.(() => { if (!this.root.hidden) this.syncForm(); this.renderFFBStatus(); });
     // 機器が変わると出力先（と反転の設定）が変わるので、フォームも合わせる
     hid?.onChange(() => { this.renderHid(); this.renderFFBStatus(); this.syncForm(); });
   }
@@ -152,6 +154,13 @@ export class CalibrationUI {
       : st.connected
         ? `ブリッジ接続中 — ${st.error || 'FFB デバイスなし'}`
         : 'FFB の出力先がありません（下の「USB 機器を追加」でハンコンを追加するか、デバイスブリッジを起動してください）';
+    const prof = $(this.root, '[data-ffb-profile]');
+    if (prof) {
+      const w = this.ffb.settings.wheel;
+      prof.textContent = w
+        ? `下の強さ・反転などは「${w}」用の設定です（ハンコンごとに自動で保存し、つなぎ替えると切り替わります）`
+        : 'FFB の強さ・反転などはハンコンごとに自動で保存され、つなぎ替えると切り替わります';
+    }
     const sel = $(this.root, '[data-ffb-device]');
     const haptic = st.devices.filter((d) => d.haptic);
     sel.innerHTML = haptic.length
