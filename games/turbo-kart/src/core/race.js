@@ -11,6 +11,8 @@ import { ItemSystem } from './items.js';
 const G = 9.8;
 
 export const NPC_NAMES = ['Blaze', 'Nova', 'Rex', 'Luna', 'Turbo', 'Pixel', 'Viper', 'Mocha', 'Comet', 'Ziggy', 'Echo', 'Rio', 'Kiki', 'Bolt'];
+// 1 レースに出られる車の数（プレイヤーと NPC の合計。オンラインでも同じ）
+export const MAX_KARTS = 11;
 export const KART_COLORS = [0xff3b3b, 0x2f8cff, 0x2fd06a, 0xffc42e, 0xb05cff, 0xff7a1f, 0x18d6d6, 0xff5ab4, 0xf2f2f2, 0x6b6b7a, 0x9be03a, 0x3a4bff, 0xc98a4a, 0x00a37a];
 const COUNTDOWN = 3;
 

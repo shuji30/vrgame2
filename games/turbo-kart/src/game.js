@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { buildTrack, pointAt } from './core/track.js';
 import { TRACKS } from './core/tracks.js';
-import { Race, NPC_NAMES, KART_COLORS } from './core/race.js';
+import { Race, NPC_NAMES, KART_COLORS, MAX_KARTS } from './core/race.js';
 import { forwardSpeed } from './core/physics.js';
 import { FFBModel } from './core/ffbmodel.js';
 import { buildWorld } from './scene/world.js';
@@ -155,8 +155,9 @@ export class Game {
     this.opts = { ...opts, mode: theme };
     if (opts.character) this.character = opts.character;
     const entries = [];
-    const n = Math.max(0, Math.min(10, opts.npcs ?? 10));
     const on = opts.online;
+    // NPC はプレイヤーと合わせて MAX_KARTS 台まで（オンラインは参加人数を引いた残り）
+    const n = Math.max(0, Math.min(opts.npcs ?? 10, MAX_KARTS - (on ? on.grid.length : 1)));
     // NPC には、プレイヤーが選んでいない動物から順に割り当てる
     const taken = new Set(on ? on.grid.map((p) => p.char) : opts.attract ? [] : [this.character]);
     const npcChars = [...CHARACTERS.filter((c) => !taken.has(c.id)), ...CHARACTERS].map((c) => c.id);

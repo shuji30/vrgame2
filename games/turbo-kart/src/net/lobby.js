@@ -1,4 +1,5 @@
 // オンライン対戦のロビー画面（ルーム作成・参加・設定・スタート）
+import { MAX_KARTS } from '../core/race.js';
 import { OnlineSession } from './online.js';
 import { TRACKS } from '../core/tracks.js';
 
@@ -54,6 +55,14 @@ export function setupOnline({ game, ui, input, getVR, $ }) {
     }).join('');
     const isHost = session.isHost;
     for (const el of document.querySelectorAll('#net-settings select')) el.disabled = !isHost;
+    // NPC は参加者と合わせて MAX_KARTS 台まで（入らない台数は選べない）
+    const npcMax = Math.max(0, MAX_KARTS - Math.max(1, session.players.length));
+    const npcSel = $('net-npcs');
+    for (const o of npcSel.options) o.disabled = Number(o.value) > npcMax;
+    if (isHost && Number(npcSel.value) > npcMax) {
+      npcSel.value = String(npcMax);
+      npcSel.dispatchEvent(new Event('change'));
+    }
     const st = session.settings || {};
     if (!isHost) {
       if (st.mode) $('net-mode').value = st.mode;
