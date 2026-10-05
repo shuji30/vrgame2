@@ -1,6 +1,6 @@
 // オンライン対戦: サーバー（server/api.php）でルームに集まり、WebRTC でプレイヤー同士が直接つながる
 //   SignalClient … ルームの作成・参加・ポーリング・メッセージ送信（HTTP）
-//   Mesh         … 全員と WebRTC のデータチャネルでつながる（最大 5 人）
+//   Mesh         … 全員と WebRTC のデータチャネルでつながる（最大 10 人）
 //   OnlineSession… ロビー・時計合わせ・スタートの同期・走行データのやり取り
 
 const ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
@@ -225,8 +225,10 @@ export class OnlineSession {
         this.error = e.message;
         this.emit();
       }
-      // ロビーでは素早く、レース中はゆっくり（在室確認と途中接続のため）
-      this.timer = setTimeout(loop, this.state === 'racing' ? 1500 : 350);
+      // ロビーでは素早く、レース中はゆっくり（在室確認と途中接続のため）。
+      // 人数が多いときはサーバーへの問い合わせが増えすぎないよう間隔を広げる（10 人で 0.7 秒）
+      const crowd = Math.max(1, this.players.length / 5);
+      this.timer = setTimeout(loop, (this.state === 'racing' ? 1500 : 350) * crowd);
     };
     loop();
     clearInterval(this.pingTimer);

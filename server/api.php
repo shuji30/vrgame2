@@ -6,7 +6,7 @@
 declare(strict_types=1);
 
 const VERSION = '1.0.0';
-const MAX_PLAYERS = 5;
+const MAX_PLAYERS = 10;
 const ROOM_TTL = 1800;          // 最後のアクセスからこの秒数でルームを消す
 const PLAYER_TTL = 20;          // この秒数ポーリングが無ければ退出扱い
 const MAX_BODY = 65536;         // 1 リクエストの最大サイズ
