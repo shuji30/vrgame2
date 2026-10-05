@@ -25,6 +25,10 @@ import math
 import os
 import sys
 import time
+import warnings
+
+# pysdl2-dll の「同梱の SDL2 を使います」という警告は出さない
+warnings.filterwarnings("ignore", message="Using SDL2 binaries")
 
 try:
     from websockets.exceptions import ConnectionClosed
@@ -201,8 +205,6 @@ class Bridge:
             self.dev = MockHaptic()
             self.devices = [{"index": 0, "name": self.dev.name, "haptic": True, "features": self.dev.features}]
         else:
-            import warnings
-            warnings.filterwarnings("ignore", message="Using SDL2 binaries")
             import sdl2  # pysdl2
             self.sdl2 = sdl2
             sdl2.SDL_SetHint(b"SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", b"1")
