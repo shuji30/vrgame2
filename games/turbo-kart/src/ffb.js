@@ -8,13 +8,18 @@ const STORE = 'turbokart:ffb';
 
 export class FFBBridge {
   constructor() {
-    // output: 'auto'（WebHID の FFB 対応機器があればそれ、なければブリッジ）| 'webhid' | 'bridge'
+    // output: 'bridge'（既定。どのハンコンでも同じ出方）| 'auto'（WebHID の FFB 対応機器があればそれ、なければブリッジ）| 'webhid'
     // maxForce: WebHID で出すときの上限（ブリッジは --max で制限）
-    this.settings = { ...FFB_DEFAULTS, enabled: true, url: URL_DEFAULT, device: null, output: 'auto', maxForce: 0.6 };
+    this.settings = { ...FFB_DEFAULTS, enabled: true, url: URL_DEFAULT, device: null, output: 'bridge', maxForce: 0.6 };
     this.hid = null;
     try {
       Object.assign(this.settings, JSON.parse(localStorage.getItem(STORE) || '{}'));
       if (this.settings.url === 'ws://127.0.0.1:8765') this.settings.url = URL_DEFAULT;
+      // 以前の既定（自動）のままの人はブリッジへ（1 回だけ。あとで自分で選び直したものはそのまま）
+      if (!this.settings.outputV2) {
+        if (this.settings.output === 'auto') this.settings.output = 'bridge';
+        this.settings.outputV2 = true;
+      }
     } catch {
       // 既定値のまま
     }
