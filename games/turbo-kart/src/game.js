@@ -238,6 +238,7 @@ export class Game {
     this.hud.results.mesh.visible = false;
     this.resultsDrawnAt = 0;
     this.rankText = '';
+    this.rankBoard = null;
     this.hud.dash.mesh.visible = this.hud.banner.mesh.visible = false;
     this.hud.bannerText = null;
     this.applyView();
@@ -639,7 +640,7 @@ export class Game {
       if (showVR && (performance.now() - this.resultsDrawnAt > 500 || this.resultSel !== this.drawnSel)) {
         this.drawnSel = this.resultSel;
         this.resultsDrawnAt = performance.now();
-        this.hud.drawResults(race, me, { rankText: this.rankText, online: !!this.online, sel: this.resultSel, next: nextTrackName(this.trackId) });
+        this.hud.drawResults(race, me, { rankText: this.rankText, board: this.rankBoard, online: !!this.online, sel: this.resultSel, next: nextTrackName(this.trackId) });
       }
     }
   }

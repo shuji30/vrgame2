@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { forwardSpeed, MAX_GEAR } from '../core/physics.js';
 import { ITEMS } from '../core/items.js';
 import { COIN_BONUS } from '../core/coins.js';
+import { fmtMs } from '../net/laps.js';
 
 // このレースで最も速いラップ { time, name }（まだ誰も 1 周していなければ null）
 export function fastestLap(race) {
@@ -111,8 +112,8 @@ export class Hud {
     // 下の帯に「最速 / 記録 / 自己ベスト」を出すため少し縦長
     this.dash = new CanvasPlane(0.42, 0.25, 512);
     this.banner = new CanvasPlane(2.4, 0.9, 1024);
-    // VR のリザルト（ゴール後に目の前に出す）
-    this.results = new CanvasPlane(1.7, 1.45, 1024);
+    // VR のリザルト（ゴール後に目の前に出す）。左にレースの順位、右にベストラップのランキング（10 位まで）
+    this.results = new CanvasPlane(2.5, 1.45, 1536);
     this.lastDash = 0;
     this.bannerText = null;
   }
@@ -312,7 +313,7 @@ export class Hud {
     this.dash.commit();
   }
 
-  // VR のリザルト: 順位表・ランキング・操作の案内。extra: { rankText, online }
+  // VR のリザルト: 順位表・ランキング・操作の案内。extra: { rankText, board: { top, rank, me } | null, online }
   drawResults(race, me, extra = {}) {
     const { ctx, canvas } = this.results;
     const W = canvas.width, H = canvas.height;
@@ -325,7 +326,7 @@ export class Hud {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffd23f';
     ctx.font = 'italic 900 64px system-ui, sans-serif';
-    ctx.fillText(`RESULT — ${me.position} 位`, W / 2, 70);
+    ctx.fillText(`RESULT — ${me.position} 位`, 512, 70);
     const rows = race.standings();
     const leader = rows[0];
     const rowH = Math.min(52, 500 / rows.length);
@@ -353,12 +354,8 @@ export class Hud {
       ctx.fillText(t, 560, y);
       ctx.fillText(fmtTime(e.bestLap), 780, y);
     });
+    this.drawRanking(ctx, 1030, W - 40, extra);
     ctx.textAlign = 'center';
-    if (extra.rankText) {
-      ctx.fillStyle = '#7cff6a';
-      ctx.font = 'bold 40px system-ui, sans-serif';
-      ctx.fillText(extra.rankText, W / 2, H - 150);
-    }
     if (extra.online) {
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
       ctx.font = 'bold 34px system-ui, sans-serif';
@@ -383,6 +380,56 @@ export class Hud {
       ctx.fillText(`ハンドルで選んで、アクセルを踏み込むと決定${extra.next ? `（次は ${extra.next}）` : ''}`, W / 2, H - 22);
     }
     this.results.commit();
+  }
+
+  // VR のリザルトの右側: ベストラップ ランキング（上位 10 人）
+  drawRanking(ctx, x0, x1, extra) {
+    const b = extra.board;
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.beginPath();
+    ctx.roundRect(x0, 30, x1 - x0, 690, 24);
+    ctx.fill();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffd23f';
+    ctx.font = 'bold 34px system-ui, sans-serif';
+    ctx.fillText('🏆 ベストラップ ランキング', (x0 + x1) / 2, 72);
+    ctx.font = 'bold 26px system-ui, sans-serif';
+    if (!b) {
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.fillText(extra.rankText || 'ランキングに登録しています…', (x0 + x1) / 2, 360);
+      return;
+    }
+    if (!b.top) {
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.fillText('ランキングのサーバーにつながりません', (x0 + x1) / 2, 360);
+    } else if (!b.top.length) {
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.fillText('まだ記録がありません', (x0 + x1) / 2, 360);
+    }
+    const rowH = 52, y0 = 140;
+    (b.top || []).slice(0, 10).forEach((r, i) => {
+      const y = y0 + i * rowH;
+      const mine = r.name === b.me;
+      if (mine) {
+        ctx.fillStyle = 'rgba(255,210,63,0.18)';
+        ctx.fillRect(x0 + 10, y - rowH / 2 + 2, x1 - x0 - 20, rowH - 4);
+      }
+      ctx.fillStyle = i === 0 ? '#ffd23f' : i === 1 ? '#d8e2ee' : i === 2 ? '#e0a46a' : mine ? '#ffd23f' : '#ffffff';
+      ctx.textAlign = 'right';
+      ctx.fillText(String(i + 1), x0 + 58, y);
+      ctx.fillStyle = mine ? '#ffd23f' : '#ffffff';
+      ctx.textAlign = 'left';
+      let name = r.name;
+      // 長い名前は枠に収まるように縮める
+      while (name.length > 1 && ctx.measureText(name).width > x1 - x0 - 250) name = name.slice(0, -1);
+      ctx.fillText(name === r.name ? name : name + '…', x0 + 76, y);
+      ctx.textAlign = 'right';
+      ctx.fillText(fmtMs(r.ms), x1 - 24, y);
+    });
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#7cff6a';
+    ctx.font = 'bold 28px system-ui, sans-serif';
+    if (extra.rankText) ctx.fillText(extra.rankText, (x0 + x1) / 2, 690);
   }
 
   drawBanner(text) {

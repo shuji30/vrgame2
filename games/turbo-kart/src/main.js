@@ -305,14 +305,23 @@ game.onRaceStart = async (opts) => {
 };
 // ゴールしたら自分のベストラップを登録して、結果画面にランキングを出す（自動運転の確認中は登録しない）
 game.onFinish = async (me) => {
-  if (game.autodrive || !me.bestLap) return;
+  // 前のレースのランキング表示を残さない
+  game.rankText = '';
+  game.rankBoard = null;
+  game.rankHtml = '';
+  if (game.autodrive || !me.bestLap) {
+    game.rankText = 'このレースは登録されません';
+    return;
+  }
   const key = { track: game.trackId, vehicle: game.opts.vehicle || 'kart', mode: lapMode(game.theme, game.opts.handling) };
   const name = game.playerName || driverName();
   game.rankHtml = '<p class="muted">ランキングに登録しています…</p>';
   let r = null;
   try { r = await submitLap(key, name, me.bestLap); } catch { /* つながらない */ }
   if (r?.top?.[0]) game.hud.courseRecord = r.top[0];
-  game.rankText = r?.rank ? `🏆 ベストラップ ランキング ${r.rank} 位に入りました！` : r ? `ベストラップ ${(me.bestLap).toFixed(3)} 秒` : '';
+  // VR のリザルトの右側に出す（rankText はその下に出す一言）
+  game.rankText = r?.rank ? `${r.rank} 位に入りました！` : r ? `あなたのベストラップ ${(me.bestLap).toFixed(3)} 秒` : '';
+  game.rankBoard = { top: r ? r.top : null, rank: r?.rank || null, me: name };
   game.rankHtml = `<h3 style="margin:14px 0 6px">🏆 ベストラップ ランキング${r?.rank ? `　<span style="color:#ffd23f">${r.rank} 位に入りました！</span>` : ''}</h3>${lapsTable(r ? r.top : null, name)}`;
   refreshRanking();
 };
