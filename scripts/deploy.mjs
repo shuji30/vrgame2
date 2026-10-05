@@ -125,6 +125,12 @@ async function main() {
     }
     staged.push(out);
   }
+  // デバイスブリッジ（FFB 用の PC プログラム）を ZIP にしてサイトの downloads/ に置く（作業用のフォルダは含めない）
+  mkdirSync(join(verDir, 'downloads'), { recursive: true });
+  const bridgeFiles = readdirSync(join(root, 'ffb-bridge')).filter((n) => !n.startsWith('.') && n !== '__pycache__');
+  const zip = spawnSync('tar', ['-a', '-cf', join(verDir, 'downloads', 'ffb-bridge.zip'), ...bridgeFiles.map((n) => `ffb-bridge/${n}`)], { cwd: root, encoding: 'utf8' });
+  if (zip.status !== 0) throw new Error(`ブリッジの ZIP を作れませんでした: ${zip.stderr || zip.error}`);
+  staged.push('downloads/ffb-bridge.zip');
   const tar = spawn('tar', ['-czf', '-', ...staged, 'version.json'], { cwd: verDir, stdio: ['ignore', 'pipe', 'inherit'] });
   const remote = [
     `mkdir -p '${dir}'`,

@@ -111,6 +111,10 @@
     .board th, .board td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--line); }
     .board tr.me td { color: var(--accent2); font-weight: 800; }
     .board button.sel { outline: 4px solid #ffd23f; outline-offset: 2px; transform: scale(1.04); }
+    .bridge-help { margin: 6px 0 10px; padding: 8px 12px; border-radius: 10px; background: rgba(255,255,255,0.06); font-size: 13px; }
+    .bridge-help summary { cursor: pointer; font-weight: 700; }
+    .bridge-help ol { margin: 6px 0; padding-left: 20px; line-height: 1.6; }
+    .bridge-help a.dl { display: inline-block; padding: 8px 14px; border-radius: 10px; background: var(--accent, #ff8a1f); color: #fff; font-weight: 800; text-decoration: none; }
     table.laps { width: 100%; border-collapse: collapse; font-size: 14px; }
     table.laps th, table.laps td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; }
     table.laps tr.me td { color: var(--accent2); font-weight: 800; }
@@ -302,7 +306,7 @@
         VR コントローラー: 左スティック ハンドル / 右トリガー アクセル / 左トリガー ブレーキ / グリップ サイドブレーキ / A アイテム（決定） / B 後ろへ / X カメラ / Y ポーズ / スティック押し込み リセンター<br>
         ハンコンは PC の Chrome / Edge で使えます（VR は SteamVR / Pimax / Quest Link などの PC VR）。
         「ハンコン / FFB 設定」→「USB 機器を追加」でブラウザから直接つなげます（インストール不要・初回のみ許可）。
-        Fanatec・Thrustmaster・Logitech の FFB は <a href="https://github.com/shuji30/vrgame2/tree/main/ffb-bridge">デバイスブリッジ</a> を使ってください。</p>
+        Fanatec・Thrustmaster・Logitech の FFB は <a href="../../downloads/ffb-bridge.zip" download>デバイスブリッジ（ZIP）</a> を使ってください（使い方は「ハンコン / FFB 設定」にあります）。</p>
       <p class="note"><a href="../../">◀ ゲーム選択に戻る</a></p>
     </div>
   </section>
@@ -333,6 +337,17 @@
         <div>
           <h2>フォースフィードバック</h2>
           <p id="ffb-status" data-ffb-status class="ng"></p>
+          <details class="bridge-help">
+            <summary>デバイスブリッジ（PC 用の FFB プログラム）の入手と使い方</summary>
+            <p><a class="dl" href="../../downloads/ffb-bridge.zip" download>⬇ デバイスブリッジをダウンロード（ZIP）</a></p>
+            <ol>
+              <li><a href="https://www.python.org/downloads/" target="_blank" rel="noopener">Python</a> をインストール（1 回だけ）。最初の画面の「Add python.exe to PATH」に必ずチェック</li>
+              <li>ZIP を展開し、中の <b>start.bat</b> をダブルクリック（初回は準備に 1〜2 分）。黒い画面に「デバイスブリッジ起動」と出たら、閉じずにそのまま</li>
+              <li>この画面の上の表示が「ブリッジ接続中」になったら、出力方法を「デバイスブリッジのみ」にして「右へ」「左へ」で確認</li>
+              <li>毎回の起動が面倒なら <b>install-autostart.bat</b> を 1 回実行（Windows の起動時に自動で起動）</li>
+            </ol>
+            <p class="muted">「Windows によって PC が保護されました」と出たら「詳細情報」→「実行」。詳しくは ZIP の中の README.txt を見てください。</p>
+          </details>
           <label><input type="checkbox" data-ffb="enabled"> FFB を使う</label>
           <label class="field">出力方法
             <select data-ffb="output">
