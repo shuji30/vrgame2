@@ -7,10 +7,13 @@ export function fastestLap(race) {
   return best;
 }
 
-// オンライン対戦のタイミング表: 参加者（人）を順位順に、直前のラップとベストラップ。
-// fastest: 全員（NPC も含む）の中の最速ラップ
+// タイミング表: 自分も含めた全員（NPC も）を順位順に、直前のラップとベストラップ。
+// npc: 人ではない車（表では少し薄く表示）。fastest: 全員の中の最速ラップ
 export function timingRows(race) {
-  const rows = race.karts.filter((e) => e.human || e.type === 'player').sort((a, b) => a.position - b.position)
-    .map((e) => ({ pos: e.position, name: e.name, color: e.color, last: e.lastLap ?? null, best: e.bestLap ?? null, me: e.type === 'player' }));
+  const rows = [...race.karts].sort((a, b) => a.position - b.position)
+    .map((e) => ({
+      pos: e.position, name: e.name, color: e.color, last: e.lastLap ?? null, best: e.bestLap ?? null,
+      me: e.type === 'player', npc: !(e.human || e.type === 'player'),
+    }));
   return { rows, fastest: fastestLap(race) };
 }

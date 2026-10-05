@@ -236,8 +236,8 @@ export class Game {
     this.hud.results.mesh.position.set(0, 0.05, -2.1);
     this.cockpit.add(this.hud.results.mesh);
     this.hud.results.mesh.visible = false;
-    // オンライン対戦中: 左上に参加者のラップタイム
-    this.hud.timing.mesh.position.set(-1.25, 0.6, -2.3);
+    // レース中: 左上に全員のラップタイム
+    this.hud.timing.mesh.position.set(-1.3, 0.5, -2.3);
     this.hud.timing.mesh.rotation.set(0, 0.45, 0);
     this.cockpit.add(this.hud.timing.mesh);
     this.hud.timing.mesh.visible = false;
@@ -607,7 +607,7 @@ export class Game {
       const vr = this.xrOn;
       this.hud.dash.mesh.visible = vr || this.cameraMode === 'cockpit';
       this.hud.banner.mesh.visible = vr && this.state !== 'results'; // ゴール後はリザルトに場所を譲る
-      this.hud.update(race, me, { vr, manual: me.manual, dt, party, online: !!this.online && this.state !== 'results' });
+      this.hud.update(race, me, { vr, manual: me.manual, dt, party, timing: this.state !== 'results' });
       // ルーレットの絵柄が変わるたびにカチッと鳴らす
       if (me.roulette > 0 && this.hud.rouletteIdx !== this.lastRouletteIdx) this.audio.tick();
       this.lastRouletteIdx = me.roulette > 0 ? this.hud.rouletteIdx : null;

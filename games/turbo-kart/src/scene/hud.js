@@ -10,11 +10,11 @@ export { fastestLap, timingRows };
 
 const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-// PC の画面右上の表
+// PC の画面右上のタイミング表
 export function timingHtml({ rows, fastest }, rec) {
   const head = `<div class="tm-rec">🏁 最速ラップ <b>${fastest ? fmtTime(fastest.time) : '--:--.--'}</b> ${fastest ? escHtml(fastest.name) : ''}</div>`
     + `<div class="tm-rec gold">🏆 コースレコード <b>${rec ? fmtTime(rec.ms / 1000) : '--:--.--'}</b> ${rec ? escHtml(rec.name) : ''}</div>`;
-  const body = rows.map((r) => `<tr class="${r.me ? 'me' : ''}"><td>${r.pos}</td><td><i style="background:#${new THREE.Color(r.color).getHexString()}"></i>${escHtml(r.name)}</td>`
+  const body = rows.map((r) => `<tr class="${r.me ? 'me' : r.npc ? 'npc' : ''}"><td>${r.pos}</td><td><i style="background:#${new THREE.Color(r.color).getHexString()}"></i>${escHtml(r.name)}</td>`
     + `<td>${fmtTime(r.last)}</td><td class="${fastest && r.best === fastest.time ? 'purple' : ''}">${fmtTime(r.best)}</td></tr>`).join('');
   return `${head}<table><tr><th>#</th><th>DRIVER</th><th>LAST</th><th>BEST</th></tr>${body}</table>`;
 }
@@ -123,7 +123,7 @@ export class Hud {
     this.banner = new CanvasPlane(2.4, 0.9, 1024);
     // VR のリザルト（ゴール後に目の前に出す）。左にレースの順位、右にベストラップのランキング（10 位まで）
     this.results = new CanvasPlane(2.5, 1.45, 1536);
-    this.timing = new CanvasPlane(0.9, 0.6, 600);
+    this.timing = new CanvasPlane(0.9, 0.8, 600);
     this.timingAt = 0;
     this.lastDash = 0;
     this.bannerText = null;
@@ -184,7 +184,7 @@ export class Hud {
     return { icon: '', count: '', spin: false };
   }
 
-  update(race, me, { vr = false, manual = false, dt = 0, party = false, online = false } = {}) {
+  update(race, me, { vr = false, manual = false, dt = 0, party = false, timing = false } = {}) {
     const k = me.kart;
     this.party = party;
     this.coinFlash = Math.max(0, (this.coinFlash || 0) - dt);
@@ -236,11 +236,11 @@ export class Hud {
     } else {
       this.root.hidden = true;
     }
-    // オンライン対戦: 参加者のラップタイムと最速ラップ（0.25 秒ごとに書き換え）
+    // 全員のラップタイムと最速ラップ（0.25 秒ごとに書き換え）
     this.timingAt += dt;
-    this.el.timing.hidden = !online || vr;
-    this.timing.mesh.visible = online && vr;
-    if (online && this.timingAt > 0.25) {
+    this.el.timing.hidden = !timing || vr;
+    this.timing.mesh.visible = timing && vr;
+    if (timing && this.timingAt > 0.25) {
       this.timingAt = 0;
       const t = timingRows(race);
       if (vr) this.drawTiming(t, race);
@@ -409,7 +409,7 @@ export class Hud {
     this.results.commit();
   }
 
-  // VR: オンライン対戦のタイミング表
+  // VR: タイミング表（全員）
   drawTiming({ rows, fastest }) {
     const { ctx, canvas } = this.timing;
     const W = canvas.width, H = canvas.height;
@@ -441,19 +441,19 @@ export class Hud {
         ctx.fillStyle = 'rgba(255,210,63,0.18)';
         ctx.fillRect(12, y - rowH / 2, W - 24, rowH);
       }
-      ctx.fillStyle = r.me ? '#ffd23f' : '#fff';
+      ctx.fillStyle = r.me ? '#ffd23f' : r.npc ? 'rgba(255,255,255,0.6)' : '#fff';
       ctx.textAlign = 'left';
       ctx.fillText(String(r.pos), 20, y);
       ctx.fillStyle = '#' + new THREE.Color(r.color).getHexString();
       ctx.fillRect(52, y - rowH * 0.22, rowH * 0.44, rowH * 0.44);
-      ctx.fillStyle = r.me ? '#ffd23f' : '#fff';
+      ctx.fillStyle = r.me ? '#ffd23f' : r.npc ? 'rgba(255,255,255,0.6)' : '#fff';
       let name = r.name;
       while (name.length > 1 && ctx.measureText(name).width > 220) name = name.slice(0, -1);
       ctx.fillText(name, 52 + rowH * 0.6, y);
       ctx.textAlign = 'right';
       ctx.fillText(fmtTime(r.last), 450, y);
       // 全員の中の最速ラップは紫（モータースポーツの表示と同じ）
-      ctx.fillStyle = fastest && r.best === fastest.time ? '#c58aff' : r.me ? '#ffd23f' : '#fff';
+      ctx.fillStyle = fastest && r.best === fastest.time ? '#c58aff' : r.me ? '#ffd23f' : r.npc ? 'rgba(255,255,255,0.6)' : '#fff';
       ctx.fillText(fmtTime(r.best), W - 20, y);
     });
     this.timing.commit();
@@ -538,6 +538,7 @@ export class Hud {
   hide() {
     this.root.hidden = true;
     this.el.board.hidden = true;
+    this.timing.mesh.visible = false;
   }
 }
 
