@@ -213,7 +213,7 @@ export class Hud {
       this.el.pos.innerHTML = `${me.position}<small>/${race.karts.length}</small>`;
       this.el.lap.textContent = `LAP ${Math.max(1, Math.min(race.laps, me.lap))}/${race.laps}`;
       this.el.time.textContent = fmtTime(Math.max(0, race.time));
-      this.el.best.textContent = `LAP ${fmtTime(lapTime)}  BEST ${fmtTime(me.bestLap)}`;
+      this.el.best.innerHTML = `LAP ${fmtTime(lapTime)}<br>LAST ${fmtTime(me.lastLap)}　<b style="color:#7cff6a">BEST ${fmtTime(me.bestLap)}</b>`;
       // このレースの最速ラップ（全員の中で）と、ランキング 1 位のコースレコード
       const f = fastestLap(race);
       this.el.fastest.textContent = f ? `🏁 最速ラップ ${fmtTime(f.time)}  ${f.name}` : '';
@@ -295,6 +295,12 @@ export class Hud {
     ctx.fillText(`LAP ${Math.max(1, Math.min(race.laps, me.lap))}/${race.laps}`, 316, 100);
     ctx.font = '22px system-ui, sans-serif';
     ctx.fillText(fmtTime(Math.max(0, race.time)), 316, 140);
+    // 自分の直前のラップとベストラップ
+    ctx.font = 'bold 20px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillText(`LAST ${fmtTime(me.lastLap)}`, 316, 180);
+    ctx.fillStyle = '#7cff6a';
+    ctx.fillText(`BEST ${fmtTime(me.bestLap)}`, 316, 212);
     // コイン（パーティー）: 枚数と最高速の上乗せ。拾った直後は金色に光る
     if (this.party) {
       const flash = this.coinFlash > 0;
