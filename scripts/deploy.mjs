@@ -3,7 +3,7 @@
 //   node scripts/deploy.mjs --dry    … 送るファイルの一覧だけ表示
 //   node scripts/deploy.mjs --setup  … 接続先を設定し直す
 // パスワードは保存しない（SSH が聞いてくる。SSH 鍵を設定すれば聞かれなくなる）
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, copyFileSync, mkdtempSync, rmSync, cpSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, relative, sep, dirname } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -85,6 +85,28 @@ function run(cmd, cmdArgs, input) {
   });
 }
 
+// ブリッジの exe（PyInstaller）を ffb-bridge/.build に作る。bridge.py が変わっていなければ前回のものを使う
+function buildBridge() {
+  const src = join(root, 'ffb-bridge');
+  const work = join(src, '.build');
+  const dist = join(work, 'dist', 'TurboKartBridge');
+  const exe = join(dist, 'TurboKartBridge.exe');
+  const inputs = ['bridge.py', 'requirements.txt'].map((n) => statSync(join(src, n)).mtimeMs);
+  if (existsSync(exe) && statSync(exe).mtimeMs > Math.max(...inputs)) return dist;
+  console.log('デバイスブリッジの exe を作っています（初回は数分かかります）…');
+  const sh = (cmd, a) => {
+    const r = spawnSync(cmd, a, { cwd: src, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    if (r.status !== 0) throw new Error(`ブリッジの exe を作れませんでした（${cmd} ${a.join(' ')}）: ${r.stderr || r.error}`);
+  };
+  const venv = join(work, 'venv');
+  const py = join(venv, process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+  if (!existsSync(py)) sh('python', ['-m', 'venv', venv]);
+  sh(py, ['-m', 'pip', 'install', '-q', '--disable-pip-version-check', '-r', 'requirements.txt', 'pyinstaller']);
+  sh(py, ['-m', 'PyInstaller', '--noconfirm', '--onedir', '--console', '--name', 'TurboKartBridge', '--collect-all', 'sdl2dll',
+    '--distpath', join(work, 'dist'), '--workpath', join(work, 'work'), '--specpath', work, 'bridge.py']);
+  return dist;
+}
+
 async function main() {
   const files = listFiles();
   if (args.includes('--dry')) {
@@ -125,13 +147,21 @@ async function main() {
     }
     staged.push(out);
   }
-  // デバイスブリッジ（FFB 用の PC プログラム）を ZIP にしてサイトの downloads/ に置く（作業用のフォルダは含めない）
+  // デバイスブリッジ（FFB 用の PC プログラム）を exe にして ZIP でサイトの downloads/ に置く。
+  // 使う人は Python を入れなくてよい（exe に Python と SDL2 が入っている）
+  const bridgeDist = buildBridge();
+  const zipRoot = join(verDir, '.zip');
+  const zipDir = join(zipRoot, 'ffb-bridge');
+  cpSync(bridgeDist, zipDir, { recursive: true });
+  for (const n of ['README.txt', 'origins.txt', 'start.bat', 'install-autostart.bat', 'uninstall-autostart.bat']) {
+    copyFileSync(join(root, 'ffb-bridge', n), join(zipDir, n));
+  }
   mkdirSync(join(verDir, 'downloads'), { recursive: true });
-  const bridgeFiles = readdirSync(join(root, 'ffb-bridge')).filter((n) => !n.startsWith('.') && n !== '__pycache__');
   // ZIP は Windows 付属の tar（bsdtar）で作る。Git Bash の tar は「C:」を接続先と見なしてしまい、ZIP も作れない
   const bsdtar = process.platform === 'win32' ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'bsdtar';
-  const zip = spawnSync(bsdtar, ['-a', '-cf', join(verDir, 'downloads', 'ffb-bridge.zip'), ...bridgeFiles.map((n) => `ffb-bridge/${n}`)], { cwd: root, encoding: 'utf8' });
+  const zip = spawnSync(bsdtar, ['-a', '-cf', join(verDir, 'downloads', 'ffb-bridge.zip'), '-C', zipRoot, 'ffb-bridge'], { encoding: 'utf8' });
   if (zip.status !== 0) throw new Error(`ブリッジの ZIP を作れませんでした: ${zip.stderr || zip.error}`);
+  rmSync(zipRoot, { recursive: true, force: true });
   staged.push('downloads/ffb-bridge.zip');
   const tar = spawn('tar', ['-czf', '-', ...staged, 'version.json'], { cwd: verDir, stdio: ['ignore', 'pipe', 'inherit'] });
   const remote = [

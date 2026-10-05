@@ -42,7 +42,9 @@ DEFAULT_ORIGINS = [
 
 def extra_origins():
     """同じフォルダの origins.txt に書いた URL も許可する（1 行に 1 つ、# はコメント）"""
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "origins.txt")
+    # exe 版（PyInstaller）は exe と同じフォルダ、Python 版は bridge.py と同じフォルダ
+    base = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
+    path = os.path.join(base, "origins.txt")
     if not os.path.exists(path):
         return []
     with open(path, encoding="utf-8") as f:
@@ -199,6 +201,8 @@ class Bridge:
             self.dev = MockHaptic()
             self.devices = [{"index": 0, "name": self.dev.name, "haptic": True, "features": self.dev.features}]
         else:
+            import warnings
+            warnings.filterwarnings("ignore", message="Using SDL2 binaries")
             import sdl2  # pysdl2
             self.sdl2 = sdl2
             sdl2.SDL_SetHint(b"SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", b"1")
