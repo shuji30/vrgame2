@@ -17,29 +17,44 @@ const box = (w, h, d, m, x, y, z, r = 0.02) => {
 const span = (x0, x1, y0, y1, z0, z1, m, r = 0.02) => box(x1 - x0, y1 - y0, z1 - z0, m, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, r);
 
 // バケットシート（seat: 座面の中心、recline: 背もたれの傾き）
-function seat(theme, { x, y, z, recline, width = 0.5, accent }) {
+// バケットシート: 体を包むシェル（座面・太もも・脇腹・肩・頭の横まで張り出す）、クッション、4 点式ベルト、
+// 下のシートレール。belts: false でベルトなし（助手席）
+function seat(theme, { x, y, z, recline, width = 0.5, accent, belts = true }) {
   const g = new THREE.Group();
-  const fabric = mat(theme, { color: 0x24252c }, 'rubber');
+  const fabric = mat(theme, { color: 0x2a2b33 }, 'rubber');
   const shell = mat(theme, { color: 0x15161a }, 'carbon');
   const belt = mat(theme, { color: accent ?? 0xe0402a }, 'paint');
+  const metal = mat(theme, { color: 0x8c9099 }, 'metal');
   g.position.set(x, y, z);
-  // 座面と、太ももの横の張り出し
-  g.add(box(0.48, 0.07, width, fabric, 0, 0, 0, 0.03));
-  for (const s of [-1, 1]) g.add(box(0.44, 0.1, 0.07, shell, 0, 0.05, s * (width / 2 + 0.02), 0.03));
-  // 背もたれ（腰から後ろへ傾ける）。肩の張り出しとヘッドレスト、ベルト
+  const w2 = width / 2;
+  // シートレールと台座
+  for (const s of [-1, 1]) g.add(box(0.5, 0.03, 0.04, metal, 0, -0.07, s * (w2 - 0.06), 0));
+  g.add(box(0.4, 0.06, width - 0.05, shell, 0, -0.04, 0, 0.02));
+  // 座面（クッション）と、太ももの横の高い張り出し
+  g.add(box(0.48, 0.07, width - 0.06, fabric, 0, 0, 0, 0.03));
+  for (const s of [-1, 1]) g.add(box(0.46, 0.16, 0.06, shell, 0, 0.06, s * (w2 + 0.01), 0.025));
+  // 背もたれ（腰から後ろへ傾ける）
   const back = new THREE.Group();
   back.position.set(-0.24, 0.02, 0);
   back.rotation.z = recline;
-  back.add(box(0.07, 0.72, width, fabric, -0.03, 0.36, 0, 0.03));
-  back.add(box(0.06, 0.74, width + 0.08, shell, -0.08, 0.37, 0, 0.03));
+  back.add(box(0.07, 0.72, width - 0.06, fabric, -0.02, 0.36, 0, 0.03)); // 背中のクッション
+  back.add(box(0.05, 0.86, width + 0.04, shell, -0.08, 0.43, 0, 0.02)); // 背面のシェル
   for (const s of [-1, 1]) {
-    back.add(box(0.14, 0.5, 0.07, shell, 0.03, 0.42, s * (width / 2 + 0.02), 0.03));
-    back.add(box(0.012, 0.6, 0.05, belt, 0.0, 0.42, s * 0.11, 0));
+    back.add(box(0.2, 0.36, 0.06, shell, 0.05, 0.22, s * (w2 + 0.01), 0.025)); // 脇腹を支える張り出し
+    back.add(box(0.16, 0.16, 0.06, shell, 0.04, 0.56, s * (w2 - 0.01), 0.025)); // 肩
+    back.add(box(0.18, 0.2, 0.05, shell, 0.04, 0.8, s * 0.13, 0.02)); // 頭の横（ヘッドウイング）
+    if (belts) {
+      back.add(box(0.012, 0.66, 0.05, belt, 0.02, 0.42, s * 0.1, 0)); // 肩ベルト
+    }
   }
-  back.add(box(0.1, 0.2, 0.3, shell, -0.02, 0.84, 0, 0.04));
+  back.add(box(0.07, 0.2, 0.22, fabric, -0.03, 0.8, 0, 0.03)); // 頭のクッション
+  // ベルトを通す穴（肩の上）
+  for (const s of [-1, 1]) back.add(box(0.06, 0.06, 0.05, mat(theme, { color: 0x050506 }, 'rubber'), -0.03, 0.66, s * 0.1, 0.01));
   g.add(back);
-  // 腰のベルト
-  g.add(box(0.05, 0.012, width * 0.8, belt, 0.1, 0.045, 0, 0));
+  if (belts) {
+    g.add(box(0.05, 0.012, width * 0.8, belt, 0.1, 0.045, 0, 0)); // 腰のベルト
+    g.add(box(0.06, 0.03, 0.06, metal, 0.12, 0.05, 0, 0.01)); // バックル
+  }
   return g;
 }
 
@@ -73,8 +88,7 @@ export function buildCockpit(opts) {
     g.add(span(-0.75, 0.95, 0.3, 0.52, -0.15, 0.15, trim));
     g.add(span(0.98, 1.06, 0.3, 0.86, -0.92, 0.92, trim, 0));
     g.add(span(0.55, 0.98, 0.62, 0.86, -0.92, 0.92, trim));
-    // A ピラーとフロントガラスの上枠、天井の内張り（前の景色の枠になる）
-    for (const s of [-1, 1]) g.add(tube(new THREE.Vector3(0.62, 0.86, s * 0.86), new THREE.Vector3(0.0, 1.3, s * 0.78), 0.045, trim));
+    // フロントガラスの上枠、天井の内張り（A ピラーはロールケージの柱が兼ねる）
     g.add(span(-0.05, 0.05, 1.27, 1.33, -0.8, 0.8, trim, 0.02));
     g.add(span(-1.05, -0.05, 1.32, 1.36, -0.8, 0.8, mat(theme, { color: 0x2e3036 }, 'rubber'), 0));
     // ルームミラー（フロントガラスの上枠から吊るし、運転手の方へ向ける。後ろの景色の中央が映る）。ドリフト車はドアミラーだけ
@@ -99,12 +113,9 @@ export function buildCockpit(opts) {
     }
     // シートの後ろの隔壁（振り返っても道路が素通しにならない）
     g.add(span(-1.08, -1.0, 0.3, 1.05, -0.92, 0.92, trim, 0));
-    // ロールケージ: シートの後ろの輪とドアに沿った棒
-    for (const s of [-1, 1]) {
-      g.add(tube(new THREE.Vector3(-0.95, 0.3, s * 0.8), new THREE.Vector3(-0.95, 1.05, s * 0.72), 0.025, metal));
-      g.add(tube(new THREE.Vector3(-0.95, 0.75, s * 0.82), new THREE.Vector3(0.9, 0.7, s * 0.8), 0.022, metal));
-    }
-    g.add(tube(new THREE.Vector3(-0.95, 1.05, -0.72), new THREE.Vector3(-0.95, 1.05, 0.72), 0.025, metal));
+    // ロールケージ（アルミの太いパイプ）: シートの後ろのメインフープと斜めの補強、A ピラーに沿う柱、天井の棒、
+    // ドアの X 字の補強、ハーネスバー、後ろへの支え。継ぎ目は溶接の玉
+    g.add(rollCage(theme));
     // センターコンソールとシーケンシャルのシフトレバー
     g.add(span(0.05, 0.6, 0.52, 0.66, -0.13, 0.13, trim));
     const lever = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.2, 8), metal);
@@ -114,6 +125,8 @@ export function buildCockpit(opts) {
     knob.position.set(0.12, 0.86, -0.05);
     g.add(lever, knob);
     g.add(seat(theme, { x: eye.x + 0.05, y: 0.42, z: seatZ, recline: 0.28, accent: opts.accent }));
+    // 助手席（ベルトなし）
+    g.add(seat(theme, { x: eye.x + 0.05, y: 0.42, z: -seatZ, recline: 0.28, accent: opts.accent, belts: false }));
     // フットレスト（左足）とペダル（右足でアクセル、その左にブレーキ）
     g.add(span(0.7, 0.96, 0.3, 0.44, seatZ - 0.3, seatZ - 0.2, metal, 0.01));
     pedals = {
@@ -344,6 +357,41 @@ function canvasDial(label, max, step, red) {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
+}
+
+// ロールケージ（GT3・ドリフト車）
+function rollCage(theme) {
+  const g = new THREE.Group();
+  const alu = mat(theme, { color: 0xc9ced6 }, 'metal');
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  const R = 0.03;
+  const bar = (a, b, r = R) => g.add(tube(a, b, r, alu));
+  const node = (p) => {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(R * 1.35, 10, 8), alu);
+    m.position.copy(p);
+    g.add(m);
+  };
+  const hx = -0.95, top = 1.27, front = -0.02;
+  const pts = [];
+  for (const s of [-1, 1]) {
+    const foot = V(hx, 0.3, s * 0.8), hoop = V(hx, top, s * 0.74);
+    const aFoot = V(0.6, 0.6, s * 0.83), aTop = V(front, top, s * 0.74);
+    bar(foot, hoop); // メインフープの柱
+    bar(aFoot, aTop); // A ピラーに沿う柱
+    bar(aTop, hoop); // 天井の左右の棒
+    // ドアの X 字の補強
+    bar(V(hx + 0.05, 0.42, s * 0.83), V(0.5, 0.82, s * 0.84), R * 0.85);
+    bar(V(hx + 0.05, 0.82, s * 0.83), V(0.5, 0.45, s * 0.84), R * 0.85);
+    // 後ろへの支え（隔壁の奥へ）
+    bar(hoop, V(-1.7, 0.75, s * 0.7));
+    pts.push(foot, hoop, aFoot, aTop);
+  }
+  bar(V(hx, top, -0.74), V(hx, top, 0.74)); // メインフープの上
+  bar(V(front, top, -0.74), V(front, top, 0.74)); // フロントガラスの上枠に沿う棒
+  bar(V(hx, 0.32, -0.8), V(hx, top, 0.74)); // メインフープの斜めの補強
+  bar(V(hx, 0.95, -0.77), V(hx, 0.95, 0.77), R * 0.9); // ハーネスバー
+  for (const p of pts) node(p);
+  return g;
 }
 
 function tube(a, b, r, m) {
