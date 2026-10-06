@@ -62,6 +62,21 @@ export const VEHICLES = {
     ffbScale: 1.8, // FFB の手ごたえの倍率（ffbmodel.js）。ロック角 540° で角度あたりの力が小さいぶん重く
     ffbSpring: 0.35, // ハンコン本体のばね（走行中の中心へ戻る重さ。車重のある GT3 はどっしり）
   },
+  // ドリフト車: FR のスポーツクーペ。パワーに対して後輪のグリップが低く、アクセルでテールが流れる。
+  // 切れ角が大きくカウンターを当てやすい。補助ありでも深い角度まで流せる（driftSlip / slideSlip）。約 230km/h
+  drift: {
+    ...KART, id: 'drift', name: 'ドリフト',
+    radius: 1.3, width: 1.8, length: 4.3, wheelbase: 2.5, dynWheelbase: 2.5, cgFront: 1.2, cgHeight: 0.45,
+    mass: 1250, Iz: 1700,
+    gearTop: [0, 17, 27, 37, 46, 55, 64], baseAccel: 11, brakeDecel: 14, drag: 0.0006, rolling: 0.15,
+    reverseAccel: 3, reverseTop: 7, handbrakeDecel: 1.6,
+    // rearDrive: アクセルで後輪のグリップを駆動に使う割合（大きいほどパワーでテールが流れる）
+    mu: 2.6, maxLat: 25.5, tireB: 11, rearGrip: 1.12, rearDrive: 1.1, brakeRear: 0.5, npcBoost: null, npcRearGrip: 1.3,
+    downforce: 0.2, aeroFront: 0.45,
+    steerLock: 0.65, steerHigh: 0.14, assistSpeed: 55, wheelHigh: 0.6, shiftTime: 0.12, boostAccel: 6,
+    driftSlip: 0.6, slideSlip: 0.32, stabSlip: 0.75, // 補助ありで保てる後輪の滑り角（サイドブレーキ / アクセル）、ハンコンのスピン防止の上限
+    ffbScale: 1.5, ffbSpring: 0.25,
+  },
   // フォーミュラ: 軽量・強烈なダウンフォース。グリップは最も高い。約 320km/h
   formula: {
     ...KART, id: 'formula', name: 'フォーミュラ',
@@ -76,7 +91,7 @@ export const VEHICLES = {
     ffbSpring: 0.25,
   },
 };
-export const VEHICLE_ORDER = ['kart', 'gt3', 'formula'];
+export const VEHICLE_ORDER = ['kart', 'gt3', 'drift', 'formula'];
 
 // 本格モードの諸元（実車寄り）: グリップは実車並み、空力で高速ほど曲がれる、アンダーステアを弱めて
 // アクセルオフやトレイルブレーキで向きが変わる、限界の手前からジワッと滑る（C・E）、ハンドルは実車のロック角
@@ -86,6 +101,7 @@ const REAL = {
   gt3: { mu: 1.45, maxLat: 14.2, downforce: 1.6, rearGrip: 1.12, tireB: 10, tireC: 1.35, tireE: 0.6, wheelHigh: 1, brakeRear: 0.75, loadTransferMax: 0.35, lockDeg: 540, brakeDecel: 13,
     // NPC の見えない性能アップ。ふつう（半分だけ効く）で Thunder Ring 0:44.7 前後
     npcBoost: { mu: 1.9, accel: 1.5, top: 1.12 } },
+  drift: { mu: 1.3, maxLat: 12.7, downforce: 0.2, rearGrip: 1.05, tireB: 9, tireC: 1.3, tireE: 0.5, wheelHigh: 1, brakeRear: 0.5, loadTransferMax: 0.35, lockDeg: 720, steerLock: 0.8, brakeDecel: 12 },
   formula: { mu: 1.7, maxLat: 16.7, downforce: 3.6, rearGrip: 1.1, tireB: 11, tireC: 1.35, tireE: 0.6, wheelHigh: 1, brakeRear: 0.75, loadTransferMax: 0.3, lockDeg: 360, brakeDecel: 26 },
 };
 const realCache = new Map();
@@ -313,7 +329,7 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
   const Fb = k.reversing || vF <= 0.5 ? 0 : brake * P.brakeDecel * m;
   const FxRb = ((Fb * FzR) / Math.max(1, FzF + FzR)) * (P.brakeRear ?? BRAKE_REAR), FxFb = Fb - FxRb;
   const capF = Math.sqrt(Math.max(0, (muF * FzF) ** 2 - FxFb ** 2));
-  const FxR = Math.min(muR * FzR * 0.95, (hb > 0.3 ? muR * FzR * Math.min(1, hb) * hbLock : Math.min(mu * FzR * 0.9, Math.abs(drive) * m * 0.5)) + FxRb);
+  const FxR = Math.min(muR * FzR * 0.95, (hb > 0.3 ? muR * FzR * Math.min(1, hb) * hbLock : Math.min(mu * FzR * 0.9, Math.abs(drive) * m * (P.rearDrive ?? 0.5))) + FxRb);
   const capR = Math.sqrt(Math.max(0, (muR * FzR) ** 2 - FxR ** 2));
   const n = 4, h = dt / n;
   let FyF = 0, FyR = 0, af = 0, ar = 0, ay = 0;
@@ -335,22 +351,22 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
       vF += (vL * k.yawRate - (FyF * Math.sin(d)) / m) * h;
       // 補助: 後輪が大きく滑ったら、タイヤで出せる範囲の旋回に戻す（スピン防止）
       // サイドブレーキ中は滑り角を約 0.3rad で保つ「ドリフト補助」（テールを流したまま曲がれる）
-      if (assist && Math.abs(ar) > (hb > 0.3 ? 0.28 : 0.12)) {
+      if (assist && Math.abs(ar) > (hb > 0.3 ? (P.driftSlip ?? 0.3) - 0.02 : (P.slideSlip ?? 0.15) - 0.03)) {
         const rMax = (mu * 9.8) / vF;
         const rT = Math.max(-rMax, Math.min(rMax, (vF * Math.tan(d)) / L));
         k.yawRate += (rT - k.yawRate) * Math.min(1, h * (hb > 0.3 ? 25 : 8));
         // 横滑りの速さも、後輪の滑り角が上限に収まる値へ寄せる
-        const lim = hb > 0.3 ? 0.3 : 0.15;
+        const lim = hb > 0.3 ? (P.driftSlip ?? 0.3) : (P.slideSlip ?? 0.15);
         const vLmax = vF * Math.tan(lim * Math.sign(ar)) + b * k.yawRate;
         if (Math.abs(vL - b * k.yawRate) > Math.abs(vLmax - b * k.yawRate)) vL += (vLmax - vL) * Math.min(1, h * 20);
-      } else if (!assist && input.stability && Math.abs(ar) > STAB_SLIP) {
+      } else if (!assist && input.stability && Math.abs(ar) > (P.stabSlip ? P.stabSlip * 0.5 : STAB_SLIP)) {
         // ハンコン用のスピン防止: 小さな滑り（カウンターで止められる範囲）には手を出さず、
         // 後輪が大きく流れたときだけヨーを抑えて、回り切らない（180° 回転しない）ようにする
-        const over = Math.min(1, (Math.abs(ar) - STAB_SLIP) / 0.15);
+        const over = Math.min(1, (Math.abs(ar) - (P.stabSlip ? P.stabSlip * 0.5 : STAB_SLIP)) / 0.15);
         const rMax = (mu * 9.8) / vF;
         const rT = Math.max(-rMax, Math.min(rMax, (vF * Math.tan(d)) / L));
         k.yawRate += (rT - k.yawRate) * Math.min(1, h * 12 * over);
-        const lim = hb > 0.3 ? 0.5 : 0.35;
+        const lim = P.stabSlip ?? (hb > 0.3 ? 0.5 : 0.35);
         const vLmax = vF * Math.tan(lim * Math.sign(ar)) + b * k.yawRate;
         if (Math.abs(vL - b * k.yawRate) > Math.abs(vLmax - b * k.yawRate)) vL += (vLmax - vL) * Math.min(1, h * 10);
       }

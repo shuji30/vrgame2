@@ -65,6 +65,8 @@ export class CarModel {
     const tire = mat(theme, { color: 0x17171c }, 'rubber');
     const rimMat = mat(theme, { color: party ? 0xd9dde5 : 0x9a9ea6 }, 'metal');
     const formula = type === 'formula';
+    // ドリフト車: GT3 と同じ車体に、大きなウイングの代わりにダックテール、黒いストライプ
+    const drift = type === 'drift';
     // 運転席視点のときに隠す部品（視界をふさぐ屋根・キャビン・ハロー）
     this.cockpitHide = [];
     // バックミラーの鏡の面（自分の車なら後ろの景色が映る。mirrors.js）
@@ -144,7 +146,7 @@ export class CarModel {
       this.eye = new THREE.Vector3(-0.2, 0.92, 0);
       this.steerPos = new THREE.Vector3(0.22, 0.66, 0);
     } else if (theme === 'real') {
-      this.buildRealGT3({ paint, glass, carbon, dark, color, number });
+      this.buildRealGT3({ paint, glass, carbon, dark, color, number, drift });
     } else {
       // GT3: ボディ・キャビン・リアウイング・スプリッター
       const body = new THREE.Mesh(new RoundedBoxGeometry(4.6, 0.62, 2.0, 4, 0.25), paint);
@@ -155,14 +157,22 @@ export class CarModel {
       roof.position.set(-0.35, 1.36, 0);
       const splitter = new THREE.Mesh(new RoundedBoxGeometry(0.4, 0.06, 2.0, 2, 0.02), carbon);
       splitter.position.set(2.35, 0.24, 0);
-      const wing = new THREE.Mesh(new RoundedBoxGeometry(0.42, 0.07, 1.9, 2, 0.02), carbon);
-      wing.position.set(-2.1, 1.42, 0);
-      for (const z of [-0.6, 0.6]) {
-        const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 0.06), carbon);
-        post.position.set(-2.05, 1.15, z);
-        this.group.add(post);
+      let wing;
+      if (drift) {
+        // ダックテール（トランクの後ろの端が跳ね上がる小さなスポイラー）
+        wing = new THREE.Mesh(new RoundedBoxGeometry(0.35, 0.1, 1.8, 2, 0.03), paint);
+        wing.position.set(-2.1, 0.9, 0);
+        wing.rotation.z = 0.35;
+      } else {
+        wing = new THREE.Mesh(new RoundedBoxGeometry(0.42, 0.07, 1.9, 2, 0.02), carbon);
+        wing.position.set(-2.1, 1.42, 0);
+        for (const z of [-0.6, 0.6]) {
+          const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 0.06), carbon);
+          post.position.set(-2.05, 1.15, z);
+          this.group.add(post);
+        }
       }
-      const stripe = new THREE.Mesh(new RoundedBoxGeometry(4.62, 0.05, 0.4, 2, 0.02), mat(theme, { color: 0xffffff }, 'paint'));
+      const stripe = new THREE.Mesh(new RoundedBoxGeometry(4.62, 0.05, 0.4, 2, 0.02), mat(theme, { color: drift ? 0x16171c : 0xffffff }, 'paint'));
       stripe.position.set(0, 0.87, 0);
       const num = new THREE.Mesh(new THREE.CircleGeometry(0.32, 24), mat(theme, { map: numberTex(number, color) }, 'paint'));
       num.position.set(0.3, 0.6, 1.005);
@@ -293,7 +303,7 @@ export class CarModel {
   }
 
   // 写実モードの GT3: 横から見た輪郭を押し出した車体（ボンネット → フロントガラス → ルーフ → リア）
-  buildRealGT3({ paint, glass, carbon, dark, color, number }) {
+  buildRealGT3({ paint, glass, carbon, dark, color, number, drift = false }) {
     const V = (x, y) => new THREE.Vector2(x, y);
     const extrude = (shape, depth, bevel, mat) => {
       const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 3, curveSegments: 18 });
@@ -333,16 +343,24 @@ export class CarModel {
     splitter.position.set(2.3, 0.22, 0);
     const diffuser = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 1.6), carbon);
     diffuser.position.set(-2.32, 0.3, 0);
-    const wing = new THREE.Mesh(new RoundedBoxGeometry(0.38, 0.04, 1.85, 2, 0.015), carbon);
-    wing.position.set(-2.12, 1.32, 0);
-    wing.rotation.z = 0.12;
-    for (const z of [-0.45, 0.45]) {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.42, 0.03), carbon);
-      post.position.set(-2.05, 1.12, z);
-      post.rotation.z = -0.35;
-      const plate = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.22, 0.02), carbon);
-      plate.position.set(-2.12, 1.32, z * 2.07);
-      this.group.add(post, plate);
+    let wing;
+    if (drift) {
+      // ドリフト車: ダックテール
+      wing = new THREE.Mesh(new RoundedBoxGeometry(0.3, 0.06, 1.75, 2, 0.02), paint);
+      wing.position.set(-2.18, 0.99, 0);
+      wing.rotation.z = 0.3;
+    } else {
+      wing = new THREE.Mesh(new RoundedBoxGeometry(0.38, 0.04, 1.85, 2, 0.015), carbon);
+      wing.position.set(-2.12, 1.32, 0);
+      wing.rotation.z = 0.12;
+      for (const z of [-0.45, 0.45]) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.42, 0.03), carbon);
+        post.position.set(-2.05, 1.12, z);
+        post.rotation.z = -0.35;
+        const plate = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.22, 0.02), carbon);
+        plate.position.set(-2.12, 1.32, z * 2.07);
+        this.group.add(post, plate);
+      }
     }
     // ライト・ミラー・ゼッケン
     for (const z of [-0.66, 0.66]) {

@@ -103,12 +103,15 @@ export function driftTier(driftTime) {
   return 0;
 }
 const TIER_COLORS = [new THREE.Color(0xffffff), new THREE.Color(0x4fb8ff), new THREE.Color(0xff9a2f), new THREE.Color(0xff5fd2)];
+const SMOKE = new THREE.Color(0xe6e6e6);
 const DUST = { dirt: new THREE.Color(0xe8c28c), grass: new THREE.Color(0xb6ec8a) };
 
 export class Effects {
   constructor(scene) {
     this.sparks = new Pool(scene, { size: 0.18, additive: true });
     this.dust = new Pool(scene, { size: 0.7, additive: false });
+    // タイヤスモーク（後輪が大きく滑ったとき。ドリフト）
+    this.smoke = new Pool(scene, { size: 1.8, additive: false, opacity: 0.3 });
     this.confettiPool = new Pool(scene, { size: 0.28, additive: false, opacity: 1, late: true });
     this.tmp = new THREE.Vector3();
     this.tmpV = new THREE.Vector3();
@@ -117,6 +120,7 @@ export class Effects {
   clear() {
     this.sparks.clear();
     this.dust.clear();
+    this.smoke.clear();
     this.confettiPool.clear();
   }
 
@@ -134,6 +138,12 @@ export class Effects {
           const v = this.tmpV.set(-1.5 - Math.random() * 2, 1 + Math.random() * 2.5, (Math.random() - 0.5) * 3).applyQuaternion(g.quaternion);
           this.sparks.emit(p, v, color, 0.25 + Math.random() * 0.25);
         }
+      }
+      // 舗装の上で後輪が大きく滑ると白い煙（滑るほど濃く）
+      const slide = Math.abs(kart.rearSlip || 0);
+      if (!DUST[kart.surface] && slide > 0.14 && speed > 6 && Math.random() < Math.min(1, (slide - 0.1) * 3) * 0.6 * rate) {
+        const v = this.tmpV.set(-0.5 - Math.random(), 0.5 + Math.random() * 0.8, (Math.random() - 0.5) * 1.2).applyQuaternion(g.quaternion);
+        this.smoke.emit(p, v, SMOKE, 0.9 + Math.random() * 0.6);
       }
       const dc = DUST[kart.surface];
       if (dc && speed > 5 && Math.random() < 0.22 * rate) {
@@ -157,6 +167,7 @@ export class Effects {
   update(dt) {
     this.sparks.update(dt, -9, 2);
     this.dust.update(dt, 1.2, 1.5);
+    this.smoke.update(dt, 0.8, 1.2);
     this.confettiPool.update(dt, -2.5, 2.2);
   }
 }

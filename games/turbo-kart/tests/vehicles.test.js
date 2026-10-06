@@ -63,7 +63,8 @@ test('ハンコン: 高速の直進中にハンドルを急に切っても、ス
       const vel = Math.atan2(k.vz, k.vx);
       maxSlip = Math.max(maxSlip, Math.abs(Math.atan2(Math.sin(vel - k.heading), Math.cos(vel - k.heading))));
     }
-    assert.ok(maxSlip < 0.6, `${id}: 横滑り ${(maxSlip * 57.3).toFixed(0)}°`);
+    // ドリフト車はわざと深く流せる（スピン防止は stabSlip まで滑ってから効く）。回り切らなければよい
+    assert.ok(maxSlip < (P.stabSlip ? P.stabSlip + 0.1 : 0.6), `${id}: 横滑り ${(maxSlip * 57.3).toFixed(0)}°`);
   }
 });
 
@@ -76,11 +77,12 @@ test('ハンコン: 高速でブレーキを踏みながらハンドルを切っ
       k.gear = P.gearTop.length - 1;
       let maxSlip = 0;
       for (let t = 0; t < 3 && Math.hypot(k.vx, k.vz) > 3; t += 1 / 120) {
-        stepKart(k, { steer, brake, assist: false }, 1 / 120, { manual: true });
+        // ドリフト車はブレーキでテールが流れる（ブレーキングドリフト）ので、スピン防止ありで回り切らないことを確かめる
+        stepKart(k, { steer, brake, assist: false, stability: !!P.stabSlip }, 1 / 120, { manual: true });
         const vel = Math.atan2(k.vz, k.vx);
         maxSlip = Math.max(maxSlip, Math.abs(Math.atan2(Math.sin(vel - k.heading), Math.cos(vel - k.heading))));
       }
-      assert.ok(maxSlip < 0.25, `${id} 舵 ${steer} ブレーキ ${brake}: 横滑り ${(maxSlip * 57.3).toFixed(0)}°`);
+      assert.ok(maxSlip < (P.stabSlip ? P.stabSlip + 0.1 : 0.25), `${id} 舵 ${steer} ブレーキ ${brake}: 横滑り ${(maxSlip * 57.3).toFixed(0)}°`);
     }
   }
 });
@@ -134,4 +136,26 @@ test('本格モードの GT3: NPC（ふつう）は Thunder Ring を 0:44.7 前�
   const laps = race.karts.flatMap((e) => e.lapTimes.slice(1)).sort((a, b) => a - b);
   const median = laps[laps.length >> 1];
   assert.ok(median > 43.7 && median < 45.7, `中央値 ${median.toFixed(3)}`);
+});
+
+test('ドリフト車: NPC はスピンせずに完走し、サイドブレーキでは滑ったまま曲がれる', async () => {
+  const { realSpec } = await import('../src/core/physics.js');
+  for (const realistic of [false, true]) {
+    const race = new Race(track, NPC_NAMES.slice(0, 4).map((name) => ({ name, type: 'npc' })), { laps: 1, seed: 5, vehicle: 'drift', realistic });
+    while (race.state !== 'finished' && race.time < 200) race.step(1 / 60);
+    assert.equal(race.state, 'finished', realistic ? '本格' : 'パーティー');
+  }
+  // 補助あり（キーボード）でサイドブレーキ: 深く流れるが回り切らない
+  for (const P of [VEHICLES.drift, realSpec(VEHICLES.drift)]) {
+    const k = createKart(0, 0, 0, P);
+    k.vx = 22;
+    k.gear = 3;
+    let maxSlip = 0;
+    for (let t = 0; t < 4; t += 1 / 120) {
+      stepKart(k, { steer: 0.6, throttle: 0.8, handbrake: t > 0.5 && t < 1 ? 1 : 0, assist: true }, 1 / 120);
+      const vel = Math.atan2(k.vz, k.vx);
+      maxSlip = Math.max(maxSlip, Math.abs(Math.atan2(Math.sin(vel - k.heading), Math.cos(vel - k.heading))));
+    }
+    assert.ok(maxSlip > 0.3 && maxSlip < 0.9, `横滑り ${(maxSlip * 57.3).toFixed(0)}°`);
+  }
 });

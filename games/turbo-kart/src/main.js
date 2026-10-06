@@ -272,7 +272,7 @@ if (q.get('autostart') === '1') game.startRace(raceOptions());
 if (q.get('cam') === 'cockpit') game.setCameraMode('cockpit');
 
 // ---- ベストラップのランキング ----
-const VEHICLE_NAMES = { kart: 'カート', gt3: 'GT3', formula: 'フォーミュラ' };
+const VEHICLE_NAMES = { kart: 'カート', gt3: 'GT3', drift: 'ドリフト', formula: 'フォーミュラ' };
 function driverName() {
   return ($('opt-name').value || '').trim().slice(0, 16) || 'Player';
 }

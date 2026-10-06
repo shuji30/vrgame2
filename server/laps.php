@@ -49,7 +49,7 @@ function laps_key(array $in): array {
     $vehicle = (string)($in['vehicle'] ?? '');
     $mode = (string)($in['mode'] ?? '');
     if (!preg_match('/^[a-z0-9-]{1,32}$/', $track)) fail('bad track');
-    if (!in_array($vehicle, ['kart', 'gt3', 'formula'], true)) fail('bad vehicle');
+    if (!in_array($vehicle, ['kart', 'gt3', 'drift', 'formula'], true)) fail('bad vehicle');
     // モード（ハンドリングがモードの標準と違うときは party-real / real-arcade）
     if (!in_array($mode, ['party', 'real', 'party-real', 'real-arcade'], true)) fail('bad mode');
     return [$track, $vehicle, $mode];

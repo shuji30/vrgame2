@@ -22,8 +22,9 @@ const npcSpecs = new Map();
 export const NPC_BOOST_LEVEL = { easy: 0.25, normal: 0.5, hard: 1 };
 
 export function npcSpec(spec, level = 'normal') {
-  const b = spec.npcBoost;
-  if (!b) return spec;
+  // npcRearGrip: NPC は後輪のグリップを上げる（ドリフト車の NPC がスピンしないように）
+  if (!spec.npcBoost && !spec.npcRearGrip) return spec;
+  const b = spec.npcBoost || {};
   const f = NPC_BOOST_LEVEL[level] ?? NPC_BOOST_LEVEL.normal;
   const k = (x) => 1 + ((x ?? 1) - 1) * f;
   const key = `${level}`;
@@ -37,6 +38,7 @@ export function npcSpec(spec, level = 'normal') {
       muGrass: spec.muGrass * k(b.mu),
       baseAccel: spec.baseAccel * k(b.accel),
       gearTop: spec.gearTop.map((v) => v * k(b.top)),
+      rearGrip: spec.npcRearGrip ?? spec.rearGrip,
     });
   }
   return m.get(key);
