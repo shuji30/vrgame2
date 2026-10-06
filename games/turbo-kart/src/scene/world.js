@@ -143,8 +143,21 @@ function mountainHeight(track, x, z) {
   return sh / sw - 0.6 + rise + 1.5 * Math.sin(x * 0.05 + 1) * Math.sin(z * 0.043 + 0.4);
 }
 
+// 海の方へ砂浜でなだらかに下げる（海のあるコース）
+const SEA_LEVEL = -1.4;
+function seaSlope(track, x, z, h) {
+  const sea = track.def?.sea;
+  if (!sea) return h;
+  const t = x * sea.dir[0] + z * sea.dir[1] - (sea.shore - 45);
+  return t > 0 ? Math.max(h - t * 0.12, -7) : h;
+}
+
 // 地形の高さ。立体交差のように近くに別の区間があるときは低い方に合わせる（上の道は橋になる）
 export function terrainHeight(track, x, z) {
+  return seaSlope(track, x, z, landHeight(track, x, z));
+}
+
+function landHeight(track, x, z) {
   if (track.def?.forest) {
     const l = locate(track, x, z);
     const wall = track.halfWidth + track.runoff;
@@ -255,6 +268,7 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
   far.rotation.x = -Math.PI / 2;
   far.position.set(x0 + (nx * CELL) / 2, BASE - 3, z0 + (nz * CELL) / 2);
   group.add(far);
+  if (track.def.sea) group.add(buildSea(track, { x0, z0, w: nx * CELL, d: nz * CELL }, real, M, updaters));
 
   // 路面
   const tarmacTex = canvasTexture(256, 512, (ctx, w, h) => {
@@ -491,6 +505,7 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
     const l = locate(track, x, z);
     if (Math.abs(l.lateral) < wall + 7) continue;
     const y = terrainHeight(track, x, z);
+    if (track.def.sea && y < SEA_LEVEL + 1.2) continue; // 砂浜と海には生やさない
     const sc = 0.8 + rng() * 0.7;
     sc3.set(sc, sc * (real ? 1.25 : 1), sc);
     trunks.setMatrixAt(t, m4.compose(v.set(x, y + 1.2 * sc, z), q, sc3));
@@ -528,6 +543,7 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
       const lat = side * (wall + 2 + rng() * 22);
       const p = pointAt(track, fs, lat);
       const y = terrainHeight(track, p.x, p.z);
+      if (track.def.sea && y < SEA_LEVEL + 1.2) continue;
       flowers.setMatrixAt(nf, m4.compose(v.set(p.x, y + 0.25, p.z), q, sc3.set(1, 1, 1)));
       flowers.setColorAt(nf++, col.set(petals[Math.floor(rng() * petals.length)]));
     }
@@ -585,6 +601,9 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
     const a = (i / 18) * Math.PI * 2;
     const r = Math.max(maxX - minX, maxZ - minZ) / 2 + 380 + rng() * 120;
     const h = 60 + rng() * 90;
+    // 海の上には山を置かない
+    const sea = track.def.sea;
+    if (sea && (cx + Math.cos(a) * r) * sea.dir[0] + (cz + Math.sin(a) * r) * sea.dir[1] > sea.shore - 100) continue;
     const m = new THREE.Mesh(real ? ridgeMountain(90 + rng() * 80, h, rng) : new THREE.ConeGeometry(90 + rng() * 60, h, 5), mountMat);
     m.position.set(cx + Math.cos(a) * r, h / 2 - 5, cz + Math.sin(a) * r);
     m.rotation.y = rng() * Math.PI;
@@ -662,6 +681,50 @@ function roadsideForest(track, wall, real, M) {
   balls.count = nb;
   for (const o of [trunks, cones, balls]) o.castShadow = real;
   g.add(trunks, cones, balls);
+  return g;
+}
+
+// 海: 海岸線の先に広がる水面（波の模様がゆっくり流れる）と、波打ち際の砂浜
+function buildSea(track, area, real, M, updaters) {
+  const g = new THREE.Group();
+  const { dir, shore } = track.def.sea;
+  const ang = Math.atan2(dir[1], dir[0]);
+  const waveTex = canvasTexture(256, 256, (ctx, w, h) => {
+    ctx.fillStyle = real ? '#1d4a6e' : '#2aa6e6';
+    ctx.fillRect(0, 0, w, h);
+    for (let i = 0; i < 260; i++) {
+      ctx.fillStyle = `rgba(255,255,255,${(real ? 0.06 : 0.12) + Math.random() * 0.12})`;
+      ctx.fillRect(Math.random() * w, Math.random() * h, 8 + Math.random() * 26, 2);
+    }
+  });
+  waveTex.repeat.set(60, 60);
+  const water = new THREE.Mesh(
+    new THREE.PlaneGeometry(3000, 3000),
+    real ? new THREE.MeshStandardMaterial({ map: waveTex, roughness: 0.18, metalness: 0.25 }) : M({ map: waveTex }),
+  );
+  water.rotation.x = -Math.PI / 2;
+  // 海岸線から沖へ 3km（向き dir に合わせて回す）
+  const c = shore - 30 + 1500;
+  water.position.set(dir[0] * c, SEA_LEVEL, dir[1] * c);
+  water.rotation.z = -ang;
+  g.add(water);
+  updaters.push(({ dt }) => { waveTex.offset.x += (dt || 0) * 0.02; waveTex.offset.y += (dt || 0) * 0.008; });
+  // 砂浜（海岸線の手前から水際まで。地形の上にうっすら重ねる）
+  const sandTex = canvasTexture(128, 128, (ctx, w, h) => speckle(ctx, w, h, real ? '#cdb98f' : '#f3dc9a', 40, 3000, 2));
+  const along = Math.abs(dir[0]) > 0.5 ? area.d : area.w;
+  const sg = new THREE.PlaneGeometry(70, along, 14, Math.ceil(along / 5));
+  sg.rotateX(-Math.PI / 2);
+  sg.rotateY(-ang);
+  const mid = shore - 45 + 35;
+  const cxA = area.x0 + area.w / 2, czA = area.z0 + area.d / 2;
+  // 海岸線に沿う方向は地形の範囲の中央に合わせる
+  const ox = Math.abs(dir[0]) > 0.5 ? dir[0] * mid : cxA, oz = Math.abs(dir[0]) > 0.5 ? czA : dir[1] * mid;
+  sg.translate(ox, 0, oz);
+  const sp = sg.attributes.position;
+  for (let i = 0; i < sp.count; i++) sp.setY(i, Math.max(SEA_LEVEL - 0.3, terrainHeight(track, sp.getX(i), sp.getZ(i))) + 0.05);
+  sg.computeVertexNormals();
+  sandTex.repeat.set(10, along / 10);
+  g.add(new THREE.Mesh(sg, M({ map: sandTex }, 'cloth')));
   return g;
 }
 
