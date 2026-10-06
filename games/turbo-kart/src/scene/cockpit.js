@@ -79,7 +79,8 @@ export function buildCockpit(opts) {
     for (const s of [-1, 1]) g.add(tube(new THREE.Vector3(0.62, 0.86, s * 0.86), new THREE.Vector3(0.0, 1.3, s * 0.78), 0.045, trim));
     g.add(span(-0.05, 0.05, 1.27, 1.33, -0.8, 0.8, trim, 0.02));
     g.add(span(-1.05, -0.05, 1.32, 1.36, -0.8, 0.8, mat(theme, { color: 0x2e3036 }, 'rubber'), 0));
-    // ルームミラー（フロントガラスの上枠から吊るし、運転手の方へ向ける。後ろの景色の中央が映る）
+    // ルームミラー（フロントガラスの上枠から吊るし、運転手の方へ向ける。後ろの景色の中央が映る）。ドリフト車はドアミラーだけ
+    if (opts.roomMirror !== false) {
     const roomMirror = new THREE.Group();
     roomMirror.position.set(0.02, 1.19, -0.08);
     roomMirror.rotation.y = -0.35;
@@ -90,6 +91,7 @@ export function buildCockpit(opts) {
     g.add(roomMirror);
     g.add(span(0.0, 0.03, 1.23, 1.28, -0.1, -0.06, trim, 0));
     mirrors.push(room);
+    }
     // ドアの取っ手（内側）
     for (const s of [-1, 1]) g.add(span(0.2, 0.32, 0.78, 0.81, s > 0 ? 0.83 : -0.86, s > 0 ? 0.86 : -0.83, metal, 0.005));
     // ドアの内張り（左右）と、肘置き
