@@ -78,6 +78,13 @@
     .hud-timing td.purple { color: #c58aff; font-weight: 800; }
     body.touch-ui .hud-timing { top: 8px; font-size: 11px; padding: 4px 8px; }
     .hud-timing i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; }
+    .hud-drift { position: absolute; left: 50%; top: 112px; transform: translateX(-50%); text-align: center; font-weight: 900; font-style: italic; }
+    .hud-drift .dr-now { font-size: 40px; color: #fff; text-shadow: 0 3px 0 #b3261e, 0 0 12px rgba(255,80,40,0.7); }
+    .hud-drift .dr-now small { font-size: 22px; color: #ffd23f; margin-left: 6px; }
+    .hud-drift .dr-ang { font-size: 18px; color: #ffd23f; }
+    .hud-drift .dr-pop { font-size: 30px; color: #7cff6a; }
+    .hud-drift .dr-pop.fail { color: #ff5a4a; }
+    .hud-drift .dr-total { font-size: 15px; font-style: normal; opacity: 0.85; }
     .hud-draft { margin-top: 4px; font-size: 18px; font-weight: 900; color: #7fe8ff; }
     .hud-coins small { font-size: 15px; color: #fff; text-shadow: 0 1px 2px #000; }
     .hud-coins { margin-top: 6px; font-size: 26px; font-weight: 900; color: #ffd23f; text-shadow: 0 2px 0 #7a4a00; }
@@ -219,6 +226,7 @@
       <div class="hud-draft" data-hud="draft"></div>
     </div>
     <div class="hud-timing" data-hud="timing" hidden></div>
+    <div class="hud-drift" data-hud="drift" hidden></div>
     <div class="hud-center" data-hud="center"></div>
     <div class="hud-pop" data-hud="pop"></div>
     <div class="hud-item" data-hud="item" hidden><b></b><small></small><i data-hud="itemhint"></i></div>

@@ -12,6 +12,7 @@ import { Hud, fmtTime } from './scene/hud.js';
 import { KartAudio } from './audio.js';
 import { Music } from './music.js';
 import { RearView } from './scene/mirrors.js';
+import { DriftScore } from './core/driftscore.js';
 import { Effects, driftTier } from './scene/fx.js';
 import { createDriver, driveAI } from './core/ai.js';
 import { applyRendererTheme } from './scene/theme.js';
@@ -85,6 +86,7 @@ export class Game {
     this.audio = new KartAudio();
     this.music = new Music(this.audio);
     this.rearView = new RearView();
+    this.drift = new DriftScore();
     this.clock = new THREE.Clock();
     this.acc = 0;
     this.state = 'menu';
@@ -218,6 +220,9 @@ export class Game {
     this.hud.personalBest = null;
     this.hud.pbNew = false;
     if (!opts.attract) this.onRaceStart?.(this.opts);
+    // ドリフトの得点（ドリフト車のとき）
+    this.drift.reset();
+    this.driftOn = !opts.attract && opts.vehicle === 'drift';
     this.chase.init = false;
     this.chase.posInit = false;
 
@@ -250,6 +255,10 @@ export class Game {
     this.hud.timing.mesh.rotation.set(0, 0.45, 0);
     this.cockpit.add(this.hud.timing.mesh);
     this.hud.timing.mesh.visible = false;
+    // ドリフトの得点（VR は前方の上）
+    this.hud.driftPanel.mesh.position.set(0, 0.68, -2.4);
+    this.cockpit.add(this.hud.driftPanel.mesh);
+    this.hud.driftPanel.mesh.visible = false;
     this.resultsDrawnAt = 0;
     this.rankText = '';
     this.rankBoard = null;
@@ -604,6 +613,16 @@ export class Game {
       }
       if (party && this.hud.popPosition(race, me) > 0) this.audio.up();
       if (party && ev0(events, 'finish')) this.fx.confetti(this.models[me.index]);
+      // ドリフトの得点: 確定したら上がる音、失敗したら鈍い音
+      if (this.driftOn && this.state === 'race' && !me.finished && race.state === 'racing') {
+        const before = this.drift.last;
+        this.drift.update(me.kart, dt, events);
+        const now = this.drift.last;
+        if (now && now !== before) {
+          if (now.fail) this.audio.thump(4);
+          else this.audio.up();
+        }
+      }
       if (me.lapFlash > 0) me.lapFlash -= dt;
       if (me.itemFlash > 0) me.itemFlash -= dt;
       // 自己ベストを更新したらその場で表示を変えて保存する（自動運転の確認中は除く）
@@ -628,7 +647,7 @@ export class Game {
       const vr = this.xrOn;
       this.hud.dash.mesh.visible = vr || this.cameraMode === 'cockpit';
       this.hud.banner.mesh.visible = vr && this.state !== 'results'; // ゴール後はリザルトに場所を譲る
-      this.hud.update(race, me, { vr, manual: me.manual, dt, party, timing: this.state !== 'results' });
+      this.hud.update(race, me, { vr, manual: me.manual, dt, party, timing: this.state !== 'results', drift: this.driftOn && this.state !== 'results' ? this.drift : null });
       // ルーレットの絵柄が変わるたびにカチッと鳴らす
       if (me.roulette > 0 && this.hud.rouletteIdx !== this.lastRouletteIdx) this.audio.tick();
       this.lastRouletteIdx = me.roulette > 0 ? this.hud.rouletteIdx : null;
@@ -656,6 +675,7 @@ export class Game {
         this.throttleArmed = false;
         this.selDir = 0;
         this.onFinish?.(me);
+        if (this.driftOn && this.drift.cur > 0) this.drift.bank(); // ゴールの瞬間のドリフトも数える
         this.state = 'results';
         this.ui.showResults(true);
       }
@@ -666,7 +686,7 @@ export class Game {
       if (showVR && (performance.now() - this.resultsDrawnAt > 500 || this.resultSel !== this.drawnSel)) {
         this.drawnSel = this.resultSel;
         this.resultsDrawnAt = performance.now();
-        this.hud.drawResults(race, me, { rankText: this.rankText, board: this.rankBoard, online: !!this.online, sel: this.resultSel, next: nextTrackName(this.trackId) });
+        this.hud.drawResults(race, me, { rankText: this.rankText, board: this.rankBoard, drift: this.driftOn ? this.drift : null, online: !!this.online, sel: this.resultSel, next: nextTrackName(this.trackId) });
       }
     }
   }
@@ -780,6 +800,7 @@ export class Game {
     }).join('');
     return `<h2>RESULT — ${this.me.position} 位</h2>
       <table><thead><tr><th>#</th><th>DRIVER</th><th>TIME</th><th>BEST LAP</th></tr></thead><tbody>${rows}</tbody></table>
+      ${this.driftOn ? `<p style="margin:10px 0;font-size:18px">💨 ドリフト得点 <b style="color:#ffd23f;font-size:24px">${this.drift.total.toLocaleString()}</b>　<span class="muted">1 回の最高 ${this.drift.best.toLocaleString()}</span></p>` : ''}
       ${this.rankHtml || ''}
       ${this.online ? '<p class="muted">決定ボタン / Enter・ポーズボタン / Esc でロビーへ戻る</p>' : `
       <div class="actions">

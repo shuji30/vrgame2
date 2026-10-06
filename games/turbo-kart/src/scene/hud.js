@@ -11,6 +11,21 @@ export { fastestLap, timingRows };
 const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 // PC の画面右上のタイミング表
+// ドリフトの得点の表示用の値（数は 3 桁区切り）
+function driftView(drift) {
+  const n = (v) => v.toLocaleString();
+  const last = drift.last;
+  const show = last && last.t < 2 && drift.running === 0;
+  return {
+    now: drift.running > 0 ? n(drift.running) : '',
+    mult: drift.mult,
+    angle: Math.round(drift.angle),
+    pop: show ? (last.fail ? 'ドリフト失敗' : `+${n(last.points)}${last.mult > 1 ? ` (×${last.mult})` : ''}`) : '',
+    fail: show && last.fail,
+    total: n(drift.total),
+  };
+}
+
 export function timingHtml({ rows, fastest }, rec) {
   const head = `<div class="tm-rec">🏁 最速ラップ <b>${fastest ? fmtTime(fastest.time) : '--:--.--'}</b> ${fastest ? escHtml(fastest.name) : ''}</div>`
     + `<div class="tm-rec gold">🏆 コースレコード <b>${rec ? fmtTime(rec.ms / 1000) : '--:--.--'}</b> ${rec ? escHtml(rec.name) : ''}</div>`;
@@ -118,6 +133,7 @@ export class Hud {
       item: root.querySelector('[data-hud=item]'),
       itemHint: root.querySelector('[data-hud=itemhint]'),
       timing: root.querySelector('[data-hud=timing]'),
+      drift: root.querySelector('[data-hud=drift]'),
     };
     this.rouletteT = 0;
     this.lastPos = null;
@@ -129,6 +145,9 @@ export class Hud {
     // VR のリザルト（ゴール後に目の前に出す）。左にレースの順位、右にベストラップのランキング（10 位まで）
     this.results = new CanvasPlane(2.5, 1.45, 1536, { onTop: true });
     this.timing = new CanvasPlane(0.9, 0.8, 600, { onTop: true });
+    // ドリフトの得点（VR）
+    this.driftPanel = new CanvasPlane(1.0, 0.36, 512, { onTop: true });
+    this.driftAt = 0;
     this.timingAt = 0;
     this.lastDash = 0;
     this.bannerText = null;
@@ -189,7 +208,7 @@ export class Hud {
     return { icon: '', count: '', spin: false };
   }
 
-  update(race, me, { vr = false, manual = false, dt = 0, party = false, timing = false } = {}) {
+  update(race, me, { vr = false, manual = false, dt = 0, party = false, timing = false, drift = null } = {}) {
     const k = me.kart;
     this.party = party;
     this.coinFlash = Math.max(0, (this.coinFlash || 0) - dt);
@@ -240,6 +259,20 @@ export class Hud {
       drawMinimap(ctx, this.track, this.shape, race, 0, 0, S);
     } else {
       this.root.hidden = true;
+    }
+    // ドリフトの得点（ドリフト車）。PC は画面の上中央、VR は前方のパネル（0.1 秒ごとに書き換え）
+    this.el.drift.hidden = !drift || vr;
+    this.driftPanel.mesh.visible = !!drift && vr;
+    this.driftAt += dt;
+    if (drift && this.driftAt > 0.1) {
+      this.driftAt = 0;
+      const d = driftView(drift);
+      if (vr) this.drawDrift(d);
+      else {
+        this.el.drift.innerHTML = (d.now ? `<div class="dr-now">DRIFT ${d.now}<small>×${d.mult}</small></div><div class="dr-ang">${d.angle}°</div>` : '')
+          + (d.pop ? `<div class="dr-pop${d.fail ? ' fail' : ''}">${d.pop}</div>` : '')
+          + `<div class="dr-total">ドリフト得点 ${d.total}</div>`;
+      }
     }
     // 全員のラップタイムと最速ラップ（0.25 秒ごとに書き換え）
     this.timingAt += dt;
@@ -359,6 +392,11 @@ export class Hud {
     ctx.fillStyle = '#ffd23f';
     ctx.font = 'italic 900 64px system-ui, sans-serif';
     ctx.fillText(`RESULT — ${me.position} 位`, 512, 70);
+    if (extra.drift) {
+      ctx.font = 'bold 28px system-ui, sans-serif';
+      ctx.fillStyle = '#ffd23f';
+      ctx.fillText(`💨 ドリフト得点 ${extra.drift.total.toLocaleString()}（最高 ${extra.drift.best.toLocaleString()}）`, 512, 112);
+    }
     const rows = race.standings();
     const leader = rows[0];
     const rowH = Math.min(52, 500 / rows.length);
@@ -412,6 +450,36 @@ export class Hud {
       ctx.fillText(`ハンドルで選んで、アクセルを踏み込むと決定${extra.next ? `（次は ${extra.next}）` : ''}`, W / 2, H - 22);
     }
     this.results.commit();
+  }
+
+  // VR: ドリフトの得点
+  drawDrift(d) {
+    const { ctx, canvas } = this.driftPanel;
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    if (d.now) {
+      ctx.font = 'italic 900 64px system-ui, sans-serif';
+      ctx.strokeText(`DRIFT ${d.now}  ×${d.mult}`, W / 2, 50);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(`DRIFT ${d.now}  ×${d.mult}`, W / 2, 50);
+      ctx.font = 'italic 900 34px system-ui, sans-serif';
+      ctx.fillStyle = '#ffd23f';
+      ctx.fillText(`${d.angle}°`, W / 2, 102);
+    } else if (d.pop) {
+      ctx.font = 'italic 900 56px system-ui, sans-serif';
+      ctx.strokeText(d.pop, W / 2, 60);
+      ctx.fillStyle = d.fail ? '#ff5a4a' : '#7cff6a';
+      ctx.fillText(d.pop, W / 2, 60);
+    }
+    ctx.font = 'bold 30px system-ui, sans-serif';
+    ctx.strokeText(`ドリフト得点 ${d.total}`, W / 2, 150);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.fillText(`ドリフト得点 ${d.total}`, W / 2, 150);
+    this.driftPanel.commit();
   }
 
   // VR: タイミング表（全員）
@@ -544,6 +612,7 @@ export class Hud {
     this.root.hidden = true;
     this.el.board.hidden = true;
     this.timing.mesh.visible = false;
+    this.driftPanel.mesh.visible = false;
   }
 }
 

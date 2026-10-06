@@ -57,6 +57,33 @@ export class KartAudio {
       return { f, g };
     };
     this.skid = mk('bandpass', 1800, 6);
+    // タイヤのスキール音（キーンという鳴き）: 2 つの発振器をバンドパスに通し、細かく音程を揺らす
+    const sqF = ctx.createBiquadFilter();
+    sqF.type = 'bandpass';
+    sqF.frequency.value = 1300;
+    sqF.Q.value = 3;
+    this.squealGain = ctx.createGain();
+    this.squealGain.gain.value = 0;
+    sqF.connect(this.squealGain).connect(this.master);
+    this.squeal = [];
+    for (const [type, mul, vol] of [['triangle', 1, 1], ['sawtooth', 1.51, 0.35]]) {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.value = 1000 * mul;
+      const og = ctx.createGain();
+      og.gain.value = vol;
+      o.connect(og).connect(sqF);
+      // 揺れ（タイヤが路面で細かく滑ったり食いついたりする感じ）
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 17 + mul * 6;
+      const lg = ctx.createGain();
+      lg.gain.value = 45 * mul;
+      lfo.connect(lg).connect(o.frequency);
+      o.start();
+      lfo.start();
+      this.squeal.push({ o, mul });
+    }
+    this.squealFilter = sqF;
     this.road = mk('lowpass', 300, 0.7);
     this.wind = mk('highpass', 2500, 0.5);
   }
@@ -73,6 +100,7 @@ export class KartAudio {
     if (!active) {
       set(this.engGain.gain, 0, 0.1);
       set(this.skid.g.gain, 0, 0.05);
+      set(this.squealGain.gain, 0, 0.05);
       set(this.road.g.gain, 0, 0.1);
       set(this.wind.g.gain, 0, 0.1);
       return;
@@ -86,7 +114,15 @@ export class KartAudio {
     set(this.engFilter.frequency, 500 + throttle * 1400 + rpm * 800, 0.05);
     set(this.engGain.gain, 0.08 + throttle * 0.1, 0.05);
     const skid = speed > 6 ? Math.min(1, Math.max(0, (kart.slip - 0.12) * 4)) : 0;
-    set(this.skid.g.gain, kart.surface === 'dirt' || kart.surface === 'grass' ? 0 : skid * 0.12, 0.04);
+    const loose = kart.surface === 'dirt' || kart.surface === 'grass';
+    set(this.skid.g.gain, loose ? 0 : skid * 0.12, 0.04);
+    // スキール: 車体の横滑り・後輪（ドリフト）・前輪（アンダーステア）の滑りの大きいほうで鳴く。速く深く滑るほど高く大きく
+    const amt = Math.max(kart.slip || 0, Math.abs(kart.rearSlip || 0) * 0.9, Math.abs(kart.frontSlip || 0) * 0.8);
+    const sq = speed > 5 && !loose ? Math.min(1, Math.max(0, (amt - 0.1) * 3.5)) * Math.min(1, speed / 12) : 0;
+    set(this.squealGain.gain, sq * 0.16, 0.05);
+    const pitch = 900 + Math.min(speed, 40) * 6 + Math.min(amt, 0.8) * 350;
+    for (const q of this.squeal) set(q.o.frequency, pitch * q.mul, 0.08);
+    set(this.squealFilter.frequency, pitch * 1.25, 0.08);
     let roadVol = Math.min(1, speed / 25) * 0.08;
     let roadHz = 300;
     if (kart.surface === 'dirt') { roadVol *= 3; roadHz = 700; }
