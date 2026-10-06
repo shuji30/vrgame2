@@ -709,7 +709,7 @@ export class Game {
       const k = e.kart;
       return {
         id: e.netId, x: +k.x.toFixed(2), z: +k.z.toFixed(2), h: +k.heading.toFixed(4), vx: +k.vx.toFixed(2), vz: +k.vz.toFixed(2),
-        yaw: +k.yawRate.toFixed(3), sa: +k.steerAngle.toFixed(3), st: +(e.input.steer || 0).toFixed(2), th: +(e.input.throttle || 0).toFixed(2),
+        yaw: +k.yawRate.toFixed(3), sa: +k.steerAngle.toFixed(3), st: +(e.input.steer || 0).toFixed(2), th: +(e.input.throttle || 0).toFixed(2), bk: +(e.input.brake || 0).toFixed(2),
         g: k.gear, b: +k.boost.toFixed(2), dr: +(k.driftTime || 0).toFixed(2), hb: +(k.handbrakeInput || 0).toFixed(2),
         lap: e.lap, sd: e.started ? 1 : 0, f: e.finished ? 1 : 0, ft: e.finishTime, bl: e.bestLap, ll: e.lastLap ?? null,
       };

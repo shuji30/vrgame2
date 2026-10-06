@@ -69,6 +69,8 @@ export class CarModel {
     this.cockpitHide = [];
     // バックミラーの鏡の面（自分の車なら後ろの景色が映る。mirrors.js）
     this.mirrorGlass = [];
+    // テールランプ（ブレーキで明るく光る）
+    this.tailLights = [];
 
     // 車輪
     const wb = formula ? 3.2 : 2.7;
@@ -173,6 +175,7 @@ export class CarModel {
         light.rotation.y = Math.PI / 2;
         this.group.add(light);
       }
+      for (const z of [-0.62, 0.62]) this.addTailLight(-2.3, 0.66, z, [0.04, 0.11, 0.42], false);
       // ダッシュボード（運転席視点で見える）
       const dash = new THREE.Mesh(new RoundedBoxGeometry(0.5, 0.14, 1.6, 2, 0.05), dark);
       dash.position.set(0.55, 0.92, 0);
@@ -182,14 +185,14 @@ export class CarModel {
       this.cockpitHide.push(cabin, roof, body, stripe);
       // 左ハンドル（運転席は進行方向の左 = -Z 側）
       this.eye = new THREE.Vector3(-0.35, 1.18, -0.38);
-      // ハンドルは目より 0.3m ほど下（輪の上端が前の景色を遮らない高さ）
-      this.steerPos = new THREE.Vector3(0.1, 0.85, -0.38);
+      // ハンドルの上端が、目から見てダッシュボードの上の線を超えない高さ
+      this.steerPos = new THREE.Vector3(0.1, 0.9, -0.38);
     }
 
     if (party) {
       // 車体に縁取りを付け、GT3 のガラスは半透明にして中の動物が見えるようにする
       const parts = [];
-      this.group.traverse((o) => { if (o.isMesh && o.material !== glass && !o.userData.mirror) parts.push(o); });
+      this.group.traverse((o) => { if (o.isMesh && o.material !== glass && !o.userData.mirror && o.material.blending !== THREE.AdditiveBlending) parts.push(o); });
       for (const o of parts) addOutline(o, 0.035);
       glass.transparent = true;
       glass.opacity = 0.45;
@@ -345,9 +348,8 @@ export class CarModel {
       const head = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.08, 0.38), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2d0, emissiveIntensity: 0.8, roughness: 0.2 }));
       head.position.set(2.27, 0.7, z);
       head.rotation.z = -0.35;
-      const tail = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.07, 0.42), new THREE.MeshStandardMaterial({ color: 0x550000, emissive: 0xff1a1a, emissiveIntensity: 0.9 }));
-      tail.position.set(-2.33, 0.86, z);
-      this.group.add(head, tail);
+      this.group.add(head);
+      this.addTailLight(-2.33, 0.86, z, [0.04, 0.07, 0.42], true);
     }
     this.addSideMirrors(0.45, 0.97, 1.0, [0.12, 0.09, 0.16], paint, [0.87, 0.9]);
     const num = new THREE.Mesh(new THREE.CircleGeometry(0.3, 24), mat('real', { map: numberTex(number, color) }, 'paint'));
@@ -378,8 +380,37 @@ export class CarModel {
     this.cockpitHide.push(body, windows, skirt, floor);
     this.cockpitShow = [hood, dash, ...sills];
     this.eye = new THREE.Vector3(-0.35, 1.12, -0.38);
-    // ハンドルは目より 0.3m ほど下（輪の上端が前の景色を遮らない高さ）
-    this.steerPos = new THREE.Vector3(0.1, 0.8, -0.38);
+    // ハンドルの上端が、目から見てダッシュボードの上の線を超えない高さ
+    this.steerPos = new THREE.Vector3(0.1, 0.87, -0.38);
+  }
+
+  // テールランプ1 つ（size: [x, y, z]）。real: 写実モード（光る素材）。後ろに光のにじみ（ブレーキ中だけ）
+  addTailLight(x, y, z, size, real) {
+    const material = real
+      ? new THREE.MeshStandardMaterial({ color: 0x550000, emissive: 0xff1a1a, emissiveIntensity: 0.5, roughness: 0.3 })
+      : new THREE.MeshBasicMaterial({ color: 0x3a0606 });
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(...size), material);
+    lamp.position.set(x, y, z);
+    const glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(size[2] * 1.8, size[1] * 4),
+      new THREE.MeshBasicMaterial({ color: real ? 0xff2020 : 0xff6060, transparent: true, opacity: real ? 0.55 : 0.9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }),
+    );
+    glow.rotation.y = -Math.PI / 2;
+    glow.position.set(x - size[0] / 2 - 0.01, y, z);
+    glow.visible = false;
+    this.group.add(lamp, glow);
+    this.tailLights.push({ material, glow, real });
+  }
+
+  // ブレーキでテールランプを明るくする（変わったときだけ書き換える）
+  setBrakeLights(on) {
+    if (this.brakeOn === on) return;
+    this.brakeOn = on;
+    for (const t of this.tailLights) {
+      if (t.real) t.material.emissiveIntensity = on ? 4 : 0.5;
+      else t.material.color.set(on ? 0xff5050 : 0x3a0606);
+      t.glow.visible = on;
+    }
   }
 
   // 左右のドアミラー（ハウジングと鏡）。cx: 前後の位置、z: 左右（絶対値）、size: ハウジングの大きさ [x, y, z]
@@ -419,6 +450,7 @@ export class CarModel {
 
   // pedals: { throttle, brake }（0..1。車内のペダルを動かす）
   update(pose, kart, steer, dt, lockDeg = 270, pedals = null) {
+    if (this.tailLights.length) this.setBrakeLights((pedals?.brake || 0) > 0.1);
     if (this.pedals && pedals) {
       this.pedals.accel.rotation.z = (pedals.throttle || 0) * 0.35;
       this.pedals.brake.rotation.z = (pedals.brake || 0) * 0.25;

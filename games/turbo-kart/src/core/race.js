@@ -201,7 +201,7 @@ export class Race {
       k.boost = n.b || 0;
       k.driftTime = n.dr || 0;
       k.handbrakeInput = n.hb || 0;
-      e.input = { ...e.input, steer: n.st || 0, throttle: n.th || 0 };
+      e.input = { ...e.input, steer: n.st || 0, throttle: n.th || 0, brake: n.bk || 0 };
     }
     this.applyTerrain(e);
   }
