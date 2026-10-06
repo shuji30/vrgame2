@@ -82,6 +82,12 @@ trackSel.addEventListener('change', () => {
   describeTrack();
 });
 $('opt-shake').addEventListener('change', (e) => { game.shake = Number(e.target.value); });
+// BGM の音量（メニューで変えたらすぐ反映。レース中ならそのまま鳴らす）
+$('opt-music').addEventListener('change', (e) => {
+  game.music.setVolume(Number(e.target.value));
+  if (game.state === 'race') game.music.play();
+  raceOptions();
+});
 const calib = new CalibrationUI($('calib'), input, ffb, hid);
 game.resize(window.innerWidth, window.innerHeight);
 
@@ -119,6 +125,8 @@ try {
   if (m.level) $('opt-level').value = m.level;
   if (m.laps) $('opt-laps').value = m.laps;
   if (m.shake != null) $('opt-shake').value = m.shake;
+  if (m.music != null) $('opt-music').value = String(m.music);
+  game.music.setVolume(Number($('opt-music').value));
   if (m.vehicle) $('opt-vehicle').value = m.vehicle;
   if (m.track && TRACKS.some((t) => t.id === m.track)) {
     trackSel.value = m.track;
@@ -142,7 +150,7 @@ $('opt-stability').addEventListener('change', (e) => {
 });
 
 function raceOptions() {
-  const o = { npcs: Number(npcSel.value), level: $('opt-level').value, laps: Number($('opt-laps').value), manual: input.config.transmission === 'manual', shake: Number($('opt-shake').value), vehicle: $('opt-vehicle').value, track: trackSel.value, mode, character: charSel.value, name: driverName(), handling: $('opt-handling').value, camera: $('opt-camera').value };
+  const o = { npcs: Number(npcSel.value), level: $('opt-level').value, laps: Number($('opt-laps').value), manual: input.config.transmission === 'manual', shake: Number($('opt-shake').value), music: Number($('opt-music').value), vehicle: $('opt-vehicle').value, track: trackSel.value, mode, character: charSel.value, name: driverName(), handling: $('opt-handling').value, camera: $('opt-camera').value };
   game.playerName = o.name;
   game.shake = o.shake;
   try {

@@ -10,6 +10,7 @@ import { KartModel } from './scene/kartmodel.js';
 import { CarModel } from './scene/carmodel.js';
 import { Hud, fmtTime } from './scene/hud.js';
 import { KartAudio } from './audio.js';
+import { Music } from './music.js';
 import { Effects, driftTier } from './scene/fx.js';
 import { createDriver, driveAI } from './core/ai.js';
 import { applyRendererTheme } from './scene/theme.js';
@@ -81,6 +82,7 @@ export class Game {
     this.fx = new Effects(this.scene);
     this.screenFx = new ScreenFx(this.camera); // スミ雲・カミナリの光（カメラの前に置く板。VR でも見える）
     this.audio = new KartAudio();
+    this.music = new Music(this.audio);
     this.clock = new THREE.Clock();
     this.acc = 0;
     this.state = 'menu';
@@ -252,6 +254,7 @@ export class Game {
     if (!opts.attract) {
       this.state = 'race';
       this.audio.init();
+      this.music.play();
       this.ui.showScreen('race');
       this.hud.showBoard(this.race, null);
       this.recenterAt = performance.now() + 400;
@@ -350,6 +353,7 @@ export class Game {
     if (this.online) return; // オンライン中は止めない
     this.state = on ? 'paused' : 'race';
     this.ui.showPause(on);
+    this.music.duck(on);
     if (on) {
       this.ffb.stop();
       this.audio.silence();
@@ -364,6 +368,7 @@ export class Game {
       this.online = null;
       this.ffb.stop();
       this.audio.silence();
+      this.music.stop();
       this.hud.hide();
       this.showAttract();
       this.ui.showScreen('online');
@@ -373,6 +378,8 @@ export class Game {
     }
     this.ffb.stop();
     this.audio.silence();
+    this.music.stop();
+    this.music.duck(false);
     this.hud.hide();
     this.ui.showPause(false);
     this.ui.showScreen('menu');
