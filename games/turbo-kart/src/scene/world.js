@@ -118,8 +118,42 @@ function heightNear(track, l, hills) {
   return edge + (hills - edge) * sm;
 }
 
+// 山の中のコース（峠）の地形: 周りの道の高さから補間した山の斜面（つづら折りの段と段の間もなだらかにつなぐ）。
+// 近い道ほど強く効く重み（距離の 4 乗に反比例）で、道の脇では路面の高さにほぼ一致する
+function mountainHeight(track, x, z) {
+  if (!track.mtn) {
+    const pts = [];
+    for (let s = 0; s < track.length; s += 6) {
+      const p = pointAt(track, s, 0);
+      pts.push([p.x, p.z, roadHeight(track, s, 0, false)]);
+    }
+    track.mtn = pts;
+  }
+  let sw = 0, sh = 0, dmin = Infinity;
+  for (const [px, pz, h] of track.mtn) {
+    const d2 = (px - x) ** 2 + (pz - z) ** 2;
+    dmin = Math.min(dmin, d2);
+    const w = 1 / (d2 * d2 + 1);
+    sw += w;
+    sh += w * h;
+  }
+  // 道から離れた奥は少しずつ盛り上がる山。でこぼこも少し
+  const far = Math.sqrt(dmin);
+  const rise = Math.min(25, Math.max(0, far - 30) * 0.3);
+  return sh / sw - 0.6 + rise + 1.5 * Math.sin(x * 0.05 + 1) * Math.sin(z * 0.043 + 0.4);
+}
+
 // 地形の高さ。立体交差のように近くに別の区間があるときは低い方に合わせる（上の道は橋になる）
 export function terrainHeight(track, x, z) {
+  if (track.def?.forest) {
+    const l = locate(track, x, z);
+    const wall = track.halfWidth + track.runoff;
+    const d = Math.abs(l.lateral);
+    const shoulder = roadHeight(track, l.s, Math.sign(l.lateral) * Math.min(d, wall)) - 0.25;
+    if (d <= wall + 1.5) return shoulder;
+    const k = Math.min(1, (d - wall - 1.5) / 6);
+    return shoulder + (mountainHeight(track, x, z) - shoulder) * k * k * (3 - 2 * k);
+  }
   const hills = BASE + 2.5 * Math.sin(x * 0.012 + 1) * Math.sin(z * 0.01 + 0.4) + 1.2 * Math.sin(x * 0.031 - z * 0.023);
   const l = locate(track, x, z);
   let h = heightNear(track, l, hills);
@@ -293,6 +327,7 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
   const runTex = canvasTexture(64, 64, (ctx, w, h) => speckle(ctx, w, h, real ? '#56793a' : '#66d846', 30, 300));
   const runMat = M({ map: runTex }, 'cloth');
   const gravelMat = M({ map: canvasTexture(64, 64, (ctx, w, h) => speckle(ctx, w, h, real ? '#b7a68a' : '#e0b77a', 60, 700, 2)) }, 'cloth');
+  const lineMat = M({ color: 0xf0f0f0 }, 'paint'); // 峠の道の端の白い線
 
   const addRibbon = (geo, material) => {
     const m = new THREE.Mesh(geo, material);
@@ -302,10 +337,13 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
   };
   for (const r of surfaceRanges(track)) {
     const dirt = r.type === 'dirt';
-    // ダート区間は道幅いっぱいが土。舗装区間は縁石の内側が舗装
-    const inner = dirt ? hw : hw - 0.85;
+    // ダート区間は道幅いっぱいが土。舗装区間は縁石の内側が舗装（峠は縁石の代わりに白い線）
+    const forest = !!track.def.forest;
+    const inner = dirt || forest ? hw : hw - 0.85;
     addRibbon(ribbon(track, { lat0: -inner, lat1: inner, segs: 6, dy: 0.01, from: r.from, to: r.to }), mats[r.type]);
-    if (!dirt) {
+    if (forest && !dirt) {
+      for (const sgn of [-1, 1]) addRibbon(ribbon(track, { lat0: sgn > 0 ? hw - 0.45 : -hw + 0.3, lat1: sgn > 0 ? hw - 0.3 : -hw + 0.45, dy: 0.02, vScale: 2, from: r.from, to: r.to }), lineMat);
+    } else if (!dirt) {
       addRibbon(ribbon(track, { lat0: -hw, lat1: -hw + 0.9, dy: 0.03, vScale: 2, from: r.from, to: r.to }), curbMat);
       addRibbon(ribbon(track, { lat0: hw - 0.9, lat1: hw, dy: 0.03, vScale: 2, from: r.from, to: r.to }), curbMat);
     }
@@ -410,7 +448,10 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
   const q = new THREE.Quaternion();
   const v = new THREE.Vector3();
   const sc3 = new THREE.Vector3();
-  if (real) {
+  if (track.def.forest) {
+    // 峠: 道の脇はガードレールだけ
+    buildArmco(group, track, wall);
+  } else if (real) {
     buildArmco(group, track, wall);
     buildGrandstand(group, track, wall, s0);
   } else {
@@ -473,6 +514,7 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
   for (const o of [trunks, balls, cones]) o.castShadow = real;
   group.add(trunks, balls, cones);
   if (party && faces.length) group.add(treeFaces(faces));
+  if (track.def.forest) group.add(roadsideForest(track, wall, real, M));
 
   if (party) {
     // 花畑（コース脇の芝に色とりどりの花）
@@ -500,7 +542,7 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
   const boardGeo = new THREE.PlaneGeometry(6, 1.5);
   const balloonSpots = [];
   let boards = 0;
-  for (let bs = 0; bs < track.length && boards < 240; bs += 7) {
+  for (let bs = 0; bs < (track.def.forest ? 0 : track.length) && boards < 240; bs += 7) {
     if (!isStraight(track, bs)) continue;
     for (const side of [-1, 1]) {
       const p = pointAt(track, bs, side * (wall + 1.3));
@@ -579,6 +621,50 @@ function partyBoard(ctx, w, h) {
 }
 
 // 顔のある木（白目・黒目・口をまとめてインスタンス描画）
+// 山の中のコース（峠）: 道の両側に木が生い茂る。壁のすぐ外から奥へ、道に沿って何列も並べる
+// （VR でも重くならないよう形の簡単な木をまとめて描く。隣の道の上には生やさない）
+function roadsideForest(track, wall, real, M) {
+  const rng = mulberry32(7);
+  const max = 2600;
+  const g = new THREE.Group();
+  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.25, 0.35, 2.4, 6), M({ color: real ? 0x4a3828 : 0x8a5a2b }, 'cloth'), max);
+  const cones = new THREE.InstancedMesh(new THREE.ConeGeometry(2.0, 7, 7), M({ color: 0xffffff }, 'cloth'), max);
+  const balls = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(2.4, 1), M({ color: 0xffffff }, 'cloth'), max);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc3 = new THREE.Vector3(), col = new THREE.Color();
+  let n = 0, nc = 0, nb = 0;
+  for (let s = 0; s < track.length && n < max; s += 4.5) {
+    for (const side of [-1, 1]) {
+      const rows = 1 + Math.floor(rng() * 3);
+      for (let r = 0; r < rows && n < max; r++) {
+        const lat = side * (wall + 2.5 + r * 7 + rng() * 8);
+        const p = pointAt(track, s + rng() * 4, lat);
+        // 一番近い道から十分に離れているか（つづら折りの隣の道や、反対側の道の上に生やさない）
+        const l = locate(track, p.x, p.z);
+        if (Math.abs(l.lateral) < wall + 2) continue;
+        const y = terrainHeight(track, p.x, p.z);
+        const sc = 0.75 + rng() * 0.8;
+        sc3.set(sc, sc * (1 + rng() * 0.4), sc);
+        trunks.setMatrixAt(n, m4.compose(v.set(p.x, y + 1.2 * sc, p.z), q, sc3));
+        // 山の木は針葉樹を多めに（濃い緑）、ところどころ広葉樹
+        if (rng() < 0.75) {
+          cones.setMatrixAt(nc, m4.compose(v.set(p.x, y + 4.8 * sc3.y, p.z), q, sc3));
+          cones.setColorAt(nc++, real ? col.setHSL(0.31 + rng() * 0.05, 0.4, 0.13 + rng() * 0.07) : col.setHSL(0.34 + rng() * 0.05, 0.6, 0.26 + rng() * 0.08));
+        } else {
+          balls.setMatrixAt(nb, m4.compose(v.set(p.x, y + 4.0 * sc3.y, p.z), q, sc3));
+          balls.setColorAt(nb++, real ? col.setHSL(0.23 + rng() * 0.06, 0.45, 0.18 + rng() * 0.08) : col.setHSL(0.26 + rng() * 0.08, 0.7, 0.36 + rng() * 0.1));
+        }
+        n++;
+      }
+    }
+  }
+  trunks.count = n;
+  cones.count = nc;
+  balls.count = nb;
+  for (const o of [trunks, cones, balls]) o.castShadow = real;
+  g.add(trunks, cones, balls);
+  return g;
+}
+
 function treeFaces(list) {
   const g = new THREE.Group();
   const n = list.length;

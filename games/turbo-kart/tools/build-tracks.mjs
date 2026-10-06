@@ -28,6 +28,7 @@ for (const [id, d] of Object.entries(DESIGNS)) {
     banks: d.banks.map(([a, b, deg, turn]) => ({ from: at(a), to: at(b), deg, turn })),
     sections: d.sections.map(([a, b, type]) => ({ from: at(a), to: at(b), type })),
     boostPads: [],
+    ...(d.forest ? { forest: true } : {}),
   };
   // 立体交差の検査: 平面上で重なる区間どうしの高さの差
   const t = buildTrack(def);
