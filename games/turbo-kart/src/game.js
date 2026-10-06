@@ -235,10 +235,11 @@ export class Game {
     // 車種ごとの取り付け位置（GT3・フォーミュラはハンドル中央のパネルに埋め込む）
     const mount = model.dashMount || { x: -0.035, y: 0, scale: 0.5 };
     this.dashScale = mount.scale;
-    this.hud.dash.mesh.position.set(mount.x, mount.y, 0);
+    this.hud.dash.mesh.position.set(mount.x, mount.y, mount.z || 0);
     this.hud.dash.mesh.rotation.set(0, -Math.PI / 2, 0);
     this.hud.dash.mesh.scale.setScalar(mount.scale);
-    model.steerWheel.add(this.hud.dash.mesh);
+    // ハンドルに埋め込む（ハンドルと一緒に回る）か、ダッシュボードに付ける（ドリフト車）
+    (mount.parent === 'group' ? model.group : model.steerWheel).add(this.hud.dash.mesh);
     this.hud.banner.mesh.position.set(0, 0.25, -3);
     this.cockpit.add(this.hud.banner.mesh);
     this.hud.results.mesh.position.set(0, 0.05, -2.1);

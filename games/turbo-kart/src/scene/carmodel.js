@@ -5,7 +5,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mat, addOutline } from './theme.js';
 import { buildHead, animateDriver } from './characters.js';
 import { buildRealFormula } from './realcars.js';
-import { buildCockpit, gtWheel, formulaWheel } from './cockpit.js';
+import { buildCockpit, gtWheel, formulaWheel, roundWheel, analogGauges } from './cockpit.js';
 import { mirrorGlass } from './mirrors.js';
 
 function label(name, color) {
@@ -218,19 +218,31 @@ export class CarModel {
     this.mirrorGlass.push(...cockpit.mirrors);
     this.pedals = cockpit.pedals;
 
+    // 丸ハンドルは輪が大きいので少し低く（上端がダッシュボードの線を超えない）
+    if (drift) this.steerPos = this.steerPos.clone().setY(this.steerPos.y - 0.04);
     // ハンドル
     this.steerGroup = new THREE.Group();
     this.steerGroup.position.copy(this.steerPos);
     this.steerGroup.rotation.z = -0.15;
     this.steerWheel = new THREE.Group();
     // GT3 はレース用の GT ハンドル、フォーミュラはフォーミュラのハンドル
-    // フォーミュラのハンドルは実寸より少し大きめ（VR で小さく見えないように）
-    const wheelMesh = formula ? formulaWheel(theme) : gtWheel(theme);
+    // フォーミュラのハンドルは実寸より少し大きめ（VR で小さく見えないように）。ドリフト車は丸ハンドル
+    const wheelMesh = formula ? formulaWheel(theme) : drift ? roundWheel(theme) : gtWheel(theme);
     if (formula) wheelMesh.scale.setScalar(1.2);
     this.shiftLights = wheelMesh.userData.shiftLights || null;
     this.steerWheel.add(wheelMesh);
     // VR のメーター（hud.dash）をハンドル中央のパネルに埋め込む位置と大きさ（ボタンの間に収める）
     this.dashMount = formula ? { x: -0.02, y: -0.006, scale: 0.35 } : { x: -0.008, y: 0, scale: 0.4 };
+    if (drift) {
+      // ドリフト車: アナログメーター（ハンドルの奥のダッシュボード）。順位・ラップの表示はダッシュボードの中央へ
+      const face = theme === 'real' ? 0.272 : 0.297;
+      this.gauges = analogGauges(theme);
+      this.gauges.group.position.set(face, 0.9, this.eye.z);
+      this.gauges.group.visible = false;
+      this.group.add(this.gauges.group);
+      this.cockpitShow.push(this.gauges.group);
+      this.dashMount = { parent: 'group', x: face - 0.003, y: 0.9, z: 0.16, scale: 0.36 };
+    }
     // ステアリングコラム（ハンドルの中心からダッシュボードの奥へ）
     const column = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.4, 10), mat(theme, { color: 0x2a2b31 }, 'carbon'));
     column.rotation.z = Math.PI / 2;
@@ -482,6 +494,7 @@ export class CarModel {
   update(pose, kart, steer, dt, lockDeg = 270, pedals = null) {
     if (this.tailLights.length) this.setBrakeLights((pedals?.brake || 0) > 0.1);
     if (this.shiftLights) this.updateShiftLights(kart.rpm || 0, dt);
+    if (this.gauges?.group.visible) this.gauges.set(Math.abs(kart.vx * Math.cos(kart.heading) + kart.vz * Math.sin(kart.heading)) * 3.6, kart.rpm || 0);
     if (this.pedals && pedals) {
       this.pedals.accel.rotation.z = (pedals.throttle || 0) * 0.35;
       this.pedals.brake.rotation.z = (pedals.brake || 0) * 0.25;

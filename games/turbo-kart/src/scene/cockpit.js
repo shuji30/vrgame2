@@ -245,6 +245,107 @@ export function formulaWheel(theme) {
   return g;
 }
 
+// 丸ハンドル（ドリフト車）: 革巻きのリング、3 本スポーク、中央のホーンパッド、真上の目印
+export function roundWheel(theme) {
+  const g = new THREE.Group();
+  const leather = mat(theme, { color: 0x24252b }, 'rubber');
+  const metal = mat(theme, { color: 0x9a9ea6 }, 'metal');
+  const R = 0.18;
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(R, 0.022, 10, 36), leather);
+  ring.rotation.y = Math.PI / 2;
+  g.add(ring);
+  // スポーク（左右と下）
+  for (const a of [0, Math.PI, -Math.PI / 2]) {
+    const sp = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.035, R), metal);
+    sp.position.set(0.012, Math.sin(a) * R / 2, Math.cos(a) * R / 2);
+    sp.rotation.x = -a;
+    g.add(sp);
+  }
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.03, 18), leather);
+  hub.rotation.z = Math.PI / 2;
+  hub.position.x = 0.005;
+  g.add(hub);
+  g.add(box(0.03, 0.02, 0.03, mat(theme, { color: 0xffd23f }), 0, R, 0, 0));
+  return g;
+}
+
+// アナログメーター（ドリフト車）: スピードメーターとタコメーター。運転手から見て左が速度、右が回転
+// 返り値: { group, set(kmh, rpm) }（rpm は 0..1）
+export function analogGauges(theme) {
+  const g = new THREE.Group();
+  const faces = [canvasDial('km/h', 260, 20, null), canvasDial('×1000rpm', 9, 1, 7.5)];
+  const needles = [];
+  const r = 0.058;
+  faces.forEach((tex, i) => {
+    const z = i === 0 ? -0.068 : 0.068;
+    const bezel = new THREE.Mesh(new THREE.CylinderGeometry(r + 0.008, r + 0.008, 0.02, 28), mat(theme, { color: 0x111216 }, 'metal'));
+    bezel.rotation.z = Math.PI / 2;
+    bezel.position.set(0.01, 0, z);
+    const face = new THREE.Mesh(new THREE.CircleGeometry(r, 32), new THREE.MeshBasicMaterial({ map: tex }));
+    face.rotation.y = -Math.PI / 2;
+    face.position.set(-0.001, 0, z);
+    // 針（中心で回る。0 の位置は左下）
+    const pivot = new THREE.Group();
+    pivot.position.set(-0.004, 0, z);
+    const n = new THREE.Mesh(new THREE.BoxGeometry(0.002, r * 0.85, 0.004), new THREE.MeshBasicMaterial({ color: 0xff3b1f }));
+    n.position.y = r * 0.4;
+    pivot.add(n);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.004, 12), new THREE.MeshBasicMaterial({ color: 0x222222 }));
+    cap.rotation.z = Math.PI / 2;
+    cap.position.set(-0.006, 0, z);
+    g.add(bezel, face, pivot, cap);
+    needles.push(pivot);
+  });
+  // 0 が左下（-135°）、最大が右下（+135°）。運転手は -X 側から見るので X 軸まわりに回す
+  const ang = (f) => (0.75 - Math.max(0, Math.min(1, f)) * 1.5) * Math.PI;
+  return {
+    group: g,
+    set(kmh, rpm) {
+      needles[0].rotation.x = -ang(kmh / 260);
+      needles[1].rotation.x = -ang(rpm);
+    },
+  };
+}
+
+// メーターの文字盤（Canvas）。max までの目盛りと数字、red から先は赤
+function canvasDial(label, max, step, red) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#0d0e12';
+  ctx.beginPath();
+  ctx.arc(128, 128, 128, 0, Math.PI * 2);
+  ctx.fill();
+  const toA = (v) => Math.PI * (0.75 + (v / max) * 1.5); // 左下から時計回りに 270°
+  if (red != null) {
+    ctx.strokeStyle = '#e0261c';
+    ctx.lineWidth = 12;
+    ctx.beginPath();
+    ctx.arc(128, 128, 104, toA(red), toA(max));
+    ctx.stroke();
+  }
+  ctx.strokeStyle = '#f2f2f2';
+  ctx.fillStyle = '#f2f2f2';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 26px system-ui, sans-serif';
+  for (let v = 0; v <= max + 1e-6; v += step / 2) {
+    const a = toA(v), major = Math.abs(v / step - Math.round(v / step)) < 1e-6;
+    ctx.lineWidth = major ? 5 : 2;
+    ctx.beginPath();
+    ctx.moveTo(128 + Math.cos(a) * 112, 128 + Math.sin(a) * 112);
+    ctx.lineTo(128 + Math.cos(a) * (major ? 92 : 100), 128 + Math.sin(a) * (major ? 92 : 100));
+    ctx.stroke();
+    if (major && (max <= 10 || v % (step * 2) === 0)) ctx.fillText(String(v), 128 + Math.cos(a) * 72, 128 + Math.sin(a) * 72);
+  }
+  ctx.font = '20px system-ui, sans-serif';
+  ctx.fillStyle = '#aab';
+  ctx.fillText(label, 128, 190);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function tube(a, b, r, m) {
   const d = new THREE.Vector3().subVectors(b, a);
   const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r, r, d.length(), 8), m);
