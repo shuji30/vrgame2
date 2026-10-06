@@ -290,8 +290,16 @@ export class Race {
     const slow = Math.hypot(k.vx, k.vz) < 1.5;
     const trapped = e.wallT > 0 || Math.abs(e.loc.lateral) > this.track.halfWidth;
     e.stuckT = slow && trapped ? (e.stuckT || 0) + dt : 0;
-    if (e.stuckT < 3) return;
+    // 壁にこすりながら動き続けて前へ進めないとき（ヘアピンの内側に入り込んだ GT3 など、曲がりきれない）も助ける:
+    // 壁に触れているかコース外にいて、4 秒で 8m も進めなければ
+    const L = this.track.length;
+    if (!e.stall || !trapped) e.stall = { s: e.loc.s, t: 0 };
+    e.stall.t += dt;
+    const ahead = ((e.loc.s - e.stall.s) % L + L * 1.5) % L - L / 2;
+    if (ahead > 8) e.stall = { s: e.loc.s, t: 0 };
+    if (e.stuckT < 3 && e.stall.t < 4) return;
     e.stuckT = 0;
+    e.stall = null;
     const p = pointAt(this.track, e.loc.s, 0);
     Object.assign(k, { x: p.x, z: p.z, heading: p.heading, vx: 0, vz: 0, yawRate: 0 });
     e.loc = locate(this.track, k.x, k.z, e.loc.i);

@@ -305,3 +305,26 @@ test('FFB: 直線付近は軽いまま、コーナーでは横 G に応じてグ
   assert.ok(mid > 0.38, `中くらいのコーナー ${mid}`);
   assert.ok(big > 0.85 && big < max && max < 1, `大きいコーナー ${big} / ${max}`);
 });
+
+test('壁にこすりながら前へ進めないとき（速度があっても）は自動で救出する', async () => {
+  const { pointAt } = await import('../src/core/track.js');
+  const track = buildTrack(TRACKS.find((t) => t.id === 'eight-hills'));
+  const race = new Race(track, [{ name: 'P', color: 0, type: 'player' }], { laps: 9, vehicle: 'gt3', realistic: true });
+  race.state = 'racing';
+  race.time = 1;
+  const e = race.karts[0];
+  const p = pointAt(track, 1130, -9.5);
+  Object.assign(e.kart, { x: p.x, z: p.z, heading: p.heading, vx: 0, vz: 0 });
+  e.loc = locate(track, p.x, p.z);
+  let rescued = false;
+  for (let i = 0; i < 60 * 6 && !rescued; i++) {
+    // コース外で、道に沿わず横向きに秒速 2m で動き続ける（前へは進まない）
+    const h = pointAt(track, e.loc.s, 0).heading + Math.PI / 2;
+    e.kart.vx = Math.cos(h) * 2 * (i % 30 < 15 ? 1 : -1);
+    e.kart.vz = Math.sin(h) * 2 * (i % 30 < 15 ? 1 : -1);
+    race.step(1 / 60, new Map([[0, { steer: 0, throttle: 0, brake: 0, handbrake: 0 }]]));
+    rescued = e.events.some((x) => x.type === 'rescue');
+    e.events.length = 0;
+  }
+  assert.ok(rescued);
+});

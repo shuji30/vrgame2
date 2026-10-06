@@ -205,7 +205,10 @@ export class CarModel {
     this.steerGroup.rotation.z = -0.15;
     this.steerWheel = new THREE.Group();
     // GT3 はレース用の GT ハンドル、フォーミュラはフォーミュラのハンドル
-    this.steerWheel.add(formula ? formulaWheel(theme) : gtWheel(theme));
+    // フォーミュラのハンドルは実寸より少し大きめ（VR で小さく見えないように）
+    const wheelMesh = formula ? formulaWheel(theme) : gtWheel(theme);
+    if (formula) wheelMesh.scale.setScalar(1.4);
+    this.steerWheel.add(wheelMesh);
     // ステアリングコラム（ハンドルの中心からダッシュボードの奥へ）
     const column = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.4, 10), mat(theme, { color: 0x2a2b31 }, 'carbon'));
     column.rotation.z = Math.PI / 2;
