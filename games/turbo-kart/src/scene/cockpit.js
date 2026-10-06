@@ -69,8 +69,8 @@ export function buildCockpit(opts) {
     // 床・センタートンネル・足もとの奥の壁・ダッシュボードの下側（ひざの前）
     g.add(span(-1.0, 1.35, 0.26, 0.3, -0.92, 0.92, floorMat, 0));
     g.add(span(-0.75, 0.95, 0.3, 0.52, -0.15, 0.15, trim));
-    g.add(span(1.25, 1.35, 0.3, 0.86, -0.92, 0.92, trim, 0));
-    g.add(span(0.55, 1.25, 0.6, 0.86, -0.92, 0.92, trim));
+    g.add(span(0.98, 1.06, 0.3, 0.86, -0.92, 0.92, trim, 0));
+    g.add(span(0.55, 0.98, 0.62, 0.86, -0.92, 0.92, trim));
     // メーターフード（ハンドルの奥）、センターのディスプレイ、エアコンの吹き出し口
     g.add(span(0.33, 0.52, 0.95, 1.04, seatZ - 0.17, seatZ + 0.17, trim, 0.03));
     const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.12), new THREE.MeshBasicMaterial({ color: 0x0d2235 }));
@@ -107,10 +107,10 @@ export function buildCockpit(opts) {
     g.add(lever, knob);
     g.add(seat(theme, { x: eye.x + 0.05, y: 0.42, z: seatZ, recline: 0.28, accent: opts.accent }));
     // フットレスト（左足）とペダル（右足でアクセル、その左にブレーキ）
-    g.add(span(0.95, 1.2, 0.3, 0.42, seatZ - 0.3, seatZ - 0.2, metal, 0.01));
+    g.add(span(0.7, 0.96, 0.3, 0.44, seatZ - 0.3, seatZ - 0.2, metal, 0.01));
     pedals = {
-      brake: pedal(theme, { x: 1.12, y: 0.62, z: seatZ - 0.04, len: 0.24, padW: 0.1, padH: 0.08, color: 0xd9dde5 }),
-      accel: pedal(theme, { x: 1.12, y: 0.62, z: seatZ + 0.13, len: 0.27, padW: 0.07, padH: 0.12, color: 0xd9dde5 }),
+      brake: pedal(theme, { x: 0.8, y: 0.62, z: seatZ - 0.03, len: 0.24, padW: 0.11, padH: 0.09, color: 0xe8ebf0 }),
+      accel: pedal(theme, { x: 0.8, y: 0.62, z: seatZ + 0.14, len: 0.27, padW: 0.08, padH: 0.15, color: 0xe8ebf0 }),
     };
     if (!opts.real) {
       // アニメ調の GT3 は外の車体が運転席まで詰まっているので、ボンネット・後ろ・ドアの外板を代わりに出す
@@ -151,29 +151,22 @@ export function buildCockpit(opts) {
   return { group: g, pedals };
 }
 
-// GT ハンドル（上が丸く下が平ら。左右のグリップ、ボタンの並んだ中央のパネル、裏のシフトパドル）
+// GT ハンドル（上下が平らな長方形。左右のグリップ、ボタンの並んだ中央のパネル、裏のシフトパドル）
 // ハンドルの面は YZ 平面（運転手は -X 側から見る）。中央には VR のメーター（hud.dash）が付く
 export function gtWheel(theme) {
   const g = new THREE.Group();
   const grip = mat(theme, { color: 0x2b2c32 }, 'rubber');
   const carbon = mat(theme, { color: 0x18191d }, 'carbon');
   const metal = mat(theme, { color: 0xb8bcc4 }, 'metal');
-  const R = 0.16, arc = (Math.PI * 2) / 3;
-  // 上の弧
-  const top = new THREE.Group();
-  top.rotation.y = Math.PI / 2;
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(R, 0.022, 10, 28, arc), grip);
-  rim.rotation.z = Math.PI / 2 - arc / 2;
-  top.add(rim);
-  g.add(top);
-  // 左右のグリップと下の平らな部分
-  const ez = R * Math.sin(arc / 2), ey = R * Math.cos(arc / 2);
+  const ez = 0.14, top = 0.1, bottom = -0.09;
+  // 左右のグリップ（太め）と、上下の平らな部分（角は丸める）
   for (const s of [-1, 1]) {
-    const c = new THREE.Mesh(new THREE.CapsuleGeometry(0.03, ey + 0.09, 6, 12), grip);
-    c.position.set(0, (ey - 0.09) / 2, s * ez);
+    const c = new THREE.Mesh(new THREE.CapsuleGeometry(0.03, top - bottom - 0.04, 6, 12), grip);
+    c.position.set(0, (top + bottom) / 2, s * ez);
     g.add(c);
   }
-  g.add(box(0.035, 0.035, ez * 2, grip, 0, -0.09, 0, 0.012));
+  g.add(box(0.035, 0.035, ez * 2, grip, 0, top, 0, 0.015));
+  g.add(box(0.035, 0.035, ez * 2, grip, 0, bottom, 0, 0.015));
   // 中央のパネル（カーボン）と、左右のボタン・ダイヤル
   g.add(box(0.03, 0.15, ez * 2 - 0.02, carbon, 0.01, 0.0, 0, 0.012));
   const colors = [0xe53935, 0x43a047, 0x1e88e5, 0xfdd835, 0xffffff, 0xfb8c00];
@@ -193,7 +186,7 @@ export function gtWheel(theme) {
   // シフトパドル（裏側）
   for (const s of [-1, 1]) g.add(box(0.008, 0.11, 0.07, metal, 0.04, 0.03, s * 0.12, 0.004));
   // 真上の目印
-  g.add(box(0.03, 0.015, 0.035, mat(theme, { color: 0xffd23f }), 0, R + 0.005, 0, 0));
+  g.add(box(0.037, 0.02, 0.035, mat(theme, { color: 0xffd23f }), 0, top, 0, 0));
   return g;
 }
 

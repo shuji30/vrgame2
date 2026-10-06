@@ -59,7 +59,8 @@ export const VEHICLES = {
     mu: 3.1, maxLat: 30.4, tireB: 12, rearGrip: 1.3, npcBoost: null,
     downforce: 1.3, aeroFront: 0.42,
     steerLock: 0.32, steerHigh: 0.05, assistSpeed: 60, wheelHigh: 0.8, shiftTime: 0.1, boostAccel: 6,
-    ffbScale: 1.4, // FFB の手ごたえの倍率（ffbmodel.js）
+    ffbScale: 1.8, // FFB の手ごたえの倍率（ffbmodel.js）。ロック角 540° で角度あたりの力が小さいぶん重く
+    ffbSpring: 0.35, // ハンコン本体のばね（走行中の中心へ戻る重さ。車重のある GT3 はどっしり）
   },
   // フォーミュラ: 軽量・強烈なダウンフォース。グリップは最も高い。約 320km/h
   formula: {
@@ -72,6 +73,7 @@ export const VEHICLES = {
     downforce: 3.0, aeroFront: 0.44,
     steerLock: 0.3, steerHigh: 0.04, assistSpeed: 70, wheelHigh: 0.8, aiMargin: 0.95, aiAero: 0.75, aiBrakePlan: true, shiftTime: 0.06, boostAccel: 7,
     ffbScale: 1.5, // ダウンフォースで前輪荷重が増え、横 G あたりの手ごたえがさらに軽くなるぶん
+    ffbSpring: 0.25,
   },
 };
 export const VEHICLE_ORDER = ['kart', 'gt3', 'formula'];

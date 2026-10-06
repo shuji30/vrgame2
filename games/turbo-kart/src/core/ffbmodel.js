@@ -111,9 +111,12 @@ export class FFBModel {
     // 力の向きの反転は出力の直前（ffb.js）でまとめて行う
     // 上限の手前はゆるやかに頭打ちにする（張り付かず、グリップが抜けて軽くなる変化が伝わる）
     const constant = softLimit(force) * s.gain;
+    // ハンコン本体のばね: 走り出すと中心へ戻る重さが加わる（車種ごと。機器側で処理するので遅れで振動しない）
+    const spec = kart.spec || KART;
+    const spring = clamp((spec.ffbSpring ?? 0) * Math.min(1, speed / 20) * s.align / 0.6, 0, 1) * s.gain;
     return {
       constant,
-      spring: 0,
+      spring,
       damper: clamp(s.damper * (0.3 + Math.min(1, speed / 15) * 0.7), 0, 1) * s.gain,
       rumble: rumble * s.gain,
       rumbleHz: hz,
