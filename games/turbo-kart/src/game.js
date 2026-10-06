@@ -11,6 +11,7 @@ import { CarModel } from './scene/carmodel.js';
 import { Hud, fmtTime } from './scene/hud.js';
 import { KartAudio } from './audio.js';
 import { Music } from './music.js';
+import { RearView } from './scene/mirrors.js';
 import { Effects, driftTier } from './scene/fx.js';
 import { createDriver, driveAI } from './core/ai.js';
 import { applyRendererTheme } from './scene/theme.js';
@@ -83,6 +84,7 @@ export class Game {
     this.screenFx = new ScreenFx(this.camera); // スミ雲・カミナリの光（カメラの前に置く板。VR でも見える）
     this.audio = new KartAudio();
     this.music = new Music(this.audio);
+    this.rearView = new RearView();
     this.clock = new THREE.Clock();
     this.acc = 0;
     this.state = 'menu';
@@ -300,6 +302,12 @@ export class Game {
   }
 
   // 自分の車の見え方を視点に合わせる。車内はハンドルを半分の大きさに、目線は車ごと隠す（VR は常に車内）
+  // バックミラーの景色を描く（本番の描画の前に呼ぶ。車内視点・VR のときだけ）
+  renderMirrors(renderer) {
+    const m = this.me && this.models[this.me.index];
+    this.rearView.render(renderer, this.scene, m, !!m && this.insideView && this.state !== 'menu');
+  }
+
   applyView() {
     for (const m of this.models) {
       m.setCockpit(false);

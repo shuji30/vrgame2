@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mat } from './theme.js';
+import { mirrorGlass } from './mirrors.js';
 
 const box = (w, h, d, m, x, y, z, r = 0.02) => {
   const mesh = new THREE.Mesh(r > 0 ? new RoundedBoxGeometry(w, h, d, 2, r) : new THREE.BoxGeometry(w, h, d), m);
@@ -56,7 +57,7 @@ function pedal(theme, { x, y, z, len, padW, padH, color }) {
 }
 
 // opts: { kind: 'gt3' | 'formula', theme, real, seatZ, eye, paint, carbon, accent }
-// 返り値: { group: 車内（運転席視点のときだけ表示する）, pedals: { accel, brake } }
+// 返り値: { group: 車内（運転席視点のときだけ表示する）, pedals: { accel, brake }, mirrors: ルームミラーの鏡 }
 export function buildCockpit(opts) {
   const { kind, theme, seatZ, eye, paint } = opts;
   const g = new THREE.Group();
@@ -65,6 +66,7 @@ export function buildCockpit(opts) {
   const metal = mat(theme, { color: 0xb8bcc4 }, 'metal');
 
   let pedals;
+  const mirrors = [];
   if (kind === 'gt3') {
     // 床・センタートンネル・足もとの奥の壁・ダッシュボードの下側（ひざの前）
     g.add(span(-1.0, 1.35, 0.26, 0.3, -0.92, 0.92, floorMat, 0));
@@ -82,6 +84,12 @@ export function buildCockpit(opts) {
     for (const s of [-1, 1]) g.add(tube(new THREE.Vector3(0.62, 0.86, s * 0.86), new THREE.Vector3(0.0, 1.3, s * 0.78), 0.045, trim));
     g.add(span(-0.05, 0.05, 1.27, 1.33, -0.8, 0.8, trim, 0.02));
     g.add(span(-1.05, -0.05, 1.32, 1.36, -0.8, 0.8, mat(theme, { color: 0x2e3036 }, 'rubber'), 0));
+    // ルームミラー（フロントガラスの上枠の下。後ろの景色の中央が映る）
+    g.add(span(0.0, 0.04, 1.16, 1.24, -0.12, 0.12, trim, 0.015));
+    const room = mirrorGlass(0.22, 0.07, 0.28, 0.72);
+    room.position.set(-0.003, 1.2, 0);
+    g.add(room);
+    mirrors.push(room);
     // ドアの取っ手（内側）
     for (const s of [-1, 1]) g.add(span(0.2, 0.32, 0.78, 0.81, s > 0 ? 0.83 : -0.86, s > 0 ? 0.86 : -0.83, metal, 0.005));
     // ドアの内張り（左右）と、肘置き
@@ -148,7 +156,7 @@ export function buildCockpit(opts) {
     // 写実のフォーミュラ: サイドポッド（運転席の左右だけ。前に吸気口）
     for (const s of [-1, 1]) g.add(span(-1.5, 0.45, 0.14, 0.56, s > 0 ? 0.4 : -0.75, s > 0 ? 0.75 : -0.4, paint, 0.08));
   }
-  return { group: g, pedals };
+  return { group: g, pedals, mirrors };
 }
 
 // GT ハンドル（上下が平らな長方形。左右のグリップ、ボタンの並んだ中央のパネル、裏のシフトパドル）

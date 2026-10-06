@@ -6,6 +6,7 @@ import { mat, addOutline } from './theme.js';
 import { buildHead, animateDriver } from './characters.js';
 import { buildRealFormula } from './realcars.js';
 import { buildCockpit, gtWheel, formulaWheel } from './cockpit.js';
+import { mirrorGlass } from './mirrors.js';
 
 function label(name, color) {
   const c = document.createElement('canvas');
@@ -66,6 +67,8 @@ export class CarModel {
     const formula = type === 'formula';
     // 運転席視点のときに隠す部品（視界をふさぐ屋根・キャビン・ハロー）
     this.cockpitHide = [];
+    // バックミラーの鏡の面（自分の車なら後ろの景色が映る。mirrors.js）
+    this.mirrorGlass = [];
 
     // 車輪
     const wb = formula ? 3.2 : 2.7;
@@ -133,6 +136,7 @@ export class CarModel {
       num.rotation.x = -Math.PI / 2;
       num.rotation.z = -Math.PI / 2;
       this.group.add(tub, nose, fwing, pods, engine, rwing, plateL, plateR, halo, num);
+      this.addSideMirrors(0.45, 0.76, 0.5, [0.06, 0.07, 0.16], paint);
       // 車内視点では運転席まで詰まったモノコックとサイドポッドを隠し、cockpit.js の内装を出す
       this.cockpitHide.push(halo, tub, pods);
       this.eye = new THREE.Vector3(-0.2, 0.92, 0);
@@ -173,6 +177,7 @@ export class CarModel {
       const dash = new THREE.Mesh(new RoundedBoxGeometry(0.5, 0.14, 1.6, 2, 0.05), dark);
       dash.position.set(0.55, 0.92, 0);
       this.group.add(body, cabin, roof, splitter, wing, stripe, num, num2, dash);
+      this.addSideMirrors(0.45, 0.97, 1.08, [0.12, 0.09, 0.16], paint);
       // 車内視点では運転席まで詰まった車体を隠し、cockpit.js の外板と内装を出す
       this.cockpitHide.push(cabin, roof, body, stripe);
       // 左ハンドル（運転席は進行方向の左 = -Z 側）
@@ -184,7 +189,7 @@ export class CarModel {
     if (party) {
       // 車体に縁取りを付け、GT3 のガラスは半透明にして中の動物が見えるようにする
       const parts = [];
-      this.group.traverse((o) => { if (o.isMesh && o.material !== glass) parts.push(o); });
+      this.group.traverse((o) => { if (o.isMesh && o.material !== glass && !o.userData.mirror) parts.push(o); });
       for (const o of parts) addOutline(o, 0.035);
       glass.transparent = true;
       glass.opacity = 0.45;
@@ -197,6 +202,7 @@ export class CarModel {
     cockpit.group.visible = false;
     this.group.add(cockpit.group);
     this.cockpitShow = [...(this.cockpitShow || []), cockpit.group];
+    this.mirrorGlass.push(...cockpit.mirrors);
     this.pedals = cockpit.pedals;
 
     // ハンドル
@@ -341,10 +347,9 @@ export class CarModel {
       head.rotation.z = -0.35;
       const tail = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.07, 0.42), new THREE.MeshStandardMaterial({ color: 0x550000, emissive: 0xff1a1a, emissiveIntensity: 0.9 }));
       tail.position.set(-2.33, 0.86, z);
-      const mirror = new THREE.Mesh(new RoundedBoxGeometry(0.12, 0.09, 0.16, 2, 0.03), paint);
-      mirror.position.set(0.45, 0.97, z * 1.52);
-      this.group.add(head, tail, mirror);
+      this.group.add(head, tail);
     }
+    this.addSideMirrors(0.45, 0.97, 1.0, [0.12, 0.09, 0.16], paint);
     const num = new THREE.Mesh(new THREE.CircleGeometry(0.3, 24), mat('real', { map: numberTex(number, color) }, 'paint'));
     num.position.set(-0.1, 0.42, 0.975);
     const num2 = num.clone();
@@ -375,6 +380,18 @@ export class CarModel {
     this.eye = new THREE.Vector3(-0.35, 1.12, -0.38);
     // ハンドルは目より 0.3m ほど下（輪の上端が前の景色を遮らない高さ）
     this.steerPos = new THREE.Vector3(0.1, 0.8, -0.38);
+  }
+
+  // 左右のドアミラー（ハウジングと鏡）。cx: 前後の位置、z: 左右（絶対値）、size: ハウジングの大きさ [x, y, z]
+  addSideMirrors(cx, y, z, size, mat0) {
+    for (const s of [-1, 1]) {
+      const house = new THREE.Mesh(new RoundedBoxGeometry(size[0], size[1], size[2], 2, Math.min(...size) * 0.3), mat0);
+      house.position.set(cx, y, s * z);
+      const glass = mirrorGlass(size[2] * 0.88, size[1] * 0.78, s < 0 ? 0 : 0.62, s < 0 ? 0.38 : 1);
+      glass.position.set(cx - size[0] / 2 - 0.002, y, s * z);
+      this.group.add(house, glass);
+      this.mirrorGlass.push(glass);
+    }
   }
 
   setCockpit(on) {

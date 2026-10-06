@@ -250,6 +250,7 @@ window.addEventListener('pagehide', () => ffb.stop());
 
 renderer.setAnimationLoop(() => {
   game.update();
+  game.renderMirrors(renderer);
   renderer.render(game.scene, game.camera);
 });
 

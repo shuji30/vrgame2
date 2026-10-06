@@ -2,6 +2,7 @@
 // 前方 = ローカル +X、右 = +Z、地面 = y 0
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mirrorGlass } from './mirrors.js';
 
 const V2 = (x, y) => new THREE.Vector2(x, y);
 
@@ -215,6 +216,11 @@ export function buildRealFormula(model, { paint, accent, carbon, plate }) {
     // ミラー
     const mirror = new THREE.Mesh(new RoundedBoxGeometry(0.06, 0.07, 0.16, 2, 0.02), paint);
     mirror.position.set(0.5, 0.78, s * 0.55);
+    // 鏡の面（自分の車なら後ろの景色が映る。mirrors.js）
+    const glass = mirrorGlass(0.14, 0.055, s < 0 ? 0 : 0.62, s < 0 ? 0.38 : 1);
+    glass.position.set(0.468, 0.78, s * 0.55);
+    g.add(glass);
+    model.mirrorGlass.push(glass);
     g.add(mirror, tube(V3(0.5, 0.62, s * 0.4), V3(0.5, 0.75, s * 0.52), 0.01, arm, 4));
   }
   // ヘイロー（運転席の上の保護バー）
