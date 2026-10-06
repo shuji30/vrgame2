@@ -285,3 +285,23 @@ test('タイミング表: 自分も含めた全員を順位順に、直前のラ
   ]);
   assert.deepEqual(t.fastest, { time: 40.1, name: 'NPC' });
 });
+
+test('FFB: 直線付近は軽いまま、コーナーでは横 G に応じてググっと重くなり、上限は張り付かない', async () => {
+  const { createKart, stepKart, VEHICLES, realSpec } = await import('../src/core/physics.js');
+  const { FFBModel } = await import('../src/core/ffbmodel.js');
+  const run = (steer) => {
+    const k = createKart(0, 0, 0, realSpec(VEHICLES.gt3));
+    const m = new FFBModel();
+    let out;
+    for (let i = 0; i < 480; i++) {
+      const on = i > 240;
+      stepKart(k, { steer: on ? steer : 0, throttle: Math.hypot(k.vx, k.vz) < 25 ? 1 : 0.35, brake: 0, handbrake: 0 }, 1 / 60);
+      out = m.compute(k, { value: on ? steer : 0, beyond: 0 }, [], { gain: 1 }, 1 / 60);
+    }
+    return Math.abs(out.constant);
+  };
+  const small = run(0.02), mid = run(0.1), big = run(0.25), max = run(0.5);
+  assert.ok(small < 0.12, `直線付近 ${small}`);
+  assert.ok(mid > 0.38, `中くらいのコーナー ${mid}`);
+  assert.ok(big > 0.85 && big < max && max < 1, `大きいコーナー ${big} / ${max}`);
+});

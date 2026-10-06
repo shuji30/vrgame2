@@ -3,6 +3,12 @@
 import { KART } from './physics.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const softLimit = (v) => {
+  const a = Math.abs(v);
+  return a <= 0.8 ? v : Math.sign(v) * (0.8 + 0.2 * Math.tanh((a - 0.8) / 0.2));
+};
+// コーナーでの重さの上乗せ（手ごたえが 0.5 のとき 1 + 0.5 × これ 倍）
+const CORNER_LOAD = 0.7;
 
 export const FFB_DEFAULTS = {
   gain: 0.5, // 全体の強さ
@@ -46,6 +52,9 @@ export class FFBModel {
       // ffbScale: 車種ごとの重さ。GT3・フォーミュラはロック角が大きく切れ角も小さいので、
       // 横 G 基準のままだとハンドルを回した量に対して軽すぎる
       force = (-kart.frontForce * (pneumatic + mech)) / maxTorque * s.align * (spec.ffbScale ?? 1);
+      // 横 G が大きくなるほど重さの増え方を強くする（コーナーでググっと重くなる）。
+      // 直線付近の小さい力はほとんど変えないので、直線でハンドルが左右に振られることはない
+      force *= 1 + CORNER_LOAD * Math.min(1, Math.abs(force));
     } else {
       // 停止・低速はタイヤが路面をこする重さ
       force = -wheel.value * 0.25 * s.align;
@@ -100,7 +109,8 @@ export class FFBModel {
     rumble *= s.road * Math.min(1, speed / 10);
 
     // 力の向きの反転は出力の直前（ffb.js）でまとめて行う
-    const constant = clamp(force, -1, 1) * s.gain;
+    // 上限の手前はゆるやかに頭打ちにする（張り付かず、グリップが抜けて軽くなる変化が伝わる）
+    const constant = softLimit(force) * s.gain;
     return {
       constant,
       spring: 0,
