@@ -73,8 +73,6 @@ export function buildCockpit(opts) {
     g.add(span(-0.75, 0.95, 0.3, 0.52, -0.15, 0.15, trim));
     g.add(span(0.98, 1.06, 0.3, 0.86, -0.92, 0.92, trim, 0));
     g.add(span(0.55, 0.98, 0.62, 0.86, -0.92, 0.92, trim));
-    // エアコンの吹き出し口
-    for (const z of [-0.75, -0.06, 0.1, 0.75]) g.add(span(0.27, 0.29, 0.86, 0.9, z - 0.05, z + 0.05, floorMat, 0));
     // A ピラーとフロントガラスの上枠、天井の内張り（前の景色の枠になる）
     for (const s of [-1, 1]) g.add(tube(new THREE.Vector3(0.62, 0.86, s * 0.86), new THREE.Vector3(0.0, 1.3, s * 0.78), 0.045, trim));
     g.add(span(-0.05, 0.05, 1.27, 1.33, -0.8, 0.8, trim, 0.02));
