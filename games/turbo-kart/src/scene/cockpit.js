@@ -214,12 +214,14 @@ export function formulaWheel(theme) {
     c.rotation.x = s * 0.2;
     g.add(c);
   }
-  // シフトランプ（回転が上がると左から点く並び。ここでは飾り）
+  // シフトランプ（エンジンの回転が上がると左から点く。carmodel.js の update で光らせる）
   const lights = [0x2ecc40, 0x2ecc40, 0x2ecc40, 0xff3b30, 0xff3b30, 0xff3b30, 0x3a7bff, 0x3a7bff, 0x3a7bff];
-  lights.forEach((c, i) => {
-    const l = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.008, 0.012), new THREE.MeshBasicMaterial({ color: c }));
+  g.userData.shiftLights = lights.map((c, i) => {
+    const m = new THREE.MeshBasicMaterial({ color: 0x1c1d22 });
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.008, 0.012), m);
     l.position.set(-0.016, 0.055, (i - 4) * 0.016);
     g.add(l);
+    return { material: m, color: new THREE.Color(c) };
   });
   // ボタンとダイヤル
   const colors = [0xfdd835, 0xe53935, 0x1e88e5, 0xffffff];

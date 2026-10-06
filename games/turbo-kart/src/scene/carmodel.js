@@ -217,6 +217,7 @@ export class CarModel {
     // フォーミュラのハンドルは実寸より少し大きめ（VR で小さく見えないように）
     const wheelMesh = formula ? formulaWheel(theme) : gtWheel(theme);
     if (formula) wheelMesh.scale.setScalar(1.2);
+    this.shiftLights = wheelMesh.userData.shiftLights || null;
     this.steerWheel.add(wheelMesh);
     // VR のメーター（hud.dash）をハンドル中央のパネルに埋め込む位置と大きさ（ボタンの間に収める）
     this.dashMount = formula ? { x: -0.02, y: -0.006, scale: 0.35 } : { x: -0.008, y: 0, scale: 0.4 };
@@ -402,6 +403,16 @@ export class CarModel {
     this.tailLights.push({ material, glow, real });
   }
 
+  // ハンドルのシフトランプ: 回転数 55% から左へ順に点き、97% 以上（シフトアップの目安）で全部が点滅する
+  updateShiftLights(rpm, dt) {
+    this.shiftBlink = (this.shiftBlink || 0) + dt;
+    const n = this.shiftLights.length;
+    const lit = rpm >= 0.97 ? (Math.floor(this.shiftBlink * 10) % 2 ? n : 0) : Math.max(0, Math.min(n, Math.floor((rpm - 0.55) / 0.4 * n) + 1));
+    if (lit === this.shiftLit) return;
+    this.shiftLit = lit;
+    this.shiftLights.forEach((l, i) => l.material.color.set(i < lit ? l.color : 0x1c1d22));
+  }
+
   // ブレーキでテールランプを明るくする（変わったときだけ書き換える）
   setBrakeLights(on) {
     if (this.brakeOn === on) return;
@@ -451,6 +462,7 @@ export class CarModel {
   // pedals: { throttle, brake }（0..1。車内のペダルを動かす）
   update(pose, kart, steer, dt, lockDeg = 270, pedals = null) {
     if (this.tailLights.length) this.setBrakeLights((pedals?.brake || 0) > 0.1);
+    if (this.shiftLights) this.updateShiftLights(kart.rpm || 0, dt);
     if (this.pedals && pedals) {
       this.pedals.accel.rotation.z = (pedals.throttle || 0) * 0.35;
       this.pedals.brake.rotation.z = (pedals.brake || 0) * 0.25;
