@@ -80,6 +80,10 @@ trackSel.addEventListener('change', () => {
   game.setTrack(trackSel.value, game.theme);
   game.showAttract();
   describeTrack();
+  // 選んだコースの曲を流す（選ぶ操作の中なので音を出せる）
+  game.audio.init();
+  game.music.setSong(trackSel.value);
+  game.music.play();
 });
 $('opt-shake').addEventListener('change', (e) => { game.shake = Number(e.target.value); });
 // BGM の音量（メニューで変えたらすぐ反映。レース中ならそのまま鳴らす）

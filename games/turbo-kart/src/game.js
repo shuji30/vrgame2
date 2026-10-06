@@ -260,6 +260,7 @@ export class Game {
     if (!opts.attract) {
       this.state = 'race';
       this.audio.init();
+      this.music.setSong(this.trackId); // コースごとの曲
       this.music.play();
       this.ui.showScreen('race');
       this.hud.showBoard(this.race, null);
@@ -389,8 +390,9 @@ export class Game {
     }
     this.ffb.stop();
     this.audio.silence();
-    this.music.stop();
+    // メニューでは選んでいるコースの曲を流したまま（鳴っていなければ鳴らさない）
     this.music.duck(false);
+    if (this.music.playing) this.music.setSong(this.trackId);
     this.hud.hide();
     this.ui.showPause(false);
     this.ui.showScreen('menu');

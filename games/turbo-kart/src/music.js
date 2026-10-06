@@ -1,53 +1,9 @@
-// レース中の BGM（WebAudio でその場で演奏する）。80〜90 年代のレース中継のテーマのような、
-// 疾走感のあるフュージョンロックのオリジナル曲。リリコン（ウインドシンセ）風のリード、8 分で刻むベース、
-// 裏拍のブラス風コード、16 分のハイハット
-const BPM = 150;
-const STEP = 60 / BPM / 4; // 16 分音符の長さ（秒）
+// レース中の BGM（WebAudio でその場で演奏する）。曲はコースごと（songs.js。すべてオリジナル曲）
+import { songFor } from './songs.js';
+
 const LOOKAHEAD = 0.15; // 先にスケジュールしておく時間（秒）
 
 const hz = (m) => 440 * 2 ** ((m - 69) / 12);
-
-// コード進行（1 小節に 1 つか 2 つ）。b: ベースの音、n: コードの構成音（MIDI 番号）
-const C = {
-  Dmaj7: { b: 38, n: [62, 66, 69, 73] },
-  Em7: { b: 40, n: [64, 67, 71, 74] },
-  A: { b: 45, n: [61, 64, 69, 73] },
-  A7: { b: 45, n: [61, 64, 67, 69] },
-  A7sus: { b: 45, n: [62, 64, 67, 69] },
-  A6: { b: 45, n: [61, 64, 66, 69] },
-  Fsm7: { b: 42, n: [61, 64, 66, 69] },
-  Bm7: { b: 47, n: [62, 66, 69, 71] },
-  Gmaj7: { b: 43, n: [62, 66, 67, 71] },
-};
-const BARS = [
-  // A: 王道進行（IV → V → iii → vi）で一気に走り出す
-  [C.Gmaj7], [C.A6], [C.Fsm7], [C.Bm7], [C.Em7], [C.Fsm7], [C.Gmaj7], [C.A7sus, C.A7],
-  // B: サビ。最後は D に解決して頭へ戻る
-  [C.Gmaj7], [C.A], [C.Bm7], [C.Bm7, C.A6], [C.Gmaj7], [C.A], [C.Em7, C.A7], [C.Dmaj7],
-];
-// メロディ: 小節ごとに [16 分音符の位置, 音, 長さ]
-const MELODY = [
-  [[0, 71, 3], [3, 74, 3], [6, 76, 2], [8, 78, 4], [12, 76, 2], [14, 74, 2]],
-  [[0, 73, 6], [6, 71, 2], [8, 69, 4], [12, 71, 2], [14, 73, 2]],
-  [[0, 73, 3], [3, 76, 3], [6, 73, 2], [8, 69, 6], [14, 66, 2]],
-  [[0, 69, 4], [4, 71, 4], [8, 66, 8]],
-  [[0, 67, 2], [2, 69, 2], [4, 71, 2], [6, 74, 2], [8, 76, 3], [11, 74, 3], [14, 71, 2]],
-  [[0, 73, 4], [4, 69, 2], [6, 73, 2], [8, 76, 6], [14, 78, 2]],
-  [[0, 79, 6], [6, 78, 2], [8, 76, 2], [10, 74, 2], [12, 71, 4]],
-  [[0, 74, 8], [8, 73, 4], [12, 76, 2], [14, 78, 2]],
-  [[0, 79, 4], [4, 78, 2], [6, 76, 2], [8, 74, 4], [12, 71, 4]],
-  [[0, 73, 3], [3, 76, 3], [6, 78, 2], [8, 76, 8]],
-  [[0, 74, 2], [2, 73, 2], [4, 71, 4], [8, 73, 2], [10, 74, 2], [12, 76, 4]],
-  [[0, 78, 6], [6, 76, 2], [8, 73, 8]],
-  [[0, 71, 3], [3, 74, 3], [6, 78, 2], [8, 81, 6], [14, 79, 2]],
-  [[0, 78, 4], [4, 76, 4], [8, 73, 4], [12, 76, 4]],
-  [[0, 74, 4], [4, 76, 4], [8, 78, 4], [12, 79, 4]],
-  [[0, 78, 12], [12, 74, 2], [14, 76, 2]],
-];
-// ベース: [位置, ルートからの半音]（8 分で刻み、ところどころオクターブで跳ねる）
-const BASS = [[0, 0], [2, 0], [3, 12], [4, 0], [6, 0], [8, 0], [10, 0], [11, 12], [12, 0], [14, 7]];
-// コードを短く刻む位置（裏拍を強調）
-const STABS = [3, 6, 10, 14];
 
 export class Music {
   constructor(audio) {
@@ -55,6 +11,17 @@ export class Music {
     this.volume = 0.6;
     this.playing = false;
     this.timer = null;
+    this.setSong('thunder-ring');
+  }
+
+  // コースの曲に切り替える（演奏中なら頭から）
+  setSong(trackId) {
+    const song = songFor(trackId);
+    if (song === this.song) return;
+    this.song = song;
+    this.stepLen = 60 / song.bpm / 4; // 16 分音符の長さ（秒）
+    if (this.echo) this.echo.delayTime.value = this.stepLen * 3;
+    this.step = 0;
   }
 
   // 0..1（0 で止める）
@@ -82,7 +49,7 @@ export class Music {
     this.out.connect(ctx.destination);
     // リード用のエコー（付点 8 分）
     this.echo = ctx.createDelay(1);
-    this.echo.delayTime.value = STEP * 3;
+    this.echo.delayTime.value = this.stepLen * 3;
     const fb = ctx.createGain();
     fb.gain.value = 0.28;
     const wet = ctx.createGain();
@@ -129,36 +96,64 @@ export class Music {
     if (this.next < ctx.currentTime - 0.2) this.next = ctx.currentTime + 0.05;
     while (this.next < ctx.currentTime + LOOKAHEAD) {
       this.playStep(this.step, this.next);
-      this.step = (this.step + 1) % (BARS.length * 16);
-      this.next += STEP;
+      this.step = (this.step + 1) % (this.song.bars.length * 16);
+      this.next += this.stepLen;
     }
   }
 
   playStep(step, t) {
-    const bar = Math.floor(step / 16);
+    const song = this.song;
+    const STEP = this.stepLen;
+    const bar = Math.floor(step / 16) % song.bars.length;
     const s = step % 16;
-    const chords = BARS[bar];
+    const chords = song.bars[bar];
     const chord = chords.length > 1 && s >= 8 ? chords[1] : chords[0];
-    const fill = bar % 8 === 7; // 8 小節目はタムのフィル
-
-    // ドラム: 頭と 8 小節ごとにクラッシュ、16 分のハイハット（8 分の裏を強く）
-    if (s === 0 && bar % 8 === 0) this.crash(t);
-    if (s === 0 || s === 6 || s === 8 || (s === 14 && bar % 2 === 1)) this.kick(t);
-    if (s === 4 || s === 12) this.snare(t);
-    if (fill && s >= 8) {
-      if (s % 2 === 0) this.tom(t, 260 - (s - 8) * 22);
-      else this.snare(t, 0.5);
-    } else this.hat(t, s % 4 === 2 ? 0.14 : s % 2 === 0 ? 0.09 : 0.05, s % 4 === 2 ? 0.07 : 0.03);
+    const fill = bar % 8 === 7; // 8 小節目はフィル
+    this.drums(song.drums, bar, s, t, fill);
 
     // ベース
-    for (const [p, iv] of BASS) if (p === s) this.bass(t, chord.b + iv, iv === 12 ? 1 : 0.85);
+    for (const [p, iv] of song.bass) if (p === s) this.bass(t, chord.b + iv, iv === 12 ? 1 : 0.85);
 
-    // コード: 裏拍で短く刻み、小節の頭は少し長めに鳴らす
-    if (STABS.includes(s)) this.chord(t, chord.n, STEP * 1.3, 0.05);
-    if (s === 0 || (s === 8 && chords.length > 1)) this.chord(t, chord.n, STEP * 7, 0.025);
+    // コード: 裏拍で短く刻み、小節の頭は少し長めに鳴らす（ハーフタイムの曲は長く伸ばすだけ）
+    if (song.stabs.includes(s)) this.chord(t, chord.n, STEP * 1.3, 0.05);
+    if (song.drums === 'half') {
+      if (s === 0 || (s === 8 && chords.length > 1)) this.chord(t, chord.n, STEP * (chords.length > 1 ? 8 : 16), 0.03);
+    } else if (s === 0 || (s === 8 && chords.length > 1)) this.chord(t, chord.n, STEP * 7, 0.025);
 
     // メロディ
-    for (const [p, m, len] of MELODY[bar]) if (p === s) this.lead(t, m, len * STEP);
+    for (const [p, m, len] of song.melody[bar]) if (p === s) this.lead(t, m, len * STEP);
+  }
+
+  // ドラム（曲の型ごと）
+  drums(style, bar, s, t, fill) {
+    if (s === 0 && bar % 8 === 0) this.crash(t);
+    if (style === 'four') {
+      // 4 つ打ち: 毎拍キック、2・4 拍目にスネア、裏拍にオープンハイハット
+      if (s % 4 === 0) this.kick(t);
+      if (s === 4 || s === 12) this.snare(t);
+      if (fill && s >= 12) this.snare(t, 0.6);
+      this.hat(t, s % 4 === 2 ? 0.16 : 0.05, s % 4 === 2 ? 0.12 : 0.03);
+    } else if (style === 'latin') {
+      if (s === 0 || s === 8 || (s === 10 && bar % 2 === 1)) this.kick(t);
+      if (s === 4 || s === 12) this.snare(t);
+      if (fill && s >= 12) this.tom(t, 220 - (s - 12) * 35);
+      else if (s % 2 === 0) this.hat(t, s % 4 === 2 ? 0.16 : 0.08, s % 4 === 2 ? 0.09 : 0.03);
+      if (s === 6 || s === 14 || (s === 11 && bar % 4 === 3)) this.cowbell(t);
+    } else if (style === 'half') {
+      // ハーフタイム: 小節の頭と 3 拍目の裏にキック、3 拍目にスネア（ゆったり大きなノリ）
+      if (s === 0 || s === 10) this.kick(t);
+      if (s === 8) this.snare(t);
+      if (fill && s >= 12) this.tom(t, 200 - (s - 12) * 30);
+      else if (s % 2 === 0) this.hat(t, s % 4 === 2 ? 0.1 : 0.06, 0.04);
+    } else {
+      // ロック: 16 分のハイハット（8 分の裏を強く）、8 小節目はタムとスネアのフィル
+      if (s === 0 || s === 6 || s === 8 || (s === 14 && bar % 2 === 1)) this.kick(t);
+      if (s === 4 || s === 12) this.snare(t);
+      if (fill && s >= 8) {
+        if (s % 2 === 0) this.tom(t, 260 - (s - 8) * 22);
+        else this.snare(t, 0.5);
+      } else this.hat(t, s % 4 === 2 ? 0.14 : s % 2 === 0 ? 0.09 : 0.05, s % 4 === 2 ? 0.07 : 0.03);
+    }
   }
 
   env(g, t, peak, attack, dur, release = 0.05) {
@@ -171,6 +166,14 @@ export class Music {
   // リリコン（ウインドシンセ）風のリード: 少しずらした 2 本ののこぎり波を、息で開くようなフィルターに通す。
   // 音の出だしは少し下からしゃくり上げ、長い音には遅れてビブラート
   lead(t, m, dur) {
+    const type = this.song.lead;
+    if (type === 'fm') this.leadFM(t, m, dur);
+    else if (type === 'square' || type === 'saw') this.leadSynth(t, m, dur, type);
+    else this.leadLyricon(t, m, dur);
+  }
+
+  leadLyricon(t, m, dur) {
+    const STEP = this.stepLen;
     const ctx = this.audio.ctx;
     const f = hz(m);
     const lp = ctx.createBiquadFilter();
@@ -213,8 +216,103 @@ export class Music {
     }
   }
 
+  // FM 音源風のリード（サイン波をサイン波で変調し、変調の深さを時間で減らすとブラス風の立ち上がりになる）
+  leadFM(t, m, dur) {
+    const ctx = this.audio.ctx;
+    const f = hz(m);
+    const car = ctx.createOscillator();
+    const mod = ctx.createOscillator();
+    const modGain = ctx.createGain();
+    car.frequency.value = f;
+    mod.frequency.value = f * 2;
+    modGain.gain.setValueAtTime(f * 2.2, t);
+    modGain.gain.setTargetAtTime(f * 0.7, t, 0.08);
+    mod.connect(modGain).connect(car.frequency);
+    if (dur > this.stepLen * 3) {
+      const lfo = ctx.createOscillator();
+      const lg = ctx.createGain();
+      lfo.frequency.value = 5.5;
+      lg.gain.setValueAtTime(0, t);
+      lg.gain.linearRampToValueAtTime(f * 0.012, t + Math.min(dur, 0.5));
+      lfo.connect(lg).connect(car.frequency);
+      lfo.start(t);
+      lfo.stop(t + dur + 0.4);
+    }
+    const g = ctx.createGain();
+    this.env(g, t, 0.16, 0.012, dur * 0.95, 0.06);
+    car.connect(g);
+    g.connect(this.out);
+    g.connect(this.echo);
+    car.start(t);
+    mod.start(t);
+    car.stop(t + dur + 0.4);
+    mod.stop(t + dur + 0.4);
+  }
+
+  // シンセのリード: square = 矩形波（ゲーム機やシンセウェイブ風）、saw = 少しずらしたのこぎり波 3 本（ユーロビートやディスコ風の明るい音）
+  leadSynth(t, m, dur, type) {
+    const ctx = this.audio.ctx;
+    const f = hz(m);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.Q.value = 1.5;
+    lp.frequency.setValueAtTime(f * (type === 'saw' ? 10 : 6), t);
+    lp.frequency.setTargetAtTime(f * (type === 'saw' ? 6 : 4), t, 0.2);
+    const g = ctx.createGain();
+    this.env(g, t, type === 'saw' ? 0.09 : 0.1, 0.008, dur * 0.92, 0.05);
+    lp.connect(g);
+    g.connect(this.out);
+    g.connect(this.echo);
+    const oscs = [];
+    for (const det of type === 'saw' ? [-12, 0, 12] : [-4, 4]) {
+      const o = ctx.createOscillator();
+      o.type = type === 'saw' ? 'sawtooth' : 'square';
+      o.frequency.value = f;
+      o.detune.value = det;
+      o.connect(lp);
+      oscs.push(o);
+    }
+    if (dur > this.stepLen * 3) {
+      const lfo = ctx.createOscillator();
+      const lg = ctx.createGain();
+      lfo.frequency.value = 5.8;
+      lg.gain.setValueAtTime(0, t);
+      lg.gain.linearRampToValueAtTime(15, t + Math.min(dur, 0.4));
+      lfo.connect(lg);
+      for (const o of oscs) lg.connect(o.detune);
+      lfo.start(t);
+      lfo.stop(t + dur + 0.4);
+    }
+    for (const o of oscs) {
+      o.start(t);
+      o.stop(t + dur + 0.4);
+    }
+  }
+
+  // カウベル（2 つの矩形波。ラテン風のリズムに）
+  cowbell(t) {
+    const ctx = this.audio.ctx;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 800;
+    bp.Q.value = 3;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.06, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+    bp.connect(g).connect(this.out);
+    for (const f of [540, 800]) {
+      const o = ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.value = f;
+      o.connect(bp);
+      o.start(t);
+      o.stop(t + 0.16);
+    }
+  }
+
   // スラップ風のベース（のこぎり波 + フィルターを素早く閉じる）
   bass(t, m, vel) {
+    const STEP = this.stepLen;
     const ctx = this.audio.ctx;
     const o = ctx.createOscillator();
     o.type = 'sawtooth';
