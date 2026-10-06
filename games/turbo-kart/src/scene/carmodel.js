@@ -173,7 +173,8 @@ export class CarModel {
       this.cockpitHide.push(cabin, roof);
       // 左ハンドル（運転席は進行方向の左 = -Z 側）
       this.eye = new THREE.Vector3(-0.35, 1.18, -0.38);
-      this.steerPos = new THREE.Vector3(0.12, 0.98, -0.38);
+      // ハンドルは目より 0.3m ほど下（輪の上端が前の景色を遮らない高さ）
+      this.steerPos = new THREE.Vector3(0.1, 0.85, -0.38);
     }
 
     if (party) {
@@ -347,7 +348,8 @@ export class CarModel {
     this.cockpitHide.push(body, windows);
     this.cockpitShow = [hood, dash];
     this.eye = new THREE.Vector3(-0.35, 1.12, -0.38);
-    this.steerPos = new THREE.Vector3(0.12, 0.95, -0.38);
+    // ハンドルは目より 0.3m ほど下（輪の上端が前の景色を遮らない高さ）
+    this.steerPos = new THREE.Vector3(0.1, 0.8, -0.38);
   }
 
   setCockpit(on) {

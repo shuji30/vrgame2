@@ -542,7 +542,7 @@ export class Game {
     this.screenFx.update(dt);
     if (this.itemView) {
       const inside = this.insideView;
-      this.itemView.update(dt, this.models, inside ? this.me.index : -1);
+      this.itemView.update(dt, this.models, inside && this.me ? this.me.index : -1);
     }
 
     // コースの動く飾り（風船・コイン・信号機）と、写実モードの影の追従

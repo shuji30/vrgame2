@@ -178,8 +178,19 @@
       if (!el || !el.hidden) return;
       var msg = String((e && e.message) || 'error');
       if (/WebSocket|ResizeObserver/.test(msg)) return;
+      // どこで起きたか（ファイル名:行）も出す（知らせてもらうときの手がかり）
+      var where = '';
+      var stack = String((e && e.error && e.error.stack) || '');
+      var m = stack.match(/([\w.-]+\.js):(\d+):\d+/) || (e && e.filename ? [0, e.filename.split('/').pop(), e.lineno] : null);
+      if (m) where = '（' + m[1] + ':' + m[2] + '）';
       el.hidden = false;
-      el.textContent = 'エラーが発生しました: ' + msg + '　（更新直後は Ctrl+F5 で再読み込みしてください）';
+      el.textContent = 'エラーが発生しました: ' + msg + where + '　（更新直後は Ctrl+F5 で再読み込みしてください）';
+      var x = document.createElement('button');
+      x.textContent = '×';
+      x.title = '閉じる';
+      x.style.cssText = 'margin-left:10px;padding:0 8px;border:0;border-radius:6px;background:rgba(255,255,255,.25);color:#fff;font:inherit;cursor:pointer';
+      x.onclick = function () { el.hidden = true; };
+      el.appendChild(x);
     });
   </script>
   <script type="importmap">
