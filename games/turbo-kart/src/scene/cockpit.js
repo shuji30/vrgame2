@@ -1,0 +1,251 @@
+// GT3・フォーミュラの車内（運転席視点のときだけ表示する）: シート、ダッシュボード、メーター、ドアの内張り、
+// ロールケージ、足もとのアクセルとブレーキなど。外から見る車体は運転席の中まで詰まっているので、
+// 車内視点では代わりにこれを出す。ペダルは実車と同じくダッシュボードの下（VR でのぞき込むと見える）
+// 前方 = ローカル +X、右 = +Z
+import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mat } from './theme.js';
+
+const box = (w, h, d, m, x, y, z, r = 0.02) => {
+  const mesh = new THREE.Mesh(r > 0 ? new RoundedBoxGeometry(w, h, d, 2, r) : new THREE.BoxGeometry(w, h, d), m);
+  mesh.position.set(x, y, z);
+  return mesh;
+};
+
+// x0..x1（前後）、y0..y1（高さ）、z0..z1（左右）の箱
+const span = (x0, x1, y0, y1, z0, z1, m, r = 0.02) => box(x1 - x0, y1 - y0, z1 - z0, m, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, r);
+
+// バケットシート（seat: 座面の中心、recline: 背もたれの傾き）
+function seat(theme, { x, y, z, recline, width = 0.5, accent }) {
+  const g = new THREE.Group();
+  const fabric = mat(theme, { color: 0x24252c }, 'rubber');
+  const shell = mat(theme, { color: 0x15161a }, 'carbon');
+  const belt = mat(theme, { color: accent ?? 0xe0402a }, 'paint');
+  g.position.set(x, y, z);
+  // 座面と、太ももの横の張り出し
+  g.add(box(0.48, 0.07, width, fabric, 0, 0, 0, 0.03));
+  for (const s of [-1, 1]) g.add(box(0.44, 0.1, 0.07, shell, 0, 0.05, s * (width / 2 + 0.02), 0.03));
+  // 背もたれ（腰から後ろへ傾ける）。肩の張り出しとヘッドレスト、ベルト
+  const back = new THREE.Group();
+  back.position.set(-0.24, 0.02, 0);
+  back.rotation.z = recline;
+  back.add(box(0.07, 0.72, width, fabric, -0.03, 0.36, 0, 0.03));
+  back.add(box(0.06, 0.74, width + 0.08, shell, -0.08, 0.37, 0, 0.03));
+  for (const s of [-1, 1]) {
+    back.add(box(0.14, 0.5, 0.07, shell, 0.03, 0.42, s * (width / 2 + 0.02), 0.03));
+    back.add(box(0.012, 0.6, 0.05, belt, 0.0, 0.42, s * 0.11, 0));
+  }
+  back.add(box(0.1, 0.2, 0.3, shell, -0.02, 0.84, 0, 0.04));
+  g.add(back);
+  // 腰のベルト
+  g.add(box(0.05, 0.012, width * 0.8, belt, 0.1, 0.045, 0, 0));
+  return g;
+}
+
+// 吊り下げ式のペダル（上の軸を中心に、踏むと前へ倒れる）
+function pedal(theme, { x, y, z, len, padW, padH, color }) {
+  const pivot = new THREE.Group();
+  pivot.position.set(x, y, z);
+  const arm = mat(theme, { color: 0x8c9099 }, 'metal');
+  const pad = mat(theme, { color }, 'metal');
+  pivot.add(box(0.025, len, 0.025, arm, 0, -len / 2, 0, 0));
+  const p = box(0.02, padH, padW, pad, -0.015, -len, 0, 0.006);
+  p.rotation.z = 0.25;
+  pivot.add(p);
+  return pivot;
+}
+
+// opts: { kind: 'gt3' | 'formula', theme, real, seatZ, eye, paint, carbon, accent }
+// 返り値: { group: 車内（運転席視点のときだけ表示する）, pedals: { accel, brake } }
+export function buildCockpit(opts) {
+  const { kind, theme, seatZ, eye, paint } = opts;
+  const g = new THREE.Group();
+  const trim = mat(theme, { color: 0x3c3e47 }, 'carbon');
+  const floorMat = mat(theme, { color: 0x2c2d33 }, 'rubber');
+  const metal = mat(theme, { color: 0xb8bcc4 }, 'metal');
+
+  let pedals;
+  if (kind === 'gt3') {
+    // 床・センタートンネル・足もとの奥の壁・ダッシュボードの下側（ひざの前）
+    g.add(span(-1.0, 1.35, 0.26, 0.3, -0.92, 0.92, floorMat, 0));
+    g.add(span(-0.75, 0.95, 0.3, 0.52, -0.15, 0.15, trim));
+    g.add(span(1.25, 1.35, 0.3, 0.86, -0.92, 0.92, trim, 0));
+    g.add(span(0.55, 1.25, 0.6, 0.86, -0.92, 0.92, trim));
+    // メーターフード（ハンドルの奥）、センターのディスプレイ、エアコンの吹き出し口
+    g.add(span(0.33, 0.52, 0.95, 1.04, seatZ - 0.17, seatZ + 0.17, trim, 0.03));
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.12), new THREE.MeshBasicMaterial({ color: 0x0d2235 }));
+    screen.position.set(0.285, 0.93, 0.02);
+    screen.rotation.set(0, -Math.PI / 2, 0.3);
+    g.add(screen);
+    for (const z of [-0.75, -0.06, 0.1, 0.75]) g.add(span(0.27, 0.29, 0.86, 0.9, z - 0.05, z + 0.05, floorMat, 0));
+    // A ピラーとフロントガラスの上枠、天井の内張り（前の景色の枠になる）
+    for (const s of [-1, 1]) g.add(tube(new THREE.Vector3(0.62, 0.86, s * 0.86), new THREE.Vector3(0.0, 1.3, s * 0.78), 0.045, trim));
+    g.add(span(-0.05, 0.05, 1.27, 1.33, -0.8, 0.8, trim, 0.02));
+    g.add(span(-1.05, -0.05, 1.32, 1.36, -0.8, 0.8, mat(theme, { color: 0x2e3036 }, 'rubber'), 0));
+    // ドアの取っ手（内側）
+    for (const s of [-1, 1]) g.add(span(0.2, 0.32, 0.78, 0.81, s > 0 ? 0.83 : -0.86, s > 0 ? 0.86 : -0.83, metal, 0.005));
+    // ドアの内張り（左右）と、肘置き
+    for (const s of [-1, 1]) {
+      g.add(span(-1.0, 1.3, 0.3, 0.88, s > 0 ? 0.86 : -0.94, s > 0 ? 0.94 : -0.86, trim));
+      g.add(span(-0.6, 0.3, 0.7, 0.76, s > 0 ? 0.78 : -0.86, s > 0 ? 0.86 : -0.78, floorMat));
+    }
+    // シートの後ろの隔壁（振り返っても道路が素通しにならない）
+    g.add(span(-1.08, -1.0, 0.3, 1.05, -0.92, 0.92, trim, 0));
+    // ロールケージ: シートの後ろの輪とドアに沿った棒
+    for (const s of [-1, 1]) {
+      g.add(tube(new THREE.Vector3(-0.95, 0.3, s * 0.8), new THREE.Vector3(-0.95, 1.05, s * 0.72), 0.025, metal));
+      g.add(tube(new THREE.Vector3(-0.95, 0.75, s * 0.82), new THREE.Vector3(0.9, 0.7, s * 0.8), 0.022, metal));
+    }
+    g.add(tube(new THREE.Vector3(-0.95, 1.05, -0.72), new THREE.Vector3(-0.95, 1.05, 0.72), 0.025, metal));
+    // センターコンソールとシーケンシャルのシフトレバー
+    g.add(span(0.05, 0.6, 0.52, 0.66, -0.13, 0.13, trim));
+    const lever = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.2, 8), metal);
+    lever.position.set(0.15, 0.75, -0.05);
+    lever.rotation.z = 0.25;
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 8), trim);
+    knob.position.set(0.12, 0.86, -0.05);
+    g.add(lever, knob);
+    g.add(seat(theme, { x: eye.x + 0.05, y: 0.42, z: seatZ, recline: 0.28, accent: opts.accent }));
+    // フットレスト（左足）とペダル（右足でアクセル、その左にブレーキ）
+    g.add(span(0.95, 1.2, 0.3, 0.42, seatZ - 0.3, seatZ - 0.2, metal, 0.01));
+    pedals = {
+      brake: pedal(theme, { x: 1.12, y: 0.62, z: seatZ - 0.04, len: 0.24, padW: 0.1, padH: 0.08, color: 0xd9dde5 }),
+      accel: pedal(theme, { x: 1.12, y: 0.62, z: seatZ + 0.13, len: 0.27, padW: 0.07, padH: 0.12, color: 0xd9dde5 }),
+    };
+    if (!opts.real) {
+      // アニメ調の GT3 は外の車体が運転席まで詰まっているので、ボンネット・後ろ・ドアの外板を代わりに出す
+      g.add(span(0.8, 2.3, 0.24, 0.86, -1.0, 1.0, paint, 0.2));
+      g.add(span(-2.3, -1.0, 0.24, 0.86, -1.0, 1.0, paint, 0.2));
+      for (const s of [-1, 1]) g.add(span(-1.05, 1.3, 0.24, 0.86, s > 0 ? 0.94 : -1.0, s > 0 ? 1.0 : -0.94, paint, 0.02));
+    }
+  } else {
+    // フォーミュラ: 細いモノコックの中に寝そべるように座る。足もとはノーズの中（実車と同じく上からは見えない）
+    const half = opts.real ? 0.39 : 0.37;
+    g.add(span(-0.6, 1.3, 0.12, 0.16, -half, half, floorMat, 0));
+    for (const s of [-1, 1]) g.add(span(-0.6, 0.6, 0.16, opts.real ? 0.64 : 0.62, s > 0 ? half - 0.04 : -half, s > 0 ? half : -half + 0.04, paint, 0.015));
+    // 内側の黒い内張り（モノコックの内壁）と、運転席の開口のふちのパッド
+    for (const s of [-1, 1]) {
+      g.add(span(-0.55, 0.6, 0.18, 0.5, s > 0 ? half - 0.06 : -half + 0.04, s > 0 ? half - 0.04 : -half + 0.06, trim, 0));
+      g.add(span(-0.6, 0.2, 0.6, 0.66, s > 0 ? half - 0.1 : -half, s > 0 ? half : -half + 0.1, floorMat, 0.025));
+    }
+    // 足もとの奥の壁（ノーズの付け根）と、シートの後ろの隔壁
+    g.add(span(1.3, 1.36, 0.12, 0.6, -half, half, trim, 0));
+    g.add(span(-0.68, -0.6, 0.12, opts.real ? 0.95 : 0.8, -half, half, trim, 0));
+    g.add(seat(theme, { x: eye.x, y: 0.22, z: 0, recline: 0.55, width: 0.42, accent: opts.accent }));
+    pedals = {
+      brake: pedal(theme, { x: 1.18, y: 0.42, z: -0.08, len: 0.2, padW: 0.08, padH: 0.07, color: 0xd9dde5 }),
+      accel: pedal(theme, { x: 1.18, y: 0.42, z: 0.08, len: 0.22, padW: 0.06, padH: 0.1, color: 0xd9dde5 }),
+    };
+  }
+  g.add(pedals.brake, pedals.accel);
+  if (kind === 'formula' && !opts.real) {
+    // アニメ調のフォーミュラ: 車体の前後（運転席の前のノーズの付け根と、後ろのエンジンの前）
+    g.add(span(0.6, 1.8, 0.21, 0.63, -0.375, 0.375, paint, 0.12));
+    g.add(span(-1.6, -0.6, 0.21, 0.63, -0.375, 0.375, paint, 0.12));
+    // サイドポッド（運転席の左右だけ）
+    for (const s of [-1, 1]) g.add(span(-1.2, 0.5, 0.15, 0.57, s > 0 ? 0.4 : -0.8, s > 0 ? 0.8 : -0.4, paint, 0.15));
+  } else if (kind === 'formula') {
+    // 写実のフォーミュラ: サイドポッド（運転席の左右だけ。前に吸気口）
+    for (const s of [-1, 1]) g.add(span(-1.5, 0.45, 0.14, 0.56, s > 0 ? 0.4 : -0.75, s > 0 ? 0.75 : -0.4, paint, 0.08));
+  }
+  return { group: g, pedals };
+}
+
+// GT ハンドル（上が丸く下が平ら。左右のグリップ、ボタンの並んだ中央のパネル、裏のシフトパドル）
+// ハンドルの面は YZ 平面（運転手は -X 側から見る）。中央には VR のメーター（hud.dash）が付く
+export function gtWheel(theme) {
+  const g = new THREE.Group();
+  const grip = mat(theme, { color: 0x2b2c32 }, 'rubber');
+  const carbon = mat(theme, { color: 0x18191d }, 'carbon');
+  const metal = mat(theme, { color: 0xb8bcc4 }, 'metal');
+  const R = 0.16, arc = (Math.PI * 2) / 3;
+  // 上の弧
+  const top = new THREE.Group();
+  top.rotation.y = Math.PI / 2;
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(R, 0.022, 10, 28, arc), grip);
+  rim.rotation.z = Math.PI / 2 - arc / 2;
+  top.add(rim);
+  g.add(top);
+  // 左右のグリップと下の平らな部分
+  const ez = R * Math.sin(arc / 2), ey = R * Math.cos(arc / 2);
+  for (const s of [-1, 1]) {
+    const c = new THREE.Mesh(new THREE.CapsuleGeometry(0.03, ey + 0.09, 6, 12), grip);
+    c.position.set(0, (ey - 0.09) / 2, s * ez);
+    g.add(c);
+  }
+  g.add(box(0.035, 0.035, ez * 2, grip, 0, -0.09, 0, 0.012));
+  // 中央のパネル（カーボン）と、左右のボタン・ダイヤル
+  g.add(box(0.03, 0.15, ez * 2 - 0.02, carbon, 0.01, 0.0, 0, 0.012));
+  const colors = [0xe53935, 0x43a047, 0x1e88e5, 0xfdd835, 0xffffff, 0xfb8c00];
+  let i = 0;
+  for (const s of [-1, 1]) {
+    for (const y of [0.045, 0.0, -0.045]) {
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.012, 12), new THREE.MeshStandardMaterial({ color: colors[i++ % colors.length], roughness: 0.4 }));
+      b.rotation.z = Math.PI / 2;
+      b.position.set(-0.008, y, s * 0.098);
+      g.add(b);
+    }
+    const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.02, 14), metal);
+    knob.rotation.z = Math.PI / 2;
+    knob.position.set(-0.01, -0.07, s * 0.05);
+    g.add(knob);
+  }
+  // シフトパドル（裏側）
+  for (const s of [-1, 1]) g.add(box(0.008, 0.11, 0.07, metal, 0.04, 0.03, s * 0.12, 0.004));
+  // 真上の目印
+  g.add(box(0.03, 0.015, 0.035, mat(theme, { color: 0xffd23f }), 0, R + 0.005, 0, 0));
+  return g;
+}
+
+// フォーミュラのハンドル（長方形の本体に左右のグリップ。上にシフトランプ、ボタンとダイヤル、裏に大きなパドル）
+export function formulaWheel(theme) {
+  const g = new THREE.Group();
+  const grip = mat(theme, { color: 0x2b2c32 }, 'rubber');
+  const carbon = mat(theme, { color: 0x18191d }, 'carbon');
+  const metal = mat(theme, { color: 0xb8bcc4 }, 'metal');
+  // 本体（下側が少し広い）
+  g.add(box(0.04, 0.12, 0.2, carbon, 0.005, 0.005, 0, 0.02));
+  g.add(box(0.04, 0.05, 0.25, carbon, 0.005, -0.045, 0, 0.02));
+  // 左右のグリップ（少し外へ開く）
+  for (const s of [-1, 1]) {
+    const c = new THREE.Mesh(new THREE.CapsuleGeometry(0.03, 0.1, 6, 12), grip);
+    c.position.set(0, -0.005, s * 0.135);
+    c.rotation.x = s * 0.2;
+    g.add(c);
+  }
+  // シフトランプ（回転が上がると左から点く並び。ここでは飾り）
+  const lights = [0x2ecc40, 0x2ecc40, 0x2ecc40, 0xff3b30, 0xff3b30, 0xff3b30, 0x3a7bff, 0x3a7bff, 0x3a7bff];
+  lights.forEach((c, i) => {
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.008, 0.012), new THREE.MeshBasicMaterial({ color: c }));
+    l.position.set(-0.016, 0.055, (i - 4) * 0.016);
+    g.add(l);
+  });
+  // ボタンとダイヤル
+  const colors = [0xfdd835, 0xe53935, 0x1e88e5, 0xffffff];
+  let i = 0;
+  for (const s of [-1, 1]) {
+    for (const y of [0.03, -0.01]) {
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.01, 12), new THREE.MeshStandardMaterial({ color: colors[i++ % colors.length], roughness: 0.4 }));
+      b.rotation.z = Math.PI / 2;
+      b.position.set(-0.017, y, s * 0.075);
+      g.add(b);
+    }
+    for (const z of [0.03, 0.09]) {
+      const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.018, 14), metal);
+      knob.rotation.z = Math.PI / 2;
+      knob.position.set(-0.02, -0.05, s * z);
+      g.add(knob);
+    }
+  }
+  // 裏の大きなシフトパドル
+  for (const s of [-1, 1]) g.add(box(0.006, 0.09, 0.1, metal, 0.04, 0.0, s * 0.09, 0.004));
+  return g;
+}
+
+function tube(a, b, r, m) {
+  const d = new THREE.Vector3().subVectors(b, a);
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r, r, d.length(), 8), m);
+  mesh.position.copy(a).addScaledVector(d, 0.5);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+  return mesh;
+}

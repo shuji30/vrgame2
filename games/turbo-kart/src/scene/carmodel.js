@@ -5,6 +5,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mat, addOutline } from './theme.js';
 import { buildHead, animateDriver } from './characters.js';
 import { buildRealFormula } from './realcars.js';
+import { buildCockpit, gtWheel, formulaWheel } from './cockpit.js';
 
 function label(name, color) {
   const c = document.createElement('canvas');
@@ -101,6 +102,7 @@ export class CarModel {
       // 本格: 実車に近いフォーミュラ（細いノーズ・多段のウイング・サイドポッド・エアボックス・ヘイロー・アーム）
       const info = buildRealFormula(this, { paint, accent, carbon, plate: mat(theme, { map: numberTex(number, color) }, 'paint') });
       this.cockpitHide.push(...info.hide);
+      this.cockpitShow = [...info.show];
       this.eye = info.eye;
       this.steerPos = info.steerPos;
     } else if (formula) {
@@ -131,7 +133,8 @@ export class CarModel {
       num.rotation.x = -Math.PI / 2;
       num.rotation.z = -Math.PI / 2;
       this.group.add(tub, nose, fwing, pods, engine, rwing, plateL, plateR, halo, num);
-      this.cockpitHide.push(halo);
+      // 車内視点では運転席まで詰まったモノコックとサイドポッドを隠し、cockpit.js の内装を出す
+      this.cockpitHide.push(halo, tub, pods);
       this.eye = new THREE.Vector3(-0.2, 0.92, 0);
       this.steerPos = new THREE.Vector3(0.22, 0.66, 0);
     } else if (theme === 'real') {
@@ -170,7 +173,8 @@ export class CarModel {
       const dash = new THREE.Mesh(new RoundedBoxGeometry(0.5, 0.14, 1.6, 2, 0.05), dark);
       dash.position.set(0.55, 0.92, 0);
       this.group.add(body, cabin, roof, splitter, wing, stripe, num, num2, dash);
-      this.cockpitHide.push(cabin, roof);
+      // 車内視点では運転席まで詰まった車体を隠し、cockpit.js の外板と内装を出す
+      this.cockpitHide.push(cabin, roof, body, stripe);
       // 左ハンドル（運転席は進行方向の左 = -Z 側）
       this.eye = new THREE.Vector3(-0.35, 1.18, -0.38);
       // ハンドルは目より 0.3m ほど下（輪の上端が前の景色を遮らない高さ）
@@ -186,19 +190,27 @@ export class CarModel {
       glass.opacity = 0.45;
     }
 
+    // 車内（シート・足もと・ペダルなど）。運転席視点のときだけ表示する（縁取りは付けない）
+    const cockpit = buildCockpit({
+      kind: formula ? 'formula' : 'gt3', theme, real: theme === 'real', seatZ: formula ? 0 : this.eye.z, eye: this.eye, paint, accent: color,
+    });
+    cockpit.group.visible = false;
+    this.group.add(cockpit.group);
+    this.cockpitShow = [...(this.cockpitShow || []), cockpit.group];
+    this.pedals = cockpit.pedals;
+
     // ハンドル
     this.steerGroup = new THREE.Group();
     this.steerGroup.position.copy(this.steerPos);
     this.steerGroup.rotation.z = -0.15;
     this.steerWheel = new THREE.Group();
-    const ringR = formula ? 0.14 : 0.18;
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(ringR, 0.025, 10, 32), mat(theme, { color: 0x33343e }, 'rubber'));
-    ring.rotation.y = Math.PI / 2;
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.05, ringR * 2), mat(theme, { color: 0xd9dde5 }, 'metal'));
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.04, 0.05), mat(theme, { color: 0xffd23f }));
-    grip.position.y = ringR;
-    this.steerWheel.add(ring, bar, grip);
-    this.steerGroup.add(this.steerWheel);
+    // GT3 はレース用の GT ハンドル、フォーミュラはフォーミュラのハンドル
+    this.steerWheel.add(formula ? formulaWheel(theme) : gtWheel(theme));
+    // ステアリングコラム（ハンドルの中心からダッシュボードの奥へ）
+    const column = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.4, 10), mat(theme, { color: 0x2a2b31 }, 'carbon'));
+    column.rotation.z = Math.PI / 2;
+    column.position.x = 0.22;
+    this.steerGroup.add(this.steerWheel, column);
     this.group.add(this.steerGroup);
     this.lever = new THREE.Group(); // 互換のため（車ではサイドブレーキのレバーを表示しない）
 
@@ -345,8 +357,16 @@ export class CarModel {
     dash.position.set(0.5, 0.9, 0);
     hood.visible = dash.visible = false;
     this.group.add(body, windows, bumperF, skirt, bumperR, floor, splitter, diffuser, wing, num, num2, hood, dash);
-    this.cockpitHide.push(body, windows);
-    this.cockpitShow = [hood, dash];
+    // 車内視点では、運転席まで詰まった下回り（サイドスカートと床）も隠し、外側の敷居だけを出す
+    const sills = [-1, 1].map((sz) => {
+      const m = new THREE.Mesh(new RoundedBoxGeometry(1.92, 0.42, 0.08, 2, 0.03), paint);
+      m.position.set(0.14, 0.41, sz * 0.93);
+      m.visible = false;
+      return m;
+    });
+    this.group.add(...sills);
+    this.cockpitHide.push(body, windows, skirt, floor);
+    this.cockpitShow = [hood, dash, ...sills];
     this.eye = new THREE.Vector3(-0.35, 1.12, -0.38);
     // ハンドルは目より 0.3m ほど下（輪の上端が前の景色を遮らない高さ）
     this.steerPos = new THREE.Vector3(0.1, 0.8, -0.38);
@@ -362,7 +382,12 @@ export class CarModel {
     this.head?.setExpression(name);
   }
 
-  update(pose, kart, steer, dt, lockDeg = 270) {
+  // pedals: { throttle, brake }（0..1。車内のペダルを動かす）
+  update(pose, kart, steer, dt, lockDeg = 270, pedals = null) {
+    if (this.pedals && pedals) {
+      this.pedals.accel.rotation.z = (pedals.throttle || 0) * 0.35;
+      this.pedals.brake.rotation.z = (pedals.brake || 0) * 0.25;
+    }
     this.group.position.set(pose.x, pose.y, pose.z);
     this.group.rotation.set(-pose.roll, -pose.heading, pose.pitch);
     const v = kart.vx * Math.cos(kart.heading) + kart.vz * Math.sin(kart.heading);

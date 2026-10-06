@@ -534,7 +534,7 @@ export class Game {
       const inside = e === this.me && this.insideView;
       if (e.spin > 0 && !inside) pose.heading += (1 - e.spin / (e.spinMax || 1.1)) * Math.PI * 2;
       this.models[i].group.scale.setScalar(e.shrink > 0 && !inside ? 0.6 : 1);
-      this.models[i].update(pose, e.kart, steer, dt, this.input.lockDeg || this.input.config.steer.lockDeg);
+      this.models[i].update(pose, e.kart, steer, dt, this.input.lockDeg || this.input.config.steer.lockDeg, e.input);
     });
 
     // 火花・土煙

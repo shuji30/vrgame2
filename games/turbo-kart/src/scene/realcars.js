@@ -145,15 +145,21 @@ export function buildRealFormula(model, { paint, accent, carbon, plate }) {
   const g = model.group;
   const wingMat = carbon;
   // モノコック〜ノーズ: 先端は細く低く、コックピットで最も広い。エンジンカバーはエアボックスへ盛り上がる
-  const tub = profileBody([
-    [3.35, 0.14], [3.33, 0.24], [2.9, 0.36], [2.2, 0.5], [1.4, 0.62], [0.75, 0.66], [0.35, 0.66],
-    [-0.15, 0.98], [-0.45, 1.04], [-0.75, 0.96], [-1.5, 0.66], [-2.05, 0.5], [-2.15, 0.2], [-2.0, 0.12], [3.3, 0.12],
-  ], (x) => {
+  const tubWidth = (x) => {
     if (x > 2.4) return lerp(0.2, 0.36, (3.35 - x) / 0.95);
     if (x > 0.6) return lerp(0.36, 0.78, (2.4 - x) / 1.8);
     if (x > -0.4) return 0.78;
     return lerp(0.78, 0.36, (-0.4 - x) / 1.75);
-  }, paint);
+  };
+  const tub = profileBody([
+    [3.35, 0.14], [3.33, 0.24], [2.9, 0.36], [2.2, 0.5], [1.4, 0.62], [0.75, 0.66], [0.35, 0.66],
+    [-0.15, 0.98], [-0.45, 1.04], [-0.75, 0.96], [-1.5, 0.66], [-2.05, 0.5], [-2.15, 0.2], [-2.0, 0.12], [3.3, 0.12],
+  ], tubWidth, paint);
+  // 運転席視点用: モノコックの前（ノーズ）と後ろ（エンジンカバー）だけ。間の運転席は cockpit.js の内装で作る
+  // 足もとはノーズの中（実車と同じく上から見えない）。運転席の開口はハンドルのあたりまで
+  const tubFront = profileBody([[3.35, 0.14], [3.33, 0.24], [2.9, 0.36], [2.2, 0.5], [1.4, 0.62], [0.75, 0.66], [0.6, 0.66], [0.6, 0.12], [3.3, 0.12]], tubWidth, paint);
+  const tubRear = profileBody([[-0.6, 1.0], [-0.75, 0.96], [-1.5, 0.66], [-2.05, 0.5], [-2.15, 0.2], [-2.0, 0.12], [-0.6, 0.12]], tubWidth, paint);
+  tubFront.visible = tubRear.visible = false;
   // サイドポッド: 前に吸気口、後ろへ絞り込む
   const pods = profileBody([[0.45, 0.14], [0.45, 0.56], [0.2, 0.6], [-0.7, 0.52], [-1.55, 0.3], [-1.6, 0.14]],
     (x) => (x > 0.1 ? 1.5 : lerp(1.5, 0.8, (0.1 - x) / 1.7)), paint);
@@ -221,6 +227,6 @@ export function buildRealFormula(model, { paint, accent, carbon, plate }) {
   const num = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.2), plate);
   num.position.set(2.0, 0.555, 0);
   num.rotation.set(-Math.PI / 2, 0, -Math.PI / 2 + 0.1);
-  g.add(tub, pods, airbox, fin, floor, main, flap, pillar, halo, strut, num);
-  return { eye: V3(-0.05, 0.86, 0), steerPos: V3(0.32, 0.6, 0), hide: [halo, strut, airbox, fin] };
+  g.add(tub, pods, airbox, fin, floor, main, flap, pillar, halo, strut, num, tubFront, tubRear);
+  return { eye: V3(-0.05, 0.86, 0), steerPos: V3(0.32, 0.6, 0), hide: [halo, strut, airbox, fin, tub, pods], show: [tubFront, tubRear] };
 }
