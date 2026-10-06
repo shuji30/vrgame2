@@ -388,8 +388,8 @@ export class CarModel {
   // テールランプ1 つ（size: [x, y, z]）。real: 写実モード（光る素材）。後ろに光のにじみ（ブレーキ中だけ）
   addTailLight(x, y, z, size, real) {
     const material = real
-      ? new THREE.MeshStandardMaterial({ color: 0x550000, emissive: 0xff1a1a, emissiveIntensity: 0.5, roughness: 0.3 })
-      : new THREE.MeshBasicMaterial({ color: 0x3a0606 });
+      ? new THREE.MeshStandardMaterial({ color: 0x990000, emissive: 0xff1a1a, emissiveIntensity: 1.2, roughness: 0.3 })
+      : new THREE.MeshBasicMaterial({ color: 0xc01818 });
     const lamp = new THREE.Mesh(new THREE.BoxGeometry(...size), material);
     lamp.position.set(x, y, z);
     const glow = new THREE.Mesh(
@@ -418,8 +418,9 @@ export class CarModel {
     if (this.brakeOn === on) return;
     this.brakeOn = on;
     for (const t of this.tailLights) {
-      if (t.real) t.material.emissiveIntensity = on ? 4 : 0.5;
-      else t.material.color.set(on ? 0xff5050 : 0x3a0606);
+      // 消灯中も赤く（ブレーキ中はさらに明るく、まわりに光がにじむ）
+      if (t.real) t.material.emissiveIntensity = on ? 5 : 1.2;
+      else t.material.color.set(on ? 0xff7070 : 0xc01818);
       t.glow.visible = on;
     }
   }
