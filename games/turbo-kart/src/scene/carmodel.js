@@ -207,8 +207,10 @@ export class CarModel {
     // GT3 はレース用の GT ハンドル、フォーミュラはフォーミュラのハンドル
     // フォーミュラのハンドルは実寸より少し大きめ（VR で小さく見えないように）
     const wheelMesh = formula ? formulaWheel(theme) : gtWheel(theme);
-    if (formula) wheelMesh.scale.setScalar(1.4);
+    if (formula) wheelMesh.scale.setScalar(1.2);
     this.steerWheel.add(wheelMesh);
+    // VR のメーター（hud.dash）をハンドル中央のパネルに埋め込む位置と大きさ（ボタンの間に収める）
+    this.dashMount = formula ? { x: -0.02, y: -0.006, scale: 0.35 } : { x: -0.008, y: 0, scale: 0.4 };
     // ステアリングコラム（ハンドルの中心からダッシュボードの奥へ）
     const column = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.4, 10), mat(theme, { color: 0x2a2b31 }, 'carbon'));
     column.rotation.z = Math.PI / 2;

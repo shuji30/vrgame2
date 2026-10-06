@@ -230,9 +230,12 @@ export class Game {
     model.group.add(this.cockpit);
     // VR 用のダッシュボードと案内パネル
     // ダッシュボードはハンドル中央（実車のカートと同じくハンドルと一緒に回る）
-    this.hud.dash.mesh.position.set(-0.035, 0, 0);
+    // 車種ごとの取り付け位置（GT3・フォーミュラはハンドル中央のパネルに埋め込む）
+    const mount = model.dashMount || { x: -0.035, y: 0, scale: 0.5 };
+    this.dashScale = mount.scale;
+    this.hud.dash.mesh.position.set(mount.x, mount.y, 0);
     this.hud.dash.mesh.rotation.set(0, -Math.PI / 2, 0);
-    this.hud.dash.mesh.scale.setScalar(0.5);
+    this.hud.dash.mesh.scale.setScalar(mount.scale);
     model.steerWheel.add(this.hud.dash.mesh);
     this.hud.banner.mesh.position.set(0, 0.25, -3);
     this.cockpit.add(this.hud.banner.mesh);
@@ -304,7 +307,7 @@ export class Game {
       m.eyeHidden = null;
       m.steerGroup.scale.setScalar(1);
     }
-    this.hud.dash.mesh.scale.setScalar(0.5);
+    this.hud.dash.mesh.scale.setScalar(this.dashScale || 0.5);
     if (!this.me) return;
     const m = this.models[this.me.index];
     const mode = this.xrOn ? 'cockpit' : this.cameraMode;
