@@ -119,13 +119,13 @@ export function buildCockpit(opts) {
       for (const s of [-1, 1]) g.add(span(-1.05, 1.3, 0.24, 0.86, s > 0 ? 0.94 : -1.0, s > 0 ? 1.0 : -0.94, paint, 0.02));
     }
   } else {
-    // フォーミュラ: 細いモノコックの中に寝そべるように座る。足もとはノーズの中（実車と同じく上からは見えない）
+    // フォーミュラ: 細いモノコックの中に寝そべるように座る。足もとまで開口があり、のぞき込むとペダルが見える
     const half = opts.real ? 0.39 : 0.37;
     g.add(span(-0.6, 1.3, 0.12, 0.16, -half, half, floorMat, 0));
-    for (const s of [-1, 1]) g.add(span(-0.6, 0.6, 0.16, opts.real ? 0.64 : 0.62, s > 0 ? half - 0.04 : -half, s > 0 ? half : -half + 0.04, paint, 0.015));
+    for (const s of [-1, 1]) g.add(span(-0.6, 1.3, 0.16, opts.real ? 0.64 : 0.62, s > 0 ? half - 0.04 : -half, s > 0 ? half : -half + 0.04, paint, 0.015));
     // 内側の黒い内張り（モノコックの内壁）と、運転席の開口のふちのパッド
     for (const s of [-1, 1]) {
-      g.add(span(-0.55, 0.6, 0.18, 0.5, s > 0 ? half - 0.06 : -half + 0.04, s > 0 ? half - 0.04 : -half + 0.06, trim, 0));
+      g.add(span(-0.55, 1.3, 0.18, 0.5, s > 0 ? half - 0.06 : -half + 0.04, s > 0 ? half - 0.04 : -half + 0.06, trim, 0));
       g.add(span(-0.6, 0.2, 0.6, 0.66, s > 0 ? half - 0.1 : -half, s > 0 ? half : -half + 0.1, floorMat, 0.025));
     }
     // 足もとの奥の壁（ノーズの付け根）と、シートの後ろの隔壁
@@ -133,14 +133,14 @@ export function buildCockpit(opts) {
     g.add(span(-0.68, -0.6, 0.12, opts.real ? 0.95 : 0.8, -half, half, trim, 0));
     g.add(seat(theme, { x: eye.x, y: 0.22, z: 0, recline: 0.55, width: 0.42, accent: opts.accent }));
     pedals = {
-      brake: pedal(theme, { x: 1.18, y: 0.42, z: -0.08, len: 0.2, padW: 0.08, padH: 0.07, color: 0xd9dde5 }),
-      accel: pedal(theme, { x: 1.18, y: 0.42, z: 0.08, len: 0.22, padW: 0.06, padH: 0.1, color: 0xd9dde5 }),
+      brake: pedal(theme, { x: 1.12, y: 0.46, z: -0.1, len: 0.2, padW: 0.13, padH: 0.11, color: 0xe8ebf0 }),
+      accel: pedal(theme, { x: 1.12, y: 0.46, z: 0.1, len: 0.22, padW: 0.1, padH: 0.16, color: 0xe8ebf0 }),
     };
   }
   g.add(pedals.brake, pedals.accel);
   if (kind === 'formula' && !opts.real) {
     // アニメ調のフォーミュラ: 車体の前後（運転席の前のノーズの付け根と、後ろのエンジンの前）
-    g.add(span(0.6, 1.8, 0.21, 0.63, -0.375, 0.375, paint, 0.12));
+    g.add(span(1.3, 1.8, 0.21, 0.63, -0.375, 0.375, paint, 0.12));
     g.add(span(-1.6, -0.6, 0.21, 0.63, -0.375, 0.375, paint, 0.12));
     // サイドポッド（運転席の左右だけ）
     for (const s of [-1, 1]) g.add(span(-1.2, 0.5, 0.15, 0.57, s > 0 ? 0.4 : -0.8, s > 0 ? 0.8 : -0.4, paint, 0.15));
