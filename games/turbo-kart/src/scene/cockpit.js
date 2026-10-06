@@ -73,12 +73,7 @@ export function buildCockpit(opts) {
     g.add(span(-0.75, 0.95, 0.3, 0.52, -0.15, 0.15, trim));
     g.add(span(0.98, 1.06, 0.3, 0.86, -0.92, 0.92, trim, 0));
     g.add(span(0.55, 0.98, 0.62, 0.86, -0.92, 0.92, trim));
-    // メーターフード（ハンドルの奥）、センターのディスプレイ、エアコンの吹き出し口
-    g.add(span(0.33, 0.52, 0.95, 1.04, seatZ - 0.17, seatZ + 0.17, trim, 0.03));
-    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.12), new THREE.MeshBasicMaterial({ color: 0x0d2235 }));
-    screen.position.set(0.285, 0.93, 0.02);
-    screen.rotation.set(0, -Math.PI / 2, 0.3);
-    g.add(screen);
+    // エアコンの吹き出し口
     for (const z of [-0.75, -0.06, 0.1, 0.75]) g.add(span(0.27, 0.29, 0.86, 0.9, z - 0.05, z + 0.05, floorMat, 0));
     // A ピラーとフロントガラスの上枠、天井の内張り（前の景色の枠になる）
     for (const s of [-1, 1]) g.add(tube(new THREE.Vector3(0.62, 0.86, s * 0.86), new THREE.Vector3(0.0, 1.3, s * 0.78), 0.045, trim));
