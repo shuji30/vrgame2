@@ -148,8 +148,8 @@ const SEA_LEVEL = -1.4;
 function seaSlope(track, x, z, h) {
   const sea = track.def?.sea;
   if (!sea) return h;
-  const t = x * sea.dir[0] + z * sea.dir[1] - (sea.shore - 45);
-  return t > 0 ? Math.max(h - t * 0.12, -7) : h;
+  const t = x * sea.dir[0] + z * sea.dir[1] - (sea.shore - (sea.beach ?? 45));
+  return t > 0 ? Math.max(h - t * (sea.slope ?? 0.12), -7) : h;
 }
 
 // 地形の高さ。立体交差のように近くに別の区間があるときは低い方に合わせる（上の道は橋になる）
@@ -562,6 +562,9 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
     if (!isStraight(track, bs)) continue;
     for (const side of [-1, 1]) {
       const p = pointAt(track, bs, side * (wall + 1.3));
+      // 海側には看板を立てない（海が見えるように）
+      const sea = track.def.sea;
+      if (sea && p.x * sea.dir[0] + p.z * sea.dir[1] > sea.shore - (sea.beach ?? 45) - 30) continue;
       const b = new THREE.Mesh(boardGeo, boardMats[boards % boardMats.length]);
       b.position.set(p.x, roadHeight(track, bs, side * wall) + 1.1, p.z);
       b.rotation.y = -p.heading;
@@ -688,6 +691,7 @@ function roadsideForest(track, wall, real, M) {
 function buildSea(track, area, real, M, updaters) {
   const g = new THREE.Group();
   const { dir, shore } = track.def.sea;
+  const beach = track.def.sea.beach ?? 45;
   const ang = Math.atan2(dir[1], dir[0]);
   const waveTex = canvasTexture(256, 256, (ctx, w, h) => {
     ctx.fillStyle = real ? '#1d4a6e' : '#2aa6e6';
@@ -703,8 +707,8 @@ function buildSea(track, area, real, M, updaters) {
     real ? new THREE.MeshStandardMaterial({ map: waveTex, roughness: 0.18, metalness: 0.25 }) : M({ map: waveTex }),
   );
   water.rotation.x = -Math.PI / 2;
-  // 海岸線から沖へ 3km（向き dir に合わせて回す）
-  const c = shore - 30 + 1500;
+  // 海岸線の少し手前から沖へ 3km（向き dir に合わせて回す。陸の下に入った部分は地面に隠れる）
+  const c = shore - beach + 1500;
   water.position.set(dir[0] * c, SEA_LEVEL, dir[1] * c);
   water.rotation.z = -ang;
   g.add(water);
@@ -712,10 +716,11 @@ function buildSea(track, area, real, M, updaters) {
   // 砂浜（海岸線の手前から水際まで。地形の上にうっすら重ねる）
   const sandTex = canvasTexture(128, 128, (ctx, w, h) => speckle(ctx, w, h, real ? '#cdb98f' : '#f3dc9a', 40, 3000, 2));
   const along = Math.abs(dir[0]) > 0.5 ? area.d : area.w;
-  const sg = new THREE.PlaneGeometry(70, along, 14, Math.ceil(along / 5));
+  const sandW = beach + 30;
+  const sg = new THREE.PlaneGeometry(sandW, along, Math.ceil(sandW / 5), Math.ceil(along / 5));
   sg.rotateX(-Math.PI / 2);
   sg.rotateY(-ang);
-  const mid = shore - 45 + 35;
+  const mid = shore - beach + sandW / 2 - 2;
   const cxA = area.x0 + area.w / 2, czA = area.z0 + area.d / 2;
   // 海岸線に沿う方向は地形の範囲の中央に合わせる
   const ox = Math.abs(dir[0]) > 0.5 ? dir[0] * mid : cxA, oz = Math.abs(dir[0]) > 0.5 ? czA : dir[1] * mid;
