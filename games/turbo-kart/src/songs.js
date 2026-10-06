@@ -69,8 +69,8 @@ const R = {
 };
 
 const SONGS = {
-  // Thunder Ring: レース中継のテーマのような疾走感のあるフュージョンロック（リリコン風のリード）
-  'thunder-ring': {
+  // Coastal Speedway: レース中継のテーマのような疾走感のあるフュージョンロック（リリコン風のリード）
+  speedway: {
     bpm: 150, drums: 'rock', lead: 'lyricon',
     bars: bars(['Gmaj7', 'A6', 'F#m7', 'Bm7', 'Em7', 'F#m7', 'Gmaj7', ['A7sus', 'A7'], 'Gmaj7', 'A', 'Bm7', ['Bm7', 'A6'], 'Gmaj7', 'A', ['Em7', 'A7'], 'Dmaj7']),
     melody: [
@@ -119,8 +119,8 @@ const SONGS = {
     bass: [[0, 0], [3, 12], [4, 0], [6, 0], [8, 0], [10, 12], [11, 7], [14, 0], [15, 12]],
     stabs: [3, 6, 10, 14],
   },
-  // Eight Hills: 日本のフュージョン（E メジャー、矩形波のリード）
-  'eight-hills': {
+  // Misty Pass（峠）: 日本のフュージョン（E メジャー、矩形波のリード）
+  'misty-pass': {
     bpm: 144, drums: 'rock', lead: 'square',
     bars: bars(['Amaj7', 'B6', 'G#m7', 'C#m7', 'F#m7', ['B7sus', 'B7'], 'Emaj7', 'C#7', 'Amaj7', 'B', ['G#m7', 'C#m7'], ['F#m7', 'B7'], 'Amaj7', 'G#m7', 'F#m7', ['Bsus4', 'B']]),
     gen: { seed: 8, key: 4, lo: 64, hi: 83, rhythms: [R.drive, R.run, R.sync, R.long], plan: [0, 1, 2, 3, 0, 1, 2, 3, 1, 0, 1, 2, 0, 1, 0, 3] },
@@ -143,16 +143,16 @@ const SONGS = {
     bass: [[0, 0], [2, 0], [4, 0], [6, 0], [8, 0], [10, 0], [12, 0], [14, 7]],
     stabs: [6, 14],
   },
-  // Misty Pass（峠）: ユーロビート（F# マイナー、速い 4 つ打ち、裏で跳ねるオクターブのベース）
-  'misty-pass': {
+  // Eight Hills: ユーロビート（F# マイナー、速い 4 つ打ち、裏で跳ねるオクターブのベース）
+  'eight-hills': {
     bpm: 156, drums: 'four', lead: 'saw',
     bars: bars(['F#m', 'D', 'E', 'C#m', 'F#m', 'D', 'E', 'E', 'D', 'E', 'F#m', 'F#m', 'D', 'E', 'C#', 'C#']),
     gen: { seed: 55, key: 6, minor: true, lo: 66, hi: 85, rhythms: [R.euro, R.drive, R.run, R.hold], plan: [0, 1, 0, 2, 0, 1, 2, 3, 0, 0, 1, 2, 0, 0, 2, 3] },
     bass: [[0, 0], [2, 12], [4, 0], [6, 12], [8, 0], [10, 12], [12, 0], [14, 12]],
     stabs: [2, 6, 10, 14],
   },
-  // Coastal Speedway: 夕暮れの海沿いを流すシンセウェイブ（C マイナー、ハーフタイム）
-  speedway: {
+  // Thunder Ring: 夕暮れの海沿いを流すシンセウェイブ（C マイナー、ハーフタイム）
+  'thunder-ring': {
     bpm: 112, drums: 'half', lead: 'square',
     bars: bars(['Cm', 'Ab', 'Eb', 'Bb', 'Cm', 'Ab', 'Fm', 'G', 'Ab', 'Bb', 'Cm', 'Cm', 'Ab', 'Bb', 'G', 'G']),
     gen: { seed: 77, key: 0, minor: true, lo: 63, hi: 82, rhythms: [R.wave, R.long, R.sync, R.hold], plan: [0, 1, 0, 3, 0, 1, 2, 3, 1, 0, 1, 2, 1, 0, 2, 3] },

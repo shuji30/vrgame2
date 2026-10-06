@@ -17,8 +17,8 @@ function dotTexture() {
 }
 
 class Pool {
-  // late: 最後の 3 分の 1 だけで消える（紙吹雪用）
-  constructor(scene, { size, additive, opacity = 0.45, late = false }) {
+  // late: 最後の 3 分の 1 だけで消える（紙吹雪用）。grow: 消えるまでに大きさが (1 + grow) 倍に広がる（煙用）
+  constructor(scene, { size, additive, opacity = 0.45, late = false, grow = 0 }) {
     this.late = late;
     this.opacity = opacity;
     this.pos = new Float32Array(MAX * 3).fill(-9999);
@@ -29,18 +29,20 @@ class Pool {
     this.base = new Float32Array(MAX * 3);
     this.next = 0;
     this.alpha = new Float32Array(MAX);
+    this.age = new Float32Array(MAX);
     this.additive = additive;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
     g.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
     g.setAttribute('alpha', new THREE.BufferAttribute(this.alpha, 1));
+    g.setAttribute('age', new THREE.BufferAttribute(this.age, 1));
     this.geo = g;
     // 色は保ったまま透明度で消す（暗くなって視界をふさがないように）
     const mat = new THREE.ShaderMaterial({
-      uniforms: { map: { value: dotTexture() }, size: { value: size * 300 } },
-      vertexShader: `attribute vec3 color; attribute float alpha; varying vec3 vC; varying float vA; uniform float size;
+      uniforms: { map: { value: dotTexture() }, size: { value: size * 300 }, grow: { value: grow } },
+      vertexShader: `attribute vec3 color; attribute float alpha; attribute float age; varying vec3 vC; varying float vA; uniform float size; uniform float grow;
         void main(){ vC = color; vA = alpha; vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = size / max(0.1, -mv.z); gl_Position = projectionMatrix * mv; }`,
+        gl_PointSize = size * (1.0 + grow * age) / max(0.1, -mv.z); gl_Position = projectionMatrix * mv; }`,
       fragmentShader: `uniform sampler2D map; varying vec3 vC; varying float vA;
         void main(){ vec4 t = texture2D(map, gl_PointCoord); gl_FragColor = vec4(vC, t.a * vA); }`,
       transparent: true, depthWrite: false,
@@ -78,6 +80,7 @@ class Pool {
       this.pos[o + 1] += this.vel[o + 1] * dt;
       this.pos[o + 2] += this.vel[o + 2] * dt;
       const f = this.life[i] / this.max[i];
+      this.age[i] = 1 - f;
       this.col[o] = this.base[o];
       this.col[o + 1] = this.base[o + 1];
       this.col[o + 2] = this.base[o + 2];
@@ -86,6 +89,7 @@ class Pool {
     this.geo.attributes.position.needsUpdate = true;
     this.geo.attributes.color.needsUpdate = true;
     this.geo.attributes.alpha.needsUpdate = true;
+    this.geo.attributes.age.needsUpdate = true;
   }
 
   clear() {
@@ -111,9 +115,10 @@ export class Effects {
     this.sparks = new Pool(scene, { size: 0.18, additive: true });
     this.dust = new Pool(scene, { size: 0.7, additive: false });
     // タイヤスモーク（後輪が大きく滑ったとき。ドリフト）
-    this.smoke = new Pool(scene, { size: 1.8, additive: false, opacity: 0.3 });
+    this.smoke = new Pool(scene, { size: 1.5, additive: false, opacity: 0.55, grow: 3 });
     this.confettiPool = new Pool(scene, { size: 0.28, additive: false, opacity: 1, late: true });
     this.tmp = new THREE.Vector3();
+    this.tmpS = new THREE.Vector3();
     this.tmpV = new THREE.Vector3();
   }
 
@@ -139,11 +144,15 @@ export class Effects {
           this.sparks.emit(p, v, color, 0.25 + Math.random() * 0.25);
         }
       }
-      // 舗装の上で後輪が大きく滑ると白い煙（滑るほど濃く）
+      // 舗装の上で後輪が大きく滑ると（ドリフト）タイヤから白い煙。滑るほど多く、もくもく広がって立ちのぼる
       const slide = Math.abs(kart.rearSlip || 0);
-      if (!DUST[kart.surface] && slide > 0.14 && speed > 6 && Math.random() < Math.min(1, (slide - 0.1) * 3) * 0.6 * rate) {
-        const v = this.tmpV.set(-0.5 - Math.random(), 0.5 + Math.random() * 0.8, (Math.random() - 0.5) * 1.2).applyQuaternion(g.quaternion);
-        this.smoke.emit(p, v, SMOKE, 0.9 + Math.random() * 0.6);
+      if (!DUST[kart.surface] && slide > 0.12 && speed > 4) {
+        const amount = Math.min(3, (slide - 0.08) * 8) * rate;
+        const count = Math.floor(amount) + (Math.random() < amount % 1 ? 1 : 0);
+        for (let n = 0; n < count; n++) {
+          const v = this.tmpV.set(-0.3 - Math.random() * 0.8, 0.5 + Math.random() * 0.9, (Math.random() - 0.5) * 1.6).applyQuaternion(g.quaternion);
+          this.smoke.emit(this.tmpS.copy(p).setY(p.y + 0.25), v, SMOKE, 1.4 + Math.random() * 1.0);
+        }
       }
       const dc = DUST[kart.surface];
       if (dc && speed > 5 && Math.random() < 0.22 * rate) {
@@ -167,7 +176,7 @@ export class Effects {
   update(dt) {
     this.sparks.update(dt, -9, 2);
     this.dust.update(dt, 1.2, 1.5);
-    this.smoke.update(dt, 0.8, 1.2);
+    this.smoke.update(dt, 0.35, 1.4);
     this.confettiPool.update(dt, -2.5, 2.2);
   }
 }
