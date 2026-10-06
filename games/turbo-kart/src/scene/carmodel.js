@@ -136,7 +136,7 @@ export class CarModel {
       num.rotation.x = -Math.PI / 2;
       num.rotation.z = -Math.PI / 2;
       this.group.add(tub, nose, fwing, pods, engine, rwing, plateL, plateR, halo, num);
-      this.addSideMirrors(0.45, 0.76, 0.5, [0.06, 0.07, 0.16], paint);
+      this.addSideMirrors(0.45, 0.76, 0.5, [0.06, 0.07, 0.16], paint, [0.62, 0.36]);
       // 車内視点では運転席まで詰まったモノコックとサイドポッドを隠し、cockpit.js の内装を出す
       this.cockpitHide.push(halo, tub, pods);
       this.eye = new THREE.Vector3(-0.2, 0.92, 0);
@@ -177,7 +177,7 @@ export class CarModel {
       const dash = new THREE.Mesh(new RoundedBoxGeometry(0.5, 0.14, 1.6, 2, 0.05), dark);
       dash.position.set(0.55, 0.92, 0);
       this.group.add(body, cabin, roof, splitter, wing, stripe, num, num2, dash);
-      this.addSideMirrors(0.45, 0.97, 1.08, [0.12, 0.09, 0.16], paint);
+      this.addSideMirrors(0.45, 0.97, 1.08, [0.12, 0.09, 0.16], paint, [0.87, 0.93]);
       // 車内視点では運転席まで詰まった車体を隠し、cockpit.js の外板と内装を出す
       this.cockpitHide.push(cabin, roof, body, stripe);
       // 左ハンドル（運転席は進行方向の左 = -Z 側）
@@ -349,7 +349,7 @@ export class CarModel {
       tail.position.set(-2.33, 0.86, z);
       this.group.add(head, tail);
     }
-    this.addSideMirrors(0.45, 0.97, 1.0, [0.12, 0.09, 0.16], paint);
+    this.addSideMirrors(0.45, 0.97, 1.0, [0.12, 0.09, 0.16], paint, [0.87, 0.9]);
     const num = new THREE.Mesh(new THREE.CircleGeometry(0.3, 24), mat('real', { map: numberTex(number, color) }, 'paint'));
     num.position.set(-0.1, 0.42, 0.975);
     const num2 = num.clone();
@@ -383,7 +383,8 @@ export class CarModel {
   }
 
   // 左右のドアミラー（ハウジングと鏡）。cx: 前後の位置、z: 左右（絶対値）、size: ハウジングの大きさ [x, y, z]
-  addSideMirrors(cx, y, z, size, mat0) {
+  // base: [高さ, 左右] ハウジングを支える台座の付け根（ドアの上の縁など。車内視点で車体を隠しても浮かない）
+  addSideMirrors(cx, y, z, size, mat0, base) {
     for (const s of [-1, 1]) {
       const house = new THREE.Mesh(new RoundedBoxGeometry(size[0], size[1], size[2], 2, Math.min(...size) * 0.3), mat0);
       house.position.set(cx, y, s * z);
@@ -391,6 +392,18 @@ export class CarModel {
       glass.position.set(cx - size[0] / 2 - 0.002, y, s * z);
       this.group.add(house, glass);
       this.mirrorGlass.push(glass);
+      if (base) {
+        // ハウジングの内側の下から、付け根へ斜めに伸びる支柱と、付け根の台座
+        const a = new THREE.Vector3(cx + 0.01, y - size[1] * 0.3, s * (z - size[2] * 0.35));
+        const b = new THREE.Vector3(cx + 0.03, base[0], s * base[1]);
+        const d = new THREE.Vector3().subVectors(b, a);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(size[0] * 0.6, d.length() + 0.02, 0.025), mat0);
+        arm.position.copy(a).addScaledVector(d, 0.5);
+        arm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+        const foot = new THREE.Mesh(new RoundedBoxGeometry(size[0] * 1.3, 0.03, 0.07, 2, 0.01), mat0);
+        foot.position.set(b.x, b.y, b.z);
+        this.group.add(arm, foot);
+      }
     }
   }
 
