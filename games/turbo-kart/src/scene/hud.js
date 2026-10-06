@@ -32,7 +32,8 @@ export function gearLabel(g) {
 }
 
 class CanvasPlane {
-  constructor(w, h, px) {
+  // onTop: 車体などに隠されず、常に手前に描く（VR の案内・リザルト・タイミング表）
+  constructor(w, h, px, { onTop = false } = {}) {
     this.canvas = document.createElement('canvas');
     this.canvas.width = px;
     this.canvas.height = Math.round((px * h) / w);
@@ -44,6 +45,10 @@ class CanvasPlane {
       new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, depthWrite: false, fog: false, toneMapped: false }),
     );
     this.mesh.renderOrder = 5;
+    if (onTop) {
+      this.mesh.material.depthTest = false;
+      this.mesh.renderOrder = 30;
+    }
   }
 
   commit() {
@@ -120,10 +125,10 @@ export class Hud {
     // VR 用
     // 下の帯に「最速 / 記録 / 自己ベスト」を出すため少し縦長
     this.dash = new CanvasPlane(0.42, 0.25, 512);
-    this.banner = new CanvasPlane(2.4, 0.9, 1024);
+    this.banner = new CanvasPlane(2.4, 0.9, 1024, { onTop: true });
     // VR のリザルト（ゴール後に目の前に出す）。左にレースの順位、右にベストラップのランキング（10 位まで）
-    this.results = new CanvasPlane(2.5, 1.45, 1536);
-    this.timing = new CanvasPlane(0.9, 0.8, 600);
+    this.results = new CanvasPlane(2.5, 1.45, 1536, { onTop: true });
+    this.timing = new CanvasPlane(0.9, 0.8, 600, { onTop: true });
     this.timingAt = 0;
     this.lastDash = 0;
     this.bannerText = null;
