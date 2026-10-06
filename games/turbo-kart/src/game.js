@@ -301,7 +301,7 @@ export class Game {
     this.attachCamera();
   }
 
-  // 自分の車の見え方を視点に合わせる。車内はハンドルを半分の大きさに、目線は車ごと隠す（VR は常に車内）
+  // 自分の車の見え方を視点に合わせる。目線は車ごと隠す（VR は常に車内）。ハンドルは PC でも VR と同じ大きさ
   // バックミラーの景色を描く（本番の描画の前に呼ぶ。車内視点・VR のときだけ）
   renderMirrors(renderer) {
     const m = this.me && this.models[this.me.index];
@@ -321,7 +321,6 @@ export class Game {
     const mode = this.xrOn ? 'cockpit' : this.cameraMode;
     m.setCockpit(mode === 'cockpit' || mode === 'eye');
     this.cockpit.position.copy(m.eye);
-    if (!this.xrOn && mode === 'cockpit') m.steerGroup.scale.setScalar(0.5);
     if (!this.xrOn && mode === 'eye') {
       m.eyeHidden = m.group.children.filter((c) => c !== this.cockpit && c.visible);
       for (const c of m.eyeHidden) c.visible = false;
