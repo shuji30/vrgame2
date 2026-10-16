@@ -67,11 +67,11 @@ export const VEHICLES = {
   drift: {
     ...KART, id: 'drift', name: 'ドリフト',
     radius: 1.3, width: 1.8, length: 4.3, wheelbase: 2.5, dynWheelbase: 2.5, cgFront: 1.2, cgHeight: 0.45,
-    mass: 1250, Iz: 1700,
+    mass: 1250, Iz: 2000, // 回りにくさ（大きいほど、テールの流れ出しがゆっくり）
     gearTop: [0, 17, 27, 37, 46, 55, 64], baseAccel: 11, brakeDecel: 14, drag: 0.0006, rolling: 0.15,
     reverseAccel: 3, reverseTop: 7, handbrakeDecel: 1.6,
     // rearDrive: アクセルで後輪のグリップを駆動に使う割合（大きいほどパワーでテールが流れる）
-    mu: 2.6, maxLat: 25.5, tireB: 11, rearGrip: 1.12, rearDrive: 1.1, brakeRear: 0.5, npcBoost: null, npcRearGrip: 1.3,
+    mu: 2.6, maxLat: 25.5, tireB: 11, rearGrip: 1.12, rearDrive: 0.9, brakeRear: 0.5, npcBoost: null, npcRearGrip: 1.3,
     downforce: 0.2, aeroFront: 0.45,
     steerLock: 0.56, steerHigh: 0.14, assistSpeed: 55, wheelHigh: 0.6, shiftTime: 0.12, boostAccel: 6,
     // 補助ありで保てる後輪の滑り角（サイドブレーキ / アクセル）、ハンコンのスピン防止が効き始める角度と上限
@@ -103,7 +103,8 @@ const REAL = {
   gt3: { mu: 1.45, maxLat: 14.2, downforce: 1.6, rearGrip: 1.12, tireB: 10, tireC: 1.35, tireE: 0.6, wheelHigh: 1, brakeRear: 0.75, loadTransferMax: 0.35, lockDeg: 540, brakeDecel: 13,
     // NPC の見えない性能アップ。ふつう（半分だけ効く）で Thunder Ring 0:44.7 前後
     npcBoost: { mu: 1.9, accel: 1.5, top: 1.12 } },
-  drift: { mu: 1.3, maxLat: 12.7, downforce: 0.2, rearGrip: 1.05, tireB: 9, tireC: 1.3, tireE: 0.5, wheelHigh: 1, brakeRear: 0.5, loadTransferMax: 0.35, lockDeg: 900, steerLock: 0.7, brakeDecel: 12 },
+  // 本格のドリフト車: アクセルで 1 秒ほどかけてじわっと流れ出す（後輪のグリップ・柔らかいタイヤ・回りにくさ）
+  drift: { mu: 1.3, maxLat: 12.7, downforce: 0.2, rearGrip: 1.12, tireB: 8, tireC: 1.3, tireE: 0.75, Iz: 2300, wheelHigh: 1, brakeRear: 0.5, loadTransferMax: 0.35, lockDeg: 900, steerLock: 0.7, brakeDecel: 12 },
   formula: { mu: 1.7, maxLat: 16.7, downforce: 3.6, rearGrip: 1.1, tireB: 11, tireC: 1.35, tireE: 0.6, wheelHigh: 1, brakeRear: 0.75, loadTransferMax: 0.3, lockDeg: 360, brakeDecel: 26 },
 };
 const realCache = new Map();
