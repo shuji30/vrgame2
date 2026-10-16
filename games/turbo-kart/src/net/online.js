@@ -3,7 +3,9 @@
 //   Mesh         … 全員と WebRTC のデータチャネルでつながる（最大 10 人）
 //   OnlineSession… ロビー・時計合わせ・スタートの同期・走行データのやり取り
 
-const ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
+const STUN = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
+// つながらない相手をつなぎ直すまでの時間（回数ごとに少しずつ延ばす）
+const RETRY_MS = 9000;
 
 export class SignalClient {
   constructor(base) {
@@ -59,7 +61,18 @@ export class Mesh {
     this.signal = signal;
     this.onMessage = onMessage;
     this.onChange = onChange;
-    this.peers = new Map(); // id → { pc, state, ctl, open }
+    this.peers = new Map(); // id → { pc, state, ctl, open, born, tries }
+    // サーバーから TURN（中継サーバー）が届いたら足す
+    this.ice = STUN;
+  }
+
+  setIce(extra) {
+    if (Array.isArray(extra) && extra.length) this.ice = [...STUN, ...extra];
+  }
+
+  // つなぎ直した回数（0 = 1 回目の接続中）
+  tries(id) {
+    return this.peers.get(id)?.tries || 0;
   }
 
   get self() {
@@ -69,11 +82,25 @@ export class Mesh {
   sync(ids) {
     for (const id of ids) if (id !== this.self && !this.peers.has(id)) this.connect(id);
     for (const id of [...this.peers.keys()]) if (!ids.includes(id)) this.drop(id);
+    // つながらないまま時間がたった・失敗した相手は、offer を出す側がつなぎ直す
+    // （offer の取りこぼしや、通り道の選び方の失敗からも戻れる）
+    const now = performance.now();
+    for (const [id, p] of this.peers) {
+      if (p.open || this.self > id) continue;
+      const failed = ['failed', 'closed', 'disconnected'].includes(p.pc.connectionState);
+      if (failed || now - p.born > RETRY_MS * (1 + Math.min(p.tries, 3) * 0.5)) this.reconnect(id);
+    }
   }
 
-  connect(id) {
-    const pc = new RTCPeerConnection({ iceServers: ICE });
-    const p = { pc, state: null, ctl: null, open: false, pending: [] };
+  reconnect(id) {
+    const tries = (this.peers.get(id)?.tries || 0) + 1;
+    this.drop(id);
+    this.connect(id, tries);
+  }
+
+  connect(id, tries = 0) {
+    const pc = new RTCPeerConnection({ iceServers: this.ice });
+    const p = { pc, state: null, ctl: null, open: false, pending: [], born: performance.now(), tries };
     this.peers.set(id, p);
     pc.onicecandidate = (e) => { if (e.candidate) this.signal.send(id, { t: 'ice', c: e.candidate.toJSON() }).catch(() => {}); };
     pc.onconnectionstatechange = () => {
@@ -105,6 +132,15 @@ export class Mesh {
   async handleSignal(from, data) {
     if (!data) return;
     if (!this.peers.has(from)) this.connect(from);
+    // 相手がつなぎ直してきた（新しい offer）: こちらも作り直してから受ける
+    if (data.t === 'offer') {
+      const old = this.peers.get(from);
+      if (old.pc.remoteDescription || old.pc.signalingState !== 'stable') {
+        const tries = old.tries + 1;
+        this.drop(from);
+        this.connect(from, tries);
+      }
+    }
     const p = this.peers.get(from);
     const pc = p.pc;
     // 相手の接続情報より先に届いた ICE 候補は取っておく
@@ -201,13 +237,24 @@ export class OnlineSession {
     return this.players.every((p) => p.id === this.self || this.mesh.isOpen(p.id));
   }
 
+  // サーバーの TURN（中継サーバー）の設定を受け取る（無ければ STUN だけで直接つなぐ）
+  async loadIce() {
+    try {
+      const h = await this.signal.health();
+      this.mesh.setIce(h.ice);
+      this.relay = Array.isArray(h.ice) && h.ice.length > 0;
+    } catch { /* 取れなければ STUN だけ */ }
+  }
+
   async create(name) {
+    await this.loadIce();
     await this.signal.create(name);
     this.host = this.self;
     this.begin();
   }
 
   async join(room, name) {
+    await this.loadIce();
     const r = await this.signal.join(room, name);
     this.host = r.host;
     this.begin();

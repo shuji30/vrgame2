@@ -51,7 +51,7 @@ export function setupOnline({ game, ui, input, getVR, $ }) {
       const me = p.id === session.self;
       const ok = me || session.mesh.isOpen(p.id);
       const host = p.id === session.host ? ' 👑' : '';
-      return `<li>${escapeHtml(p.name)}${host}${me ? '（あなた）' : ''} <span style="color:${ok ? 'var(--ok)' : 'var(--accent2)'}">${ok ? '● 接続' : '○ 接続中…'}</span></li>`;
+      return `<li>${escapeHtml(p.name)}${host}${me ? '（あなた）' : ''} <span style="color:${ok ? 'var(--ok)' : 'var(--accent2)'}">${ok ? '● 接続' : session.mesh.tries(p.id) ? `○ つなぎ直し中…（${session.mesh.tries(p.id)} 回目）` : '○ 接続中…'}</span></li>`;
     }).join('');
     const isHost = session.isHost;
     for (const el of document.querySelectorAll('#net-settings select')) el.disabled = !isHost;
@@ -79,8 +79,17 @@ export function setupOnline({ game, ui, input, getVR, $ }) {
       : session.state === 'racing'
         ? 'レース中'
         : isHost
-          ? ready ? '全員とつながりました。スタートできます' : '参加者と接続中…'
-          : 'ホストのスタートを待っています';
+          ? ready ? '全員とつながりました。スタートできます' : stuckHint(session) || '参加者と接続中…'
+          : stuckHint(session) || 'ホストのスタートを待っています';
+  };
+
+  // 何度つなぎ直してもつながらない相手がいるときの案内（直接つながらない回線どうし）
+  const stuckHint = (session) => {
+    const stuck = session.players.some((p) => p.id !== session.self && !session.mesh.isOpen(p.id) && session.mesh.tries(p.id) >= 2);
+    if (!stuck) return '';
+    return session.relay
+      ? '一部の参加者とつながりません。通信が不安定かもしれません（自動でつなぎ直しています）'
+      : '一部の参加者と直接つながりません。回線（モバイル回線・会社や学校のネットワークなど）によっては中継サーバー（TURN）が必要です';
   };
 
   const settingsFromForm = () => ({

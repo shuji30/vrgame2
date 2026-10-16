@@ -52,7 +52,9 @@ require __DIR__ . '/laps.php';
 
 if ($action === 'health') {
     // db: 'ok'（MySQL に接続できた）/ 'file'（DB 未設定。ファイルに保存）/ 'error'（接続できない）
-    out(['ok' => true, 'version' => VERSION, 'php' => PHP_VERSION, 'writable' => is_writable($dataDir), 'db' => laps_status($config), 'time' => microtime(true)]);
+    // ice: WebRTC の中継サーバー（TURN）。config.php の 'ice_servers' に書く（直接つながらない回線どうしを中継する）
+    out(['ok' => true, 'version' => VERSION, 'php' => PHP_VERSION, 'writable' => is_writable($dataDir), 'db' => laps_status($config), 'time' => microtime(true),
+        'ice' => $config['ice_servers'] ?? []]);
 }
 
 function code_ok(string $c): bool { return (bool)preg_match('/^[A-Z2-9]{4}$/', $c); }
