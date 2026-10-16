@@ -51,7 +51,7 @@ export function setupOnline({ game, ui, input, getVR, $ }) {
       const me = p.id === session.self;
       const ok = me || session.mesh.isOpen(p.id);
       const host = p.id === session.host ? ' 👑' : '';
-      return `<li>${escapeHtml(p.name)}${host}${me ? '（あなた）' : ''} <span style="color:${ok ? 'var(--ok)' : 'var(--accent2)'}">${ok ? '● 接続' : session.mesh.tries(p.id) ? `○ つなぎ直し中…（${session.mesh.tries(p.id)} 回目）` : '○ 接続中…'}</span></li>`;
+      return `<li>${escapeHtml(p.name)}${host}${me ? '（あなた）' : ''} <span style="color:${ok ? 'var(--ok)' : 'var(--accent2)'}">${ok ? (session.mesh.isRelayed(p.id) ? '● 接続（中継）' : '● 接続') : session.mesh.tries(p.id) ? `○ つなぎ直し中…（${session.mesh.tries(p.id)} 回目）` : '○ 接続中…'}</span></li>`;
     }).join('');
     const isHost = session.isHost;
     for (const el of document.querySelectorAll('#net-settings select')) el.disabled = !isHost;

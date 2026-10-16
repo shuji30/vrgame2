@@ -184,6 +184,23 @@ switch ($action) {
             return [$room, ['ok' => true]];
         }));
     }
+    case 'relay': { // 直接つながらない相手とのやり取りをサーバーで中継: 送るもの msgs: [{to, data}] を置き、自分宛てを受け取る
+        if (!code_ok($code)) fail('bad room code');
+        out(with_room($dataDir, $code, function ($room, $now) use ($in) {
+            if (!$room) fail('room not found', 404);
+            $id = auth($room, $in);
+            $room['players'][$id]['seen'] = $now;
+            foreach (array_slice(is_array($in['msgs'] ?? null) ? $in['msgs'] : [], 0, 60) as $m) {
+                $t = (string)($m['to'] ?? '');
+                if ($t === $id || !isset($room['players'][$t])) continue;
+                if (count($room['queues'][$t]) >= MAX_QUEUE) array_shift($room['queues'][$t]);
+                $room['queues'][$t][] = ['from' => $id, 'data' => $m['data'] ?? null];
+            }
+            $msgs = $room['queues'][$id] ?? [];
+            $room['queues'][$id] = [];
+            return [$room, ['ok' => true, 'msgs' => $msgs, 'time' => microtime(true)]];
+        }));
+    }
     case 'update': { // ホストだけ: レース設定や状態（lobby / racing）を更新
         if (!code_ok($code)) fail('bad room code');
         out(with_room($dataDir, $code, function ($room, $now) use ($in) {

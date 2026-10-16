@@ -6,6 +6,10 @@
 const STUN = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
 // つながらない相手をつなぎ直すまでの時間（回数ごとに少しずつ延ばす）
 const RETRY_MS = 9000;
+// この回数つなぎ直してもつながらない相手とは、サーバー経由の中継でやり取りする（直接つながらない回線どうし）
+const RELAY_AFTER = 2;
+// 確認用: URL に ?relay=1 を付けると、直接つながずに最初から中継でやり取りする
+const FORCE_RELAY = typeof location !== 'undefined' && new URLSearchParams(location.search).get('relay') === '1';
 
 export class SignalClient {
   constructor(base) {
@@ -61,7 +65,10 @@ export class Mesh {
     this.signal = signal;
     this.onMessage = onMessage;
     this.onChange = onChange;
-    this.peers = new Map(); // id → { pc, state, ctl, open, born, tries }
+    this.peers = new Map(); // id → { pc, state, ctl, open, born, tries, relay }
+    // 中継で送るもの（OnlineSession がまとめてサーバーへ送る）。走行データは相手ごとに最新だけ
+    this.relayOut = [];
+    this.relayLatest = new Map();
     // サーバーから TURN（中継サーバー）が届いたら足す
     this.ice = STUN;
   }
@@ -86,10 +93,37 @@ export class Mesh {
     // （offer の取りこぼしや、通り道の選び方の失敗からも戻れる）
     const now = performance.now();
     for (const [id, p] of this.peers) {
-      if (p.open || this.self > id) continue;
+      if (p.open || p.relay || this.self > id) continue;
+      if (p.tries >= RELAY_AFTER || FORCE_RELAY) {
+        // 直接はあきらめて中継に切り替える（相手にも知らせる）
+        this.startRelay(id);
+        this.signal.send(id, { t: 'relay-on' }).catch(() => {});
+        continue;
+      }
       const failed = ['failed', 'closed', 'disconnected'].includes(p.pc.connectionState);
       if (failed || now - p.born > RETRY_MS * (1 + Math.min(p.tries, 3) * 0.5)) this.reconnect(id);
     }
+  }
+
+  startRelay(id) {
+    const p = this.peers.get(id);
+    if (!p || p.relay) return;
+    p.relay = true;
+    this.onChange?.();
+  }
+
+  // 中継中の相手がいるか
+  get relaying() {
+    for (const p of this.peers.values()) if (p.relay && !p.open) return true;
+    return false;
+  }
+
+  // 中継で送るものを取り出す（走行データは最新だけ）
+  takeRelay() {
+    const out = this.relayOut.splice(0);
+    for (const m of this.relayLatest.values()) out.push(m);
+    this.relayLatest.clear();
+    return out;
   }
 
   reconnect(id) {
@@ -100,14 +134,14 @@ export class Mesh {
 
   connect(id, tries = 0) {
     const pc = new RTCPeerConnection({ iceServers: this.ice });
-    const p = { pc, state: null, ctl: null, open: false, pending: [], born: performance.now(), tries };
+    const p = { pc, state: null, ctl: null, open: false, pending: [], born: performance.now(), tries, relay: false };
     this.peers.set(id, p);
     pc.onicecandidate = (e) => { if (e.candidate) this.signal.send(id, { t: 'ice', c: e.candidate.toJSON() }).catch(() => {}); };
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'failed' || pc.connectionState === 'closed') { p.open = false; this.onChange?.(); }
     };
     pc.ondatachannel = (e) => this.bind(id, p, e.channel);
-    if (this.self < id) {
+    if (this.self < id && !FORCE_RELAY) {
       this.bind(id, p, pc.createDataChannel('state', { ordered: false, maxRetransmits: 0 }));
       this.bind(id, p, pc.createDataChannel('ctl', { ordered: true }));
       pc.createOffer()
@@ -131,14 +165,18 @@ export class Mesh {
 
   async handleSignal(from, data) {
     if (!data) return;
+    if (data.t === 'r') return this.onMessage(from, data.m); // 中継で届いたゲームのデータ
     if (!this.peers.has(from)) this.connect(from);
+    if (data.t === 'relay-on') return this.startRelay(from);
     // 相手がつなぎ直してきた（新しい offer）: こちらも作り直してから受ける
     if (data.t === 'offer') {
       const old = this.peers.get(from);
       if (old.pc.remoteDescription || old.pc.signalingState !== 'stable') {
         const tries = old.tries + 1;
+        const relay = old.relay;
         this.drop(from);
         this.connect(from, tries);
+        this.peers.get(from).relay = relay;
       }
     }
     const p = this.peers.get(from);
@@ -173,13 +211,27 @@ export class Mesh {
     this.onChange?.();
   }
 
+  // 直接つながっているか、中継でやり取りできる
   isOpen(id) {
-    return !!this.peers.get(id)?.open;
+    const p = this.peers.get(id);
+    return !!(p?.open || p?.relay);
+  }
+
+  // 中継中（直接はつながっていない）
+  isRelayed(id) {
+    const p = this.peers.get(id);
+    return !!(p && !p.open && p.relay);
   }
 
   // reliable: 順序保証・再送あり（ctl）。false: 最新だけ届けばよい走行データ（state）
   send(id, msg, reliable = false) {
     const p = this.peers.get(id);
+    if (p && !p.open && p.relay) {
+      const m = { to: id, data: { t: 'r', m: msg } };
+      if (reliable) this.relayOut.push(m);
+      else this.relayLatest.set(`${id}:${msg.t}`, m);
+      return;
+    }
     const ch = reliable ? p?.ctl : p?.state || p?.ctl;
     if (ch && ch.readyState === 'open') ch.send(JSON.stringify(msg));
   }
@@ -278,6 +330,19 @@ export class OnlineSession {
       this.timer = setTimeout(loop, (this.state === 'racing' ? 1500 : 350) * crowd);
     };
     loop();
+    // 中継: 中継中の相手がいる間は、送るものと届いたものを 0.12 秒ごとにまとめてやり取りする
+    clearTimeout(this.relayTimer);
+    const relayLoop = async () => {
+      if (this.state === 'idle') return;
+      if (this.mesh.relaying) {
+        try {
+          const r = await this.signal.call('relay', { msgs: this.mesh.takeRelay() });
+          for (const m of r.msgs) await this.mesh.handleSignal(m.from, m.data);
+        } catch { /* 次の回に */ }
+      }
+      this.relayTimer = setTimeout(relayLoop, 120);
+    };
+    relayLoop();
     clearInterval(this.pingTimer);
     this.pingTimer = setInterval(() => {
       if (!this.isHost && this.mesh.isOpen(this.host)) this.mesh.send(this.host, { t: 'ping', c: performance.now() }, true);
