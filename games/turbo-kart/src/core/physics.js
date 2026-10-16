@@ -73,8 +73,10 @@ export const VEHICLES = {
     // rearDrive: アクセルで後輪のグリップを駆動に使う割合（大きいほどパワーでテールが流れる）
     mu: 2.6, maxLat: 25.5, tireB: 11, rearGrip: 1.12, rearDrive: 1.1, brakeRear: 0.5, npcBoost: null, npcRearGrip: 1.3,
     downforce: 0.2, aeroFront: 0.45,
-    steerLock: 0.65, steerHigh: 0.14, assistSpeed: 55, wheelHigh: 0.6, shiftTime: 0.12, boostAccel: 6,
-    driftSlip: 0.6, slideSlip: 0.32, stabSlip: 0.75, // 補助ありで保てる後輪の滑り角（サイドブレーキ / アクセル）、ハンコンのスピン防止の上限
+    steerLock: 0.56, steerHigh: 0.14, assistSpeed: 55, wheelHigh: 0.6, shiftTime: 0.12, boostAccel: 6,
+    // 補助ありで保てる後輪の滑り角（サイドブレーキ / アクセル）、ハンコンのスピン防止が効き始める角度と上限
+    driftSlip: 0.6, slideSlip: 0.32, stabStart: 0.55, stabSlip: 0.85,
+    driftDrive: 8, // 後輪が滑っている間のアクセルの押す力（m/s²）。流したまま速さを保てる
     ffbScale: 1.5, ffbSpring: 0.25,
   },
   // フォーミュラ: 軽量・強烈なダウンフォース。グリップは最も高い。約 320km/h
@@ -101,7 +103,7 @@ const REAL = {
   gt3: { mu: 1.45, maxLat: 14.2, downforce: 1.6, rearGrip: 1.12, tireB: 10, tireC: 1.35, tireE: 0.6, wheelHigh: 1, brakeRear: 0.75, loadTransferMax: 0.35, lockDeg: 540, brakeDecel: 13,
     // NPC の見えない性能アップ。ふつう（半分だけ効く）で Thunder Ring 0:44.7 前後
     npcBoost: { mu: 1.9, accel: 1.5, top: 1.12 } },
-  drift: { mu: 1.3, maxLat: 12.7, downforce: 0.2, rearGrip: 1.05, tireB: 9, tireC: 1.3, tireE: 0.5, wheelHigh: 1, brakeRear: 0.5, loadTransferMax: 0.35, lockDeg: 720, steerLock: 0.8, brakeDecel: 12 },
+  drift: { mu: 1.3, maxLat: 12.7, downforce: 0.2, rearGrip: 1.05, tireB: 9, tireC: 1.3, tireE: 0.5, wheelHigh: 1, brakeRear: 0.5, loadTransferMax: 0.35, lockDeg: 900, steerLock: 0.7, brakeDecel: 12 },
   formula: { mu: 1.7, maxLat: 16.7, downforce: 3.6, rearGrip: 1.1, tireB: 11, tireC: 1.35, tireE: 0.6, wheelHigh: 1, brakeRear: 0.75, loadTransferMax: 0.3, lockDeg: 360, brakeDecel: 26 },
 };
 const realCache = new Map();
@@ -280,6 +282,11 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
     drive -= throttle * P.reverseAccel;
   }
   drive += k.slopeAccel || 0;
+  // ドリフト車: 後輪が滑っている間にアクセルを踏むと、空転で前へ押す力が加わる（流したまま速さを保てる）
+  if (P.driftDrive && throttle > 0.2 && k.gear > 0 && engineOn) {
+    const sl = Math.abs(k.rearSlip || 0);
+    if (sl > 0.12) drive += throttle * P.driftDrive * Math.min(1, (sl - 0.12) / 0.3) * engineFactor(Math.max(0, vF) / top);
+  }
   // 補助あり（キーボード等）のサイドブレーキはドリフト用。ブレーキとしての減速は弱める
   const hbDecel = input.assist !== false ? P.handbrakeDecel * 0.3 : P.handbrakeDecel;
   // スリップストリーム（前の車の真後ろ）: 空気抵抗が減る（k.draft 0..1、race.js が設定）
@@ -359,10 +366,10 @@ export function stepKart(k, input, dt, { manual = false } = {}) {
         const lim = hb > 0.3 ? (P.driftSlip ?? 0.3) : (P.slideSlip ?? 0.15);
         const vLmax = vF * Math.tan(lim * Math.sign(ar)) + b * k.yawRate;
         if (Math.abs(vL - b * k.yawRate) > Math.abs(vLmax - b * k.yawRate)) vL += (vLmax - vL) * Math.min(1, h * 20);
-      } else if (!assist && input.stability && Math.abs(ar) > (P.stabSlip ? P.stabSlip * 0.5 : STAB_SLIP)) {
+      } else if (!assist && input.stability && Math.abs(ar) > (P.stabStart ?? (P.stabSlip ? P.stabSlip * 0.5 : STAB_SLIP))) {
         // ハンコン用のスピン防止: 小さな滑り（カウンターで止められる範囲）には手を出さず、
         // 後輪が大きく流れたときだけヨーを抑えて、回り切らない（180° 回転しない）ようにする
-        const over = Math.min(1, (Math.abs(ar) - (P.stabSlip ? P.stabSlip * 0.5 : STAB_SLIP)) / 0.15);
+        const over = Math.min(1, (Math.abs(ar) - (P.stabStart ?? (P.stabSlip ? P.stabSlip * 0.5 : STAB_SLIP))) / 0.15);
         const rMax = (mu * 9.8) / vF;
         const rT = Math.max(-rMax, Math.min(rMax, (vF * Math.tan(d)) / L));
         k.yawRate += (rT - k.yawRate) * Math.min(1, h * 12 * over);
