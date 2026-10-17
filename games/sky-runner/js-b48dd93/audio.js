@@ -835,7 +835,7 @@ function schedule() {
     // ジャンル別の曲: ステージのテンポ (152 が基準) に合わせて少し速くする
     const g = genres()[song];
     const spbG = 60 / (g.tempo * tempo / 152) / 4;
-    entry = [(s, t) => { ensureBand(); g.step(s, t, spbG); }, g.tempo * tempo / 152, 128];
+    entry = [(s, t) => { ensureBand(); g.step(s, t, spbG); }, g.tempo * tempo / 152, g.steps || 128];
     swing = g.swing || 0;
   }
   const mix = songs[song] ? 1 : genres()[song].mix || 1;

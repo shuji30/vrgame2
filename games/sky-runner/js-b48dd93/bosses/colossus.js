@@ -70,6 +70,19 @@ export function spawnColossus(c, def) {
   grp.ratio = () => Math.max(0, body.hp / body.maxHp);
   c.bossGroup = grp;
   g.position.set(body.x, 15 * k, SPAWN_Z);
+  // バリアの殻 (電極が残っている間だけ見える) と、電極からの光の線 (ワールドに置く)
+  const shellM = new THREE.MeshBasicMaterial({ color: 0x80e8ff, transparent: true, opacity: 0.2, depthWrite: false, blending: THREE.AdditiveBlending });
+  body.barrier = new THREE.Mesh(GEO.orb, shellM);
+  body.barrier.scale.set(9, 13, 7);
+  body.barrier.position.y = 1;
+  g.add(body.barrier);
+  body.beams = [0, 1].map(() => {
+    const geo = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3));
+    const ln = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x9ff4ff }));
+    ln.frustumCulled = false;
+    c.scene.add(ln);
+    return ln;
+  });
   c.addEnemy(body, 7 * k);
   makeElectrodes(c, body);
   c.bossDefeated = false;
@@ -99,17 +112,31 @@ export const COLOSSUS_KINDS = {
       p.set(e.x + Math.sin(e.t * 0.4) * 5, 15 * e.k + Math.abs(Math.sin(e.t * 0.8)) * 0.4, e.z);
       e.mesh.rotation.y = Math.sin(e.t * 0.4) * 0.12;
       const shield = COLOSSUS_KINDS.colossus.shielded(e);
-      e.mats[4].userData.base.setHex(shield ? 0x40c090 : 0xff5a5a); // バリアがない間は目が赤く光る (いま倒せる)
+      e.mats[4].userData.base.setHex(shield ? 0x206050 : 0x60f0ff); // バリアがない間は目が水色に光る (いま倒せる)
+      // バリア: 半透明の殻と、電極から本体への光の線
+      e.barrier.visible = shield;
+      e.barrier.material.opacity = 0.18 + Math.sin(e.t * 6) * 0.06;
+      e.beams.forEach((ln, i) => {
+        const el = e.electrodes[i];
+        ln.visible = !!el && !el.dead;
+        if (ln.visible) {
+          const a = ln.geometry.attributes.position;
+          a.setXYZ(0, el.mesh.position.x, el.mesh.position.y, el.mesh.position.z);
+          a.setXYZ(1, p.x, p.y, p.z);
+          a.needsUpdate = true;
+        }
+      });
       // 体力が半分を切ると、電極が 1 度だけ戻る
       if (!e.revived && e.hp < e.maxHp * 0.5) {
         e.revived = true;
         makeElectrodes(c, e);
       }
       // 投げる: 腕を上げて磁石が赤く光る (1 秒) → 浮かせた破片を投げる
-      e.throwT -= dt;
+      if (e.z >= hz - 1) e.throwT -= dt; // 止まってから数える (近づく間に減って予告なしで飛んでこないように)
       if (e.throwT <= 1 && !e.held.length && e.z >= hz - 1) {
         const n = e.hp < e.maxHp * 0.5 ? 4 : 3;
         for (let i = 0; i < n; i++) e.held.push(makeDebris(c, e, i, n));
+        e.throwT = 1; // 必ず 1 秒の予告
       }
       const want = e.held.length ? 1 : 0;
       e.raise += THREE.MathUtils.clamp(want - e.raise, -dt * 2, dt * 3);
@@ -130,10 +157,12 @@ export const COLOSSUS_KINDS = {
     },
     onDeath(c, e) {
       for (const x of [...e.electrodes, ...e.held]) if (!x.dead) { x.dead = true; c.explode(x.mesh.position, false); }
+      for (const ln of e.beams) c.scene.remove(ln);
     },
   },
 
   electrode: {
+    big: true, // 壊すと大きく爆発し、回復アイテムを落とすことがある
     update(c, e, dt, scroll, ctx, p) {
       const b = e.body;
       if (b.dead) { e.dead = true; return; }
@@ -149,6 +178,7 @@ export const COLOSSUS_KINDS = {
   debris: {
     kamikaze: true,
     sideAbs: true,
+    shielded: (e) => e.hp === Infinity, // 柱は壊せない (弾を跳ね返す)
     update(c, e, dt, scroll, ctx, p) {
       if (!e.vel) {
         // 浮き上がって待つ (光って予告する)

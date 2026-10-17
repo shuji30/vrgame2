@@ -12,6 +12,8 @@ export const GENRE_NAMES = {
   reggae: ['ISLAND ORBIT', 'レゲエ / ワンドロップ'],
   metal: ['IRON STORM', 'メタル / ツーバスとギャロップ'],
   grunge: ['RUST FALLOUT', 'グランジ / 静と轟音'],
+  finale: ['SOLAR PRISM', '最終ボス / オーケストラ'],
+  ending: ['SKY BEYOND', 'エンディング'],
 };
 
 export function makeSongs(kit) {
@@ -327,6 +329,75 @@ export function makeSongs(kit) {
         if (i % 4 === 0) hat(t, false);
         if (i === 0 && bar % 2 === 0) crash(t);
         if (bar === 7 && i >= 12) tom(T(55 - (i - 12) * 4), t);
+      },
+    },
+
+    // ---- 最終ボス: オーケストラ風 (D マイナー、16 小節)。弦の 16 分の刻み、低音の弦、金管の勇ましい旋律、合唱、ティンパニ
+    finale: {
+      name: 'SOLAR PRISM', desc: '最終ボス / オーケストラ', tempo: 144, mix: 2.6, steps: 256,
+      // 1 小節ごとの和音: Dm | B♭ | Gm | A | Dm | F | C | A7 (×2)
+      chords: [[50, [0, 3, 7]], [46, [0, 4, 7]], [43, [0, 3, 7]], [45, [0, 4, 7]], [50, [0, 3, 7]], [41, [0, 4, 7]], [48, [0, 4, 7]], [45, [0, 4, 7, 10]]],
+      mel: [
+        [[0, 74, 4], [4, 69, 2], [6, 74, 2], [8, 77, 4], [12, 76, 4]], [[0, 74, 6], [6, 72, 2], [8, 70, 8]],
+        [[0, 67, 4], [4, 70, 2], [6, 74, 2], [8, 79, 4], [12, 77, 4]], [[0, 76, 8], [8, 73, 8]],
+        [[0, 81, 4], [4, 77, 2], [6, 81, 2], [8, 86, 8]], [[0, 84, 4], [4, 81, 4], [8, 77, 8]],
+        [[0, 79, 4], [4, 76, 2], [6, 79, 2], [8, 84, 4], [12, 82, 4]], [[0, 81, 8]],
+      ],
+      step(s, t, spb) {
+        const bar = Math.floor(s / 16) % 16, i = s % 16, b8 = bar % 8, second = bar >= 8;
+        const [root, ivs] = this.chords[b8];
+        // 弦の 16 分の刻み (根音・5 度・オクターブを行き来する)
+        const ost = [0, 12, 7, 12][i % 4];
+        pluck(T(root + 12 + ost), t, spb * 1.4, 0.06, 'sawtooth', 2600, i % 2 ? 0.35 : -0.35);
+        // 低音の弦 (8 分)
+        if (i % 2 === 0) pluck(T(root - 12), t, spb * 1.9, 0.2, 'sawtooth', 700);
+        // 合唱の和音 (柔らかいパッド)
+        if (i === 0) pad(chordNotes(root, ivs, 12), t, spb * 16, 0.02, 900);
+        // 金管の旋律 (後半は 1 オクターブ上の弦も重ねる)
+        const m = b8 === 7 && second ? [[0, 74, 12]] : this.mel[b8];
+        for (const [st, n, len] of m) if (st === i) {
+          melody(T(n - 12), t, spb * len * 0.95, { vol: 0.09, cut: 1500, vib: 0.006 });
+          if (second) melody(T(n), t, spb * len * 0.95, { vol: 0.05, cut: 3800, vib: 0.01 });
+        }
+        // ティンパニ (1・3 拍目、4 小節ごとにロール)、後半は行進のスネアとシンバル
+        if (i === 0 || i === 8) timpani(T(root - 24), t);
+        if (b8 % 4 === 3 && i >= 12) timpani(T(root - 24), t);
+        if (second && (i === 4 || i === 12)) snare(t, 0.4);
+        if (second && i % 4 === 2) snare(t, 0.15);
+        if (i === 0 && bar % 4 === 0) crash(t);
+      },
+    },
+
+    // ---- エンディング: 明るく穏やかに (D メジャー、16 小節)。ピアノのアルペジオ、ストリングス、フルート
+    ending: {
+      name: 'SKY BEYOND', desc: 'エンディング', tempo: 100, mix: 5, steps: 256,
+      chords: [[50, [0, 4, 7]], [45, [0, 4, 7]], [47, [0, 3, 7]], [43, [0, 4, 7]], [50, [0, 4, 7]], [45, [0, 4, 7]], [43, [0, 4, 7]], [45, [0, 4, 7]]],
+      mel: [
+        [[0, 78, 6], [6, 76, 2], [8, 74, 8]], [[0, 76, 6], [6, 78, 2], [8, 73, 8]],
+        [[0, 74, 4], [4, 76, 4], [8, 78, 8]], [[0, 79, 6], [6, 78, 2], [8, 74, 8]],
+        [[0, 81, 6], [6, 79, 2], [8, 78, 8]], [[0, 76, 4], [4, 78, 4], [8, 81, 8]],
+        [[0, 83, 6], [6, 81, 2], [8, 79, 4], [12, 78, 4]], [[0, 76, 16]],
+      ],
+      step(s, t, spb) {
+        const bar = Math.floor(s / 16) % 16, i = s % 16, b8 = bar % 8, second = bar >= 8;
+        const [root, ivs] = this.chords[b8];
+        // ピアノのアルペジオ (8 分)
+        if (i % 2 === 0) {
+          const tones = [0, ivs[1], ivs[2], 12, ivs[2] + 12, 12, ivs[2], ivs[1]];
+          epiano([T(root + 12 + tones[(i >> 1) % 8])], t, spb * 3, 0.045);
+        }
+        if (i === 0) {
+          pluck(T(root - 12), t, spb * 14, 0.18, 'sine', 600); // 低音
+          pad(chordNotes(root, ivs, 12), t, spb * 16, 0.016, 1200); // ストリングス
+        }
+        // フルートの旋律 (後半は 1 オクターブ上で、少しだけ飾る)
+        const m = b8 === 7 && second ? [[0, 74, 16]] : this.mel[b8];
+        for (const [st, n, len] of m) if (st === i) melody(T(n + (second ? 12 : 0) - (second && n > 80 ? 12 : 0)), t, spb * len * 0.95, { type: 'sine', vol: 0.08, cut: 5000, vib: 0.01, breath: 0.025 });
+        // やわらかいブラシとシェイカー (後半から)
+        if (second) {
+          if (i === 4 || i === 12) brush(t, 0.12);
+          if (i % 2 === 0) shaker(t, 0.04);
+        }
       },
     },
 

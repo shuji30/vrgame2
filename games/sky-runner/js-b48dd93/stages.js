@@ -134,7 +134,7 @@ export const STAGES = [
     obstacles: { rock: 2, spike: 1.5, column: 1.5, lane: 0.33 },
     palette: { a: 0xd8583a, b: 0x401818, fog: 0x8a5040, sky: 0x300808, mount: 0x501818, col: ['#ffd8c8', '#601010'], bush: 0x6a3a1a },
     bgm: { key: 6, tempo: 166, song: 'grunge' },
-    boss: { type: 'serpent', hp: 900, escape: 0 },
+    boss: { type: 'serpent', hp: 700, escape: 0 },
   },
   {
     name: 'STORM DECK', kind: 'normal', length: 50, speed: 50, diff: 7, density: 1.4,

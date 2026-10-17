@@ -1,6 +1,6 @@
 // 最終ボス: プリズムの太陽 (PRISM SUN)。18 面のボスラッシュのあとに出る。体力が減るごとに、これまでのボスの仕組みを順に使う。
-//   第 1 段階 (体力 2/3 まで): まわりを鏡が回り、弾を撃ち返す (ミラーコアの鏡をそのまま使う)。すき間から核を撃つ
-//   第 2 段階 (1/3 まで): 鏡が砕け、地面の岩と柱を浮かせて投げてくる (磁鉄の巨像の破片を使う)
+//   第 1 段階 (体力 3/4 まで): まわりを鏡が回り、弾を撃ち返す (ミラーコアの鏡をそのまま使う)。すき間から核を撃つ
+//   第 2 段階 (0.4 まで): 鏡が砕け、地面の岩と柱を浮かせて投げてくる (磁鉄の巨像の破片を使う)
 //   第 3 段階: 光の花びらを閉じて守り (弾を跳ね返す)、開いて水色に光っている間だけ倒せる。開くと渦巻き弾
 import * as THREE from 'three';
 import { makeDebris, launchDebris } from './colossus.js';
@@ -48,7 +48,7 @@ export function spawnSun(c, def) {
     kind: 'sun', mesh: g, mats: [coreM, rayM], r: 6 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 3, noAssist: true,
     k, rays, coreM, stage: 1, x: c.lastPlayer?.x ?? 0, y: THREE.MathUtils.clamp((c.lastPlayer?.y ?? 6) + 5, 9, 13), z: SPAWN_Z,
     // 鏡 (ミラーコアの鏡の動きが読む値)
-    tier: { R: side ? 8 : 15 }, a: 0, mirrors: [], reflectT: 0,
+    tier: { R: side ? 8 : 15 }, a: 0, mirrors: [], reflectT: 0, reflectEvery: 0.9,
     // 第 2 段階の投げる攻撃 (磁鉄の巨像の破片が読む値)
     held: [], throwT: 3,
     // 第 3 段階の開け閉め
@@ -94,16 +94,18 @@ export const SUN_KINDS = {
       e.reflectT -= dt;
       // 段階の切り替え (体力 2/3・1/3)
       const ratio = e.hp / e.maxHp;
-      if (e.stage === 1 && ratio < 2 / 3) {
+      if (e.stage === 1 && ratio < 0.75) {
         e.stage = 2;
         for (const m of e.mirrors) if (!m.dead) { m.dead = true; c.explode(m.mesh.position, false); }
         c.announce = 'PHASE 2';
+        c.spawnItem(p.clone()); // 段階が変わるたびに回復を 1 個
         e.coreM.userData.base.setHex(0xff5a20);
-      } else if (e.stage === 2 && ratio < 1 / 3) {
+      } else if (e.stage === 2 && ratio < 0.4) {
         e.stage = 3;
         for (const d of e.held) if (!d.dead) { d.dead = true; c.explode(d.mesh.position, false); }
         e.held = [];
         c.announce = 'FINAL PHASE';
+        c.spawnItem(p.clone());
       }
       // 第 2 段階: 浮かせて (1 秒光って予告)、投げる
       if (e.stage === 2 && e.z >= hz - 1) {
@@ -115,12 +117,12 @@ export const SUN_KINDS = {
           e.throwT = rand(3.5, 4.5);
         }
       }
-      // 第 3 段階: 花びらを閉じる (2.6 秒) → 開く (1.6 秒)。開く 0.5 秒前に震えて予告
+      // 第 3 段階: 花びらを閉じる (1.9 秒) → 開く (1.9 秒)。開く 0.5 秒前に震えて予告
       if (e.stage === 3) {
         e.petalT -= dt;
         if (e.petalT <= 0) {
           e.petal = e.petal === 'closed' ? 'open' : 'closed';
-          e.petalT = e.petal === 'open' ? 1.6 : 2.6;
+          e.petalT = e.petal === 'open' ? 1.9 : 1.9;
           if (e.petal === 'open') e.fireT = 0.2;
         }
         const want = e.petal === 'open' ? 1 : 0;
