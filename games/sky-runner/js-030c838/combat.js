@@ -6,6 +6,10 @@ import { sfx } from './audio.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
+// 横スクロール: 画面に映るのは奥行き 40m ほどなので、敵は画面の右端のすぐ外に出し、前後の動きを遅くする
+const SIDE_SPAWN_SHIFT = 175; // 遠くに出る敵を、この分だけ手前 (画面の右端の外) へずらす
+const SIDE_Z_SCALE = 0.3;     // 前後の動きの速さの倍率
+const SIDE_BULLET_SCALE = 0.55;
 // 敵の大きさ (Blender のモデルに対する倍率)。近くまで迫ったとき画面いっぱいに見えるよう大きめにする
 const FIGHTER_SCALE = 1.6, GUNSHIP_SCALE = 1.4, MOAI_SCALE = 1.7, GREMLIN_SCALE = 2.6, MECH_SCALE = 1.4, PILL_SCALE = 1.6, BOSS_SCALE = 2.2, PTERO_SCALE = 1.5;
 const REMOVE_Z = 40;
@@ -390,7 +394,11 @@ export class Combat {
     this.time = 0;
     this.score = 0;
     this.kills = 0;
-    this.level = 1;          // ステージ。上がるほど敵が多く、よく撃ってくる
+    this.level = 1;          // 難しさ (ステージ表の diff)。上がるほど敵が硬く、よく撃ってくる
+    this.density = 1;        // 敵の群れが出る量の倍率 (ステージ表)
+    this.waveTable = null;   // 出てくる敵と重み (ステージ表)
+    this.bossGroup = null;   // 群れのボス (ロボット部隊・旋回する群れ)
+    this.bossEscaped = false;
     this.mult = 1;           // スコア倍率 (速く飛ぶほど上がる)
     this.boss = null;
     this.bossDefeated = false;
@@ -425,7 +433,9 @@ export class Combat {
     this.kills = 0;
     this.level = 1;
     this.boss = null;
+    this.bossGroup = null;
     this.bossDefeated = false;
+    this.bossEscaped = false;
     this.sparks.clear();
     this.smoke.clear();
   }
@@ -457,7 +467,20 @@ export class Combat {
 
   updateFighter(e, dt, scroll, ctx) {
     const p = e.mesh.position, P = ctx.player;
-    if (e.state === 'behind') {
+    if (e.state === 'orbit') {
+      // 旋回する群れ: 2 つの輪が逆向きに回る。最初の 4 秒で遠くから迫ってくる
+      const g = e.bossGroup;
+      const gt = g ? g.t : e.t;
+      const cz = THREE.MathUtils.lerp(SPAWN_Z, ctx.side ? -16 : -48, Math.min(1, gt / 4));
+      const dir = e.ring ? 1 : -1;
+      const a = dir * gt * 1.1 + (e.slot / 4) * Math.PI * 2 + e.ring * 0.4;
+      const R = ctx.side ? 8 : 12;
+      p.set(P.x + Math.cos(a) * R, Math.max(3, P.y + 4 + Math.sin(a) * R * 0.7), cz + Math.sin(a * 2) * 4);
+    } else if (e.state === 'leave') {
+      p.y += 24 * dt;
+      p.z -= 40 * dt;
+      if (p.y > 70) e.dead = true;
+    } else if (e.state === 'behind') {
       // 後ろから頭の上を追い越して前へ抜け、遠くで U ターンする
       e.z -= 62 * dt;
       p.set(P.x + e.ox + Math.sin(e.t * 2.5) * 2, P.y + e.oy, e.z);
@@ -521,17 +544,17 @@ export class Combat {
   // 出す敵の群れを重み付きで選ぶ。重いもの (ガンシップ・重モビルスーツ) は同時に出しすぎない
   spawnWave(px, py) {
     const heavy = this.enemies.filter((e) => e.kind === 'gunship' || e.kind === 'mech').length;
-    const table = [
-      ['fighter', 3], ['gremlin', 2.2], ['pill', 2], ['moai', 1.6], ['ptero', 1.8],
-      ['mech', heavy === 0 ? 1.3 : 0], ['gunship', heavy < 2 ? 1 : 0],
-    ];
+    // ステージ表の組み合わせ (なければ全種類)。重いもの (ガンシップ・重機) は同時に出しすぎない
+    const base = this.waveTable || [['fighter', 3], ['gremlin', 2.2], ['pill', 2], ['moai', 1.6], ['ptero', 1.8], ['mech', 1.3], ['gunship', 1]];
+    const table = base.map(([k, w]) => [k, k === 'mech' ? (heavy === 0 ? w : 0) : k === 'gunship' ? (heavy < 2 ? w : 0) : w]);
+    if (table.every(([, w]) => w <= 0)) return;
     let r = Math.random() * table.reduce((a, [, w]) => a + w, 0);
     const kind = this.forceWave || table.find(([, w]) => (r -= w) < 0)?.[0] || 'fighter';
     ({
       fighter: () => this.spawnFighterWave(px, py),
       gunship: () => this.spawnGunship(px, py),
       gremlin: () => this.spawnGremlins(px, py),
-      pill: () => this.spawnPills(px),
+      pill: () => (Math.random() < 0.4 ? this.spawnPillTriangle(px, py) : this.spawnPills(px)),
       moai: () => this.spawnMoai(px),
       mech: () => this.spawnMechTrio(px),
       ptero: () => this.spawnPteros(px),
@@ -638,11 +661,76 @@ export class Combat {
     const n = 2 + Math.floor(Math.random() * 2);
     for (let k = 0; k < n; k++) {
       const made = TPL.pill ? instance(TPL.pill) : fallback(0x40485a, 1.5);
-      const e = { kind: 'pill', ...made, r: 1.8 * PILL_SCALE, hp: 4 + this.level, score: 400, t: rand(0, 3), flash: 0, fireT: Infinity, x: px + rand(-10, 10) };
-      e.mesh.scale.setScalar(PILL_SCALE);
+      const e = this.makePill(made, 'roll');
+      e.x = px + rand(-10, 10);
       e.mesh.position.set(e.x, 1.5 * PILL_SCALE, SPAWN_Z - k * 14);
       this.addEnemy(e, 1.6 * PILL_SCALE);
     }
+  }
+
+  // 3 匹が空中で三角形に並び、ゆっくり回りながら 1 匹ずつ順に殻を開いて玉を吐く。しばらくすると転がって突っ込んでくる
+  spawnPillTriangle(px, py) {
+    for (let slot = 0; slot < 3; slot++) {
+      const made = TPL.pill ? instance(TPL.pill) : fallback(0x40485a, 1.5);
+      const e = this.makePill(made, 'tri');
+      e.slot = slot;
+      e.openT = 1.5 + slot * 0.9; // 順番に開く
+      e.cx = px;
+      e.cy = THREE.MathUtils.clamp(py + 3, 6, 14);
+      e.mesh.position.set(px, e.cy, SPAWN_Z);
+      this.addEnemy(e, 1.6 * PILL_SCALE);
+    }
+  }
+
+  makePill(made, mode) {
+    made.mesh.scale.setScalar(PILL_SCALE);
+    return {
+      kind: 'pill', ...made, r: 1.8 * PILL_SCALE, hp: 3 + Math.ceil(this.level / 2), score: 500, t: rand(0, 3), flash: 0, fireT: Infinity,
+      mode, open: 0, openTo: 0, openT: rand(1.5, 3), fired: false,
+      segs: [0, 1, 2].map((i) => made.mesh.getObjectByName(`PillSeg${i}`)).filter(Boolean),
+    };
+  }
+
+  // 殻の開け閉め: 閉じているあいだは弾を跳ね返し、開いたときだけ倒せて、玉を吐く
+  updatePillShell(e, dt, ctx) {
+    e.openT -= dt;
+    if (e.openT <= 0) {
+      if (e.openTo === 0) {
+        e.openTo = 1;
+        e.openT = 1.7;
+        e.fired = false;
+      } else {
+        e.openTo = 0;
+        e.openT = e.mode === 'tri' ? 2.7 : rand(1.8, 3);
+      }
+    }
+    e.open += THREE.MathUtils.clamp(e.openTo - e.open, -dt * 4, dt * 4);
+    // 開いたら玉を吐く (三角形の編隊は 3 方向)
+    if (e.open > 0.9 && !e.fired && ctx.active) {
+      e.fired = true;
+      const from = e.mesh.position.clone().add(_c.set(0, 0.5, 1.5 * PILL_SCALE));
+      if (e.mode === 'tri') for (const sp of [-0.15, 0, 0.15]) this.fireBullet(from, ctx.player, sp);
+      else this.fireBullet(from, ctx.player);
+    }
+    // 見た目: 節が前後に開いて、反り返る (モデルの前は -Z)
+    const [s0, s1, s2] = e.segs;
+    if (s0 && s2) {
+      s0.position.z = s0.userData.base.z - 0.9 * e.open;
+      s0.rotation.x = -0.5 * e.open;
+      s2.position.z = s2.userData.base.z + 0.9 * e.open;
+      s2.rotation.x = 0.5 * e.open;
+      if (s1) s1.position.y = s1.userData.base.y + 0.2 * e.open;
+    }
+    // 開いているときは転がらず、まっすぐ立つ
+    if (e.open > 0.05) {
+      const up = Math.round(e.mesh.rotation.x / (Math.PI * 2)) * Math.PI * 2;
+      e.mesh.rotation.x += (up - e.mesh.rotation.x) * Math.min(1, dt * 10);
+    }
+  }
+
+  // ダンゴムシの殻に当たった弾は跳ね返る
+  pillShielded(e) {
+    return e.kind === 'pill' && e.open < 0.6;
   }
 
   splitPill(e) {
@@ -678,7 +766,7 @@ export class Combat {
       e.z += (scroll * 0.5 + 46) * dt;
     } else if (G.phase === 'attack') {
       if (leader) G.at += dt;
-      e.z = Math.min(e.z + (scroll * 0.5 + 30) * dt, -20 - e.role * 7);
+      e.z = Math.min(e.z + (scroll * 0.5 + 30) * dt, ctx.side ? -10 - e.role * 6 : -20 - e.role * 7); // 横スクロールは画面の中で止まる
       const local = G.at - e.role * 0.7;
       if (local >= 0 && e.fired === 0) {
         e.fired = 1;
@@ -694,7 +782,15 @@ export class Combat {
     } else {
       e.z -= 32 * dt;
       e.offTo.y = 4;
-      if (e.z < SPAWN_Z) e.dead = true;
+      if (G.regroup) {
+        // 部隊のボス: 下がりきったら、もう一度攻めてくる
+        if (leader && e.z < -80) {
+          G.phase = 'approach';
+          for (const o of this.enemies) if (o.group === G) { o.fired = 0; o.offTo.set(0, 0); }
+        }
+      } else if (e.z < SPAWN_Z) {
+        e.dead = true;
+      }
     }
     e.off.lerp(e.offTo, Math.min(1, dt * 6));
     p.set(G.lane + e.off.x, 3.3 * MECH_SCALE + e.off.y + Math.sin(e.t * 2) * 0.15, e.z);
@@ -761,6 +857,11 @@ export class Combat {
   }
 
   addEnemy(e, shadowR) {
+    if (this.sideMode && e.mesh.position.z < -100) {
+      e.mesh.position.z += SIDE_SPAWN_SHIFT;
+      if (typeof e.z === 'number') e.z += SIDE_SPAWN_SHIFT;
+      if (e.spine) e.spine.z += SIDE_SPAWN_SHIFT;
+    }
     e.shadow = new THREE.Mesh(GEO.shadow, MAT.shadow);
     e.shadow.scale.setScalar(shadowR);
     this.scene.add(e.mesh, e.shadow);
@@ -769,10 +870,14 @@ export class Combat {
 
   // ---- ボス: 緑の龍。頭のうしろに胴体の節がつながり、うねりながら頭を追う。
   // 偶数ステージは二首: 胴体の先が二股に分かれ、首ごとに頭が付く (2 つの頭は別々に動いて交互に攻撃する)
-  spawnBoss() {
+  // def: { type: 'serpent' | 'twin' | 'squad' | 'swarm', hp, escape }
+  spawnBoss(def = { type: 'serpent', hp: 400 }) {
+    this.bossDefeated = false;
+    this.bossEscaped = false;
+    if (def.type === 'squad' || def.type === 'swarm') return this.spawnBossGroup(def);
     const lv = this.level;
-    const twin = lv % 2 === 0;
-    const hp = Math.round((300 + lv * 100) * (twin ? 1.4 : 1));
+    const twin = def.type === 'twin';
+    const hp = def.hp || Math.round((300 + lv * 100) * (twin ? 1.4 : 1));
     const b = { parts: [], heads: [], body: [], twin, hp, maxHp: hp, t: 0, segFireT: 2, dying: -1, exploded: 0, lunging: null };
     const make = (tpl, fallbackR, r, isHead, scale = 1) => {
       let made;
@@ -810,7 +915,65 @@ export class Combat {
     this.bossDefeated = false;
   }
 
-  get bossRatio() { return this.boss ? Math.max(0, this.boss.hp / this.boss.maxHp) : null; }
+  // 群れのボス: ロボット部隊 (3 機編隊 × 2 が波状攻撃をくり返す) / 旋回する群れ (8 機が 2 つの輪で逆向きに回って撃つ)。
+  // 全滅させれば撃破 (ボスボーナス)、escape 秒たつと去っていく (ボーナスなしで次へ)
+  spawnBossGroup(def) {
+    const g = { type: def.type, t: 0, escape: def.escape || 30, total: 0, kills: 0, leaving: false };
+    this.bossGroup = g;
+    const before = this.enemies.length;
+    if (def.type === 'squad') {
+      const P = this.lastPlayer || new THREE.Vector3();
+      this.spawnMechTrio(P.x - 10);
+      this.spawnMechTrio(P.x + 10);
+      for (const e of this.enemies.slice(before)) {
+        e.hp = Math.round(e.hp * 1.6);
+        e.group.regroup = true; // 攻撃し終えたら下がって、また攻めてくる
+      }
+    } else {
+      for (let i = 0; i < 8; i++) {
+        const { mesh, mats } = makeFighter();
+        mesh.scale.setScalar(FIGHTER_SCALE * 1.2);
+        const e = {
+          kind: 'fighter', mesh, mats, r: 3.4, hp: 6 + this.level, score: 500,
+          t: 0, fireT: rand(1, 3), flash: 0, state: 'orbit', ring: i % 2, slot: Math.floor(i / 2), yaw: 0, bank: 0, lastX: 0,
+        };
+        mesh.position.set(0, 10, SPAWN_Z);
+        this.addEnemy(e, 1.8 * FIGHTER_SCALE);
+      }
+    }
+    for (const e of this.enemies.slice(before)) e.bossGroup = g;
+    g.total = this.enemies.length - before;
+  }
+
+  updateBossGroup(dt) {
+    const g = this.bossGroup;
+    if (!g) return;
+    g.t += dt;
+    const alive = this.enemies.filter((e) => e.bossGroup === g && !e.dead);
+    if (!g.leaving && g.t > g.escape) {
+      g.leaving = true;
+      for (const e of alive) {
+        if (e.kind === 'fighter') e.state = 'leave';
+        if (e.kind === 'mech') { e.group.regroup = false; e.group.phase = 'retreat'; }
+      }
+    }
+    if (alive.length === 0 && g.t > 1) {
+      this.bossGroup = null;
+      if (g.kills >= g.total) {
+        this.bossDefeated = true;
+        this.score += Math.round(5000 * this.level * this.mult);
+      } else {
+        this.bossEscaped = true;
+      }
+    }
+  }
+
+  get bossRatio() {
+    if (this.boss) return Math.max(0, this.boss.hp / this.boss.maxHp);
+    const g = this.bossGroup;
+    if (g) return (g.total - g.kills) / g.total;
+    return null;
+  }
 
   // 節を「背骨」に沿って前の節から一定の距離でついていかせ、そこにうねり (しっぽへ伝わる波) を足して表示する
   followChain(chain, from, startIdx, dt, t) {
@@ -856,9 +1019,9 @@ export class Combat {
       const target = _d.set(
         P.x * 0.4 + H.side * 11 + 18 * Math.sin(t * 0.62 + H.phase) + 5 * Math.sin(t * 1.9 + H.phase),
         THREE.MathUtils.clamp(P.y + 3 + 6 * Math.sin(t * 1.3 + H.phase) + 2 * Math.sin(t * 2.7 + H.phase), 6, 22),
-        -38 + 8 * Math.sin(t * 0.41 + H.phase),
+        ctx.side ? -20 + 5 * Math.sin(t * 0.41 + H.phase) : -38 + 8 * Math.sin(t * 0.41 + H.phase),
       );
-      if (t < 5) target.z = THREE.MathUtils.lerp(-200, target.z, t / 5); // 遠くから迫ってくる
+      if (t < 5) target.z = THREE.MathUtils.lerp(ctx.side ? -60 : -200, target.z, t / 5); // 遠くから迫ってくる
       // 噛みつき: ときどき目の前まで突っ込んでくる (同時に噛みつくのは 1 つの頭だけ)
       H.lungeT -= dt;
       if (H.lungeT <= 0 && t > 6 && !b.lunging && H.breath <= 0) {
@@ -869,7 +1032,7 @@ export class Combat {
       }
       if (H.lunge > 0) {
         H.lunge -= dt;
-        target.set(P.x + (H.side || 1) * 7, P.y + 3, -14); // 巨大なので少し離れた位置で噛みつく
+        target.set(P.x + (H.side || 1) * 7, P.y + 3, ctx.side ? P.z - 9 : -14); // 巨大なので少し離れた位置で噛みつく
         if (H.lunge <= 0) b.lunging = null;
       }
       H.head.spine.lerp(target, 1 - Math.exp(-dt * (H.lunge > 0 ? 3.5 : 2.6)));
@@ -1055,6 +1218,7 @@ export class Combat {
       return;
     }
     e.dead = true;
+    if (e.bossGroup) e.bossGroup.kills++;
     this.score += Math.round(e.score * this.mult);
     this.kills++;
     this.explode(e.mesh.position, ['gunship', 'mech', 'moai', 'ptero'].includes(e.kind));
@@ -1070,22 +1234,26 @@ export class Combat {
   update(ctx) {
     const { dt, scroll } = ctx;
     this.time += dt;
+    this.sideMode = !!ctx.side;
 
     // 出現
     if (ctx.spawn) {
       this.spawn.wave -= dt;
       if (this.spawn.wave <= 0) {
-        this.spawn.wave = rand(3.5, 5.5) / (1 + (this.level - 1) * 0.15);
+        this.spawn.wave = rand(3.5, 5.5) / (this.density || 1) * (ctx.side ? 0.7 : 1); // 横スクロールは少し多めに出す
         this.spawnWave(ctx.player.x, ctx.player.y);
       }
     }
+    this.lastPlayer = ctx.player;
     this.updateBoss(dt, ctx);
+    this.updateBossGroup(dt);
     this.updateItems(dt, scroll, ctx);
 
     // 敵の動き
     for (const e of this.enemies) {
       e.t += dt;
       const p = e.mesh.position;
+      const z0 = p.z;
       if (e.kind === 'boss') {
         // updateBoss で動かす
       } else if (e.kind === 'moai') {
@@ -1119,16 +1287,46 @@ export class Combat {
       } else if (e.kind === 'ptero') {
         this.updatePtero(e, dt, scroll, ctx);
       } else if (e.kind === 'pill') {
-        p.z += (scroll + 24) * dt; // 地面より速く転がってくる
-        // ジグザグに転がりながら、プレイヤーの列へ寄ってくる
-        const want = ctx.player.x + Math.sin(e.t * 2.2) * Math.max(4, -p.z * 0.35);
-        e.x += THREE.MathUtils.clamp(want - e.x, -16 * dt, 16 * dt);
-        p.set(e.x, 1.5 * PILL_SCALE, p.z);
-        e.mesh.rotation.x -= ((scroll + 24) / (1.5 * PILL_SCALE)) * dt;
+        this.updatePillShell(e, dt, ctx);
+        const closed = e.open < 0.05;
+        if (e.mode === 'tri' && e.t < 14) {
+          // 三角形の編隊: 正面で三角形に並んで回る
+          const cz = THREE.MathUtils.lerp(SPAWN_Z, ctx.side ? -16 : -40, Math.min(1, e.t / 4));
+          const a = (e.slot / 3) * Math.PI * 2 + e.t * 0.5 + Math.PI / 2;
+          const R = ctx.side ? 5 : 7;
+          e.cx += (ctx.player.x - e.cx) * Math.min(1, dt * 0.8);
+          p.set(e.cx + Math.cos(a) * R, Math.max(2.5, e.cy + Math.sin(a) * R), cz);
+          if (closed) e.mesh.rotation.x -= 3 * dt;
+        } else if (e.mode === 'tri') {
+          // しばらくすると、そろって転がりながら突っ込んでくる
+          e.openTo = 0;
+          p.z += (scroll * 0.5 + 40) * dt;
+          p.y = Math.max(1.5 * PILL_SCALE, p.y - 8 * dt);
+          e.mesh.rotation.x -= 12 * dt;
+        } else {
+          // 地面を転がってくる。殻を開いている間は止まって (地面と一緒に流れて) 玉を吐く
+          p.z += (scroll + (closed ? 24 : -scroll * 0.6)) * dt;
+          if (closed) {
+            const want = ctx.player.x + Math.sin(e.t * 2.2) * Math.max(4, -p.z * 0.35);
+            e.x += THREE.MathUtils.clamp(want - e.x, -16 * dt, 16 * dt);
+            e.mesh.rotation.x -= ((scroll + 24) / (1.5 * PILL_SCALE)) * dt;
+          }
+          p.set(e.x, 1.5 * PILL_SCALE, p.z);
+        }
       } else if (e.kind === 'pillpart') {
         // 割れた節: はじけ飛んだあと、プレイヤーへ向かってくる
-        const want = _a.subVectors(ctx.player, p).normalize().multiplyScalar(40);
-        e.vel.lerp(want, Math.min(1, dt * (e.t > 0.5 ? 2.4 : 0.2)));
+        // 一度プレイヤーの横を過ぎたら、もう追わない (後ろから戻ってくると、よけられないため)
+        if (p.z > ctx.player.z - 6) e.noHome = true;
+        if (e.noHome) {
+          e.vel.z = Math.max(e.vel.z, 25);
+          // 横向きの勢いも止めて、まっすぐ後ろへ抜ける (斜め後ろから寄ってこないように)
+          const k = Math.exp(-dt * 8);
+          e.vel.x *= k;
+          e.vel.y *= k;
+        } else {
+          const want = _a.subVectors(ctx.player, p).normalize().multiplyScalar(40);
+          e.vel.lerp(want, Math.min(1, dt * (e.t > 0.5 ? 2.4 : 0.2)));
+        }
         e.vel.y -= (e.t < 0.6 ? 14 : 0) * dt;
         p.addScaledVector(e.vel, dt);
         p.z += scroll * 0.3 * dt;
@@ -1152,6 +1350,10 @@ export class Combat {
         e.mesh.rotation.z = Math.sin(e.t * 0.7) * 0.15;
       }
       if (ctx.planeX !== undefined && ctx.planeX !== null) p.x = ctx.planeX; // 横スクロール: 同じ平面にそろえる
+      if (ctx.side && e.kind !== 'boss') {
+        p.z = z0 + (p.z - z0) * SIDE_Z_SCALE;
+        if (typeof e.z === 'number') e.z = p.z;
+      }
       if (p.z > REMOVE_Z) e.dead = true;
       e.shadow.position.set(p.x, 0.05, p.z);
       if (!e.whooshed && e.kind !== 'boss' && p.distanceTo(ctx.eye) < e.r + 9) {
@@ -1202,7 +1404,7 @@ export class Combat {
     const flat = ctx.planeX !== undefined && ctx.planeX !== null;
     for (const b of this.bullets) {
       if (flat) b.vel.x = 0;
-      b.mesh.position.addScaledVector(b.vel, dt);
+      b.mesh.position.addScaledVector(b.vel, dt * (flat ? SIDE_BULLET_SCALE : 1));
       if (flat) b.mesh.position.x = ctx.planeX;
       b.life -= dt;
       b.age += dt;
@@ -1271,7 +1473,17 @@ export class Combat {
       }
       if (s.dead) continue;
       for (const e of this.enemies) {
-        if (!e.dead && segHit(s.prev, s.pos, e.mesh.position, e.r)) {
+        if (!e.dead && !s.ricochet && segHit(s.prev, s.pos, e.mesh.position, e.r)) {
+          if (this.pillShielded(e)) {
+            // 跳ね返る: 当たった面で反射して、弱く飛んでいく (もう当たらない)
+            const n = _a.subVectors(s.pos, e.mesh.position).normalize();
+            s.vel.reflect(n).multiplyScalar(0.5);
+            s.ricochet = true;
+            s.life = Math.min(s.life, 0.35);
+            this.sparks.emit(s.pos, _b.copy(n).multiplyScalar(6), WHITE, 0.7, 0.2);
+            sfx.ricochet();
+            break;
+          }
           s.dead = true;
           this.damage(e, 1);
           break;
@@ -1281,10 +1493,10 @@ export class Combat {
       for (const o of ctx.world.obstacles) {
         if (o.dead) continue;
         const op = o.group.position;
-        const c = _d.set(op.x, o.kind === 'bush' ? o.cy : THREE.MathUtils.clamp(s.pos.y, 0, o.h), op.z);
+        const c = _d.set(op.x, o.cy !== undefined ? o.cy : THREE.MathUtils.clamp(s.pos.y, 0, o.h), op.z);
         if (!segHit(s.prev, s.pos, c, o.r)) continue;
         s.dead = true;
-        if (o.kind === 'bush') {
+        if (o.breakable) {
           o.dead = true;
           this.score += Math.round(50 * this.mult);
           this.explode(c);
@@ -1346,7 +1558,8 @@ export class Combat {
       m.mesh.rotateY(Math.PI); // モデルは -Z が先端なので向きを合わせる
       if (m.target && !m.target.dead && m.pos.distanceTo(m.target.mesh.position) < m.target.r + 1) {
         m.dead = true;
-        this.damage(m.target, 4);
+        if (this.pillShielded(m.target)) sfx.ricochet();
+        else this.damage(m.target, 4);
         this.explode(m.pos);
       } else if (m.life <= 0 || m.pos.y < -0.5) {
         m.dead = true;

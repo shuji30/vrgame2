@@ -7,6 +7,7 @@ const SPAWN_Z = -210;
 const SPAWN_SPACING = 11;   // 何 m 進むごとに障害物を出すか (速度に関係なく密度が一定になる)
 const REMOVE_Z = 40;        // 後ろを振り返っても急に消えて見えないよう、少し後ろまで残す
 const CHECKER = 8;          // 市松模様の1マス (m)
+export const CEIL_Y = 26;   // 天井の高さ (m)
 
 export const THEMES = [
   { name: 'MEADOW', a: 0xe9cf6a, b: 0x3e9c3c, fog: 0xf6dcae, sky: 0x2f72d8, mount: 0x5a70a8, col: ['#f4f4f4', '#e2559a'], bush: 0x2e8b3a },
@@ -106,6 +107,15 @@ export class World {
     ground.rotation.x = -Math.PI / 2;
     ground.position.z = -450;
     scene.add(ground);
+    // 天井 (天井のある面だけ表示)。床と同じ模様を、下向きに貼る
+    // (床と同じ uniforms を共有するので、色と模様の流れも床と一緒に変わる)
+    this.ceiling = new THREE.Mesh(ground.geometry, new THREE.ShaderMaterial({
+      uniforms: this.groundUni, vertexShader: groundVert, fragmentShader: groundFrag, side: THREE.DoubleSide,
+    }));
+    this.ceiling.rotation.x = Math.PI / 2;
+    this.ceiling.position.set(0, CEIL_Y, -450);
+    this.ceiling.visible = false;
+    scene.add(this.ceiling);
 
     // 空 (カメラに追従する大きな球)
     this.skyUni = { top: { value: new THREE.Color() }, bottom: { value: new THREE.Color() } };
@@ -141,6 +151,10 @@ export class World {
       trunk: new THREE.CylinderGeometry(0.25, 0.4, 1, 6),
       leaf: new THREE.ConeGeometry(1, 1, 7),
       shadow: new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2),
+      rock: new THREE.DodecahedronGeometry(1, 0),
+      mushStem: new THREE.CylinderGeometry(0.35, 0.5, 1, 8),
+      mushCap: new THREE.SphereGeometry(1, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2),
+      mushDot: new THREE.SphereGeometry(0.16, 6, 4),
     };
     this.mat = {
       column: new THREE.MeshStandardMaterial({ roughness: 0.5 }),
@@ -149,6 +163,10 @@ export class World {
       trunk: new THREE.MeshStandardMaterial({ color: 0x7a4a24, roughness: 0.9 }),
       leaf: new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.8 }),
       shadow: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false }),
+      rock: new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.95 }),
+      mushStem: new THREE.MeshStandardMaterial({ color: 0xf2ead8, roughness: 0.8 }),
+      mushCap: new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.6 }),
+      mushDot: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 }),
     };
 
     this.obstacles = [];
@@ -159,8 +177,9 @@ export class World {
     this.applyTheme(0);
   }
 
+  // i: THEMES の番号、またはステージ表のパレット (オブジェクト)
   applyTheme(i) {
-    const th = THEMES[i % THEMES.length];
+    const th = typeof i === 'object' ? i : THEMES[i % THEMES.length];
     this.theme = th;
     const fog = new THREE.Color(th.fog);
     this.groundUni.cA.value.setHex(th.a);
@@ -175,6 +194,26 @@ export class World {
     this.mat.column.needsUpdate = true;
     this.mat.bush.color.setHex(th.bush);
     this.mat.leaf.color.setHex(th.bush).multiplyScalar(0.8);
+    this.mat.rock.color.setHex(th.mount).lerp(new THREE.Color(0x8a8070), 0.5);
+    this.mat.mushCap.color.setHex(th.col[1] ? parseInt(th.col[1].slice(1), 16) : 0xff4a6a);
+  }
+
+  // ステージごとの障害物の出方 ({ column, bush, tree, rock, mushroom, lane })
+  setObstacles(table) {
+    this.obstacleTable = table || null;
+  }
+
+  pickKind() {
+    const t = this.obstacleTable;
+    if (!t) return undefined;
+    const kinds = ['column', 'bush', 'tree', 'rock', 'mushroom'].filter((k) => t[k] > 0);
+    let r = Math.random() * kinds.reduce((a, k) => a + t[k], 0);
+    return kinds.find((k) => (r -= t[k]) < 0) || kinds[0];
+  }
+
+  // 天井のある面: 床と同じ模様の天井を、上に重ねる
+  setCeiling(on) {
+    this.ceiling.visible = !!on;
   }
 
   addShadow(o, r) {
@@ -187,9 +226,38 @@ export class World {
 
   spawnOne(x, z, force) {
     const g = new THREE.Group();
-    const roll = force === 'tree' ? 0.9 : Math.random();
+    const kind = force || this.pickKind();
+    const roll = kind ? { column: 0, bush: 0.5, tree: 0.9 }[kind] ?? -1 : Math.random();
     let o;
-    if (roll < 0.4) {
+    if (kind === 'rock') {
+      // 浮遊岩: 空中に浮かび、ゆっくり回る。撃って壊せる
+      const r = rand(1.2, 2.6);
+      const m = new THREE.Mesh(this.geo.rock, this.mat.rock);
+      m.scale.set(r, r * rand(0.7, 1), r);
+      m.rotation.set(rand(0, 3), rand(0, 3), 0);
+      const cy = rand(3, this.ceiling.visible ? 16 : 14);
+      m.position.y = cy;
+      g.add(m);
+      o = { kind: 'rock', group: g, r, cy, breakable: true, spin: rand(-1, 1), mesh: m, baseY: cy };
+    } else if (kind === 'mushroom') {
+      // 巨大キノコ: 色とりどりのかさ。撃って壊せる
+      const h = rand(4, 9), cr = h * rand(0.45, 0.6);
+      const stem = new THREE.Mesh(this.geo.mushStem, this.mat.mushStem);
+      stem.scale.set(h * 0.18, h, h * 0.18);
+      stem.position.y = h / 2;
+      const cap = new THREE.Mesh(this.geo.mushCap, this.mat.mushCap);
+      cap.scale.set(cr, cr * 0.7, cr);
+      cap.position.y = h * 0.92;
+      g.add(stem, cap);
+      for (let i = 0; i < 5; i++) {
+        const dot = new THREE.Mesh(this.geo.mushDot, this.mat.mushDot);
+        const a = (i / 5) * Math.PI * 2 + rand(0, 1);
+        dot.position.set(Math.cos(a) * cr * 0.6, h * 0.92 + cr * 0.5, Math.sin(a) * cr * 0.6);
+        dot.scale.setScalar(cr * 0.9);
+        g.add(dot);
+      }
+      o = { kind: 'mushroom', group: g, r: cr * 0.8, h: h + cr * 0.6, breakable: true };
+    } else if (roll < 0.4) {
       const r = rand(0.9, 1.5), h = rand(5, 16);
       const col = new THREE.Mesh(this.geo.column, this.mat.column);
       col.scale.set(r, h, r);
@@ -206,7 +274,7 @@ export class World {
       b.rotation.y = rand(0, Math.PI);
       b.position.y = r * 0.6;
       g.add(b);
-      o = { kind: 'bush', group: g, r, cy: r * 0.6 };
+      o = { kind: 'bush', group: g, r, cy: r * 0.6, breakable: true };
     } else {
       const h = rand(4, 9);
       const trunk = new THREE.Mesh(this.geo.trunk, this.mat.trunk);
@@ -229,16 +297,18 @@ export class World {
     const d = speed * dt;
     this.offset = (this.offset + d) % (CHECKER * 2);
     this.groundUni.uOff.value = this.offset;
+    if (this.ceiling.visible) this.ceiling.position.x = camPos.x;
     this.sky.position.set(camPos.x, 0, camPos.z);
     this.mountains.position.x = camPos.x * 0.9; // ほぼ無限遠に見せる
 
     if (spawn) {
       this.spawnAcc += d;
       const bonus = this.mode === 'bonus';
+      const spawnZ = this.side ? -70 : SPAWN_Z; // 横スクロールは画面の右端のすぐ外に出す
       const spacing = bonus ? 5 : SPAWN_SPACING;
       while (this.spawnAcc > spacing) {
         this.spawnAcc -= spacing;
-        const z = SPAWN_Z + this.spawnAcc;
+        const z = spawnZ + this.spawnAcc;
         if (this.side) {
           // 横スクロール: カメラは +X 側から見るので、手前 (x > 0) には置かない
           if (Math.random() < (bonus ? 0.7 : 0.3)) this.spawnOne(0, z, bonus ? 'tree' : undefined);
@@ -253,13 +323,17 @@ export class World {
         }
         this.spawnOne(camPos.x + rand(-38, 38), z); // プレイヤーのまわりに出す (端へ行っても障害物がある)
         // ときどきプレイヤーの進路上にも置いて、避ける必要を作る
-        if (Math.random() < 0.25) this.spawnOne(camPos.x + rand(-4, 4), z - rand(0, 5));
+        if (Math.random() < (this.obstacleTable?.lane ?? 0.25)) this.spawnOne(camPos.x + rand(-4, 4), z - rand(0, 5));
       }
     }
 
     for (const o of this.obstacles) {
       o.prevZ = o.group.position.z;
       o.group.position.z += d;
+      if (o.kind === 'rock') {
+        o.mesh.rotation.y += o.spin * dt;
+        o.mesh.position.y = o.baseY + Math.sin(o.prevZ * 0.05) * 0.6;
+      }
       if (o.knocked) {
         // なぎ倒された木: 前へ倒れながら跳ね上がる
         o.fallT += dt;
@@ -294,7 +368,7 @@ export class World {
       const dz = crossed ? 0 : z1 - p.z;
       if (Math.abs(dz) > o.r + r) continue;
       const dx = p.x - o.group.position.x;
-      if (o.kind === 'bush') {
+      if (o.kind === 'bush' || o.kind === 'rock') {
         const dy = p.y - o.cy;
         if (dx * dx + dy * dy + dz * dz < (o.r + r) ** 2) return o;
       } else if (p.y < o.h + r && dx * dx + dz * dz < (o.r + r) ** 2) {

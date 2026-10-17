@@ -5,6 +5,9 @@ import { Hud, DebugPanel } from './hud.js';
 import { Avatar } from './avatar.js';
 import { DragonRide } from './ride.js';
 import { Combat, MISSILE_MAX, loadEnemyModels } from './combat.js';
+import { STAGES, STAGE_COUNT, stageAt } from './stages.js';
+import { Vignette, VIGNETTE_LEVELS } from './comfort.js';
+import { CEIL_Y } from './world.js';
 import { THEMES } from './world.js';
 import { VERSION, loadBuildInfo } from './version.js';
 import { initAudio, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, toggleMute } from './audio.js';
@@ -23,9 +26,11 @@ const SPEED = {
 // 横スクロール: カメラ (リグ) を +X 側の空中に置いて -X 向きにし、プレイヤーは x = 0 の平面を飛ぶ。
 // 画面の右 = 前 (-Z)。プレイヤーは画面の左寄り (z = +12) から始まる
 const SIDE_CAM = new THREE.Vector3(26, 8.5, -8);
-const SIDE_Z_MIN = -26, SIDE_Z_MAX = 22, SIDE_Z_START = 12;
+const SIDE_Z_MIN = -24, SIDE_Z_MAX = 10, SIDE_Z_START = 6; // 画面に収まる範囲
+const SIDE_SCROLL = 0.3; // 横スクロールでは地面の流れを遅くする (映る範囲が狭いため)
 const READY_TIME = 2.5;    // 開始時に 0 から基準速度までゆっくり加速する時間 (s)
-const STAGE_LEN = Number(new URLSearchParams(location.search).get('stageLen')) || 60; // ボスが出るまでの時間 (s)。開発用に ?stageLen=10 で短くできる
+const DEV_STAGE_LEN = Number(new URLSearchParams(location.search).get('stageLen')) || 0; // 開発用: ?stageLen=10 でボスまでを短くする
+const DEV_START_STAGE = Number(new URLSearchParams(location.search).get('stage')) || 1; // 開発用: ?stage=7 で途中のステージから
 const LIVES = 3;
 const EXTEND_EVERY = 50000; // この点数ごとに残機が 1 増える
 const LIVES_MAX = 5;
@@ -39,7 +44,7 @@ let hiScore = 0;
 try { hiScore = Number(localStorage.getItem('skyrunner.hi')) || 0; } catch (_) { /* 保存なし */ }
 
 // ---- 設定 (localStorage に保存)
-const settings = { scale: 1.0, autoReturn: true, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d' };
+const settings = { scale: 1.0, autoReturn: true, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('skyrunner.settings') || '{}')); } catch (_) { /* 保存なし */ }
 // 開発用: ?player=ship|human&view=1st|3rd で上書きする
 for (const key of ['player', 'view', 'mode']) {
@@ -75,7 +80,10 @@ combat.forceWave = new URLSearchParams(location.search).get('wave'); // 開発�
 loadEnemyModels('./assets/enemies.glb').catch((e) => console.error('敵のモデルを読み込めませんでした', e));
 debugPanel.visible = new URLSearchParams(location.search).has('debug');
 
-// 被弾したときに視界を赤くする
+// VR の酔い対策: 速く飛んでいるときや大きく動いているときに、視野の周りを暗くする
+const vignette = new Vignette(camera);
+
+// 被弾したときに視界を赤くする (デスクトップのみ。VR は周りの赤い縁取り)
 const flash = new THREE.Mesh(
   new THREE.SphereGeometry(0.2, 12, 8),
   new THREE.MeshBasicMaterial({ color: 0xff2020, transparent: true, opacity: 0, side: THREE.BackSide, depthTest: false, fog: false }),
@@ -150,27 +158,57 @@ function showMsg(msg, sub = '', time = 2) {
 
 const overlay = document.getElementById('overlay');
 
-function startPlay() {
+function startPlay(stageNo) {
+  if (!Number.isInteger(stageNo)) stageNo = DEV_START_STAGE;
   initAudio();
   Object.assign(S, {
     mode: 'play', paused: false, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0, pz: SIDE_Z_START, vz: 0,
     stage: 1, phase: 'normal', phaseT: 0, stageT: 0, baseSpeed: SPEED.base, lives: LIVES, life: LIFE_MAX, lowLifeT: 0, nextExtend: EXTEND_EVERY, overT: 0,
   });
   if (isSide()) S.py = 8; // 横スクロールは画面の中ほどの高さから
-  setBGMMode(false);
   world.clear();
-  world.applyTheme(0);
   combat.reset();
   avatar.recenter();
   avatar.destroyed = false;
+  avatar.fallT = -1;
+  avatar.stumbleT = 0;
   endBonus();
   overlay.hidden = true;
   applyAudioSettings();
   setPaused(false);
   stopBGM();
   startBGM();
-  showMsg('GET READY!', '', READY_TIME);
-  say('Get ready!');
+  applyStage(stageNo, true);
+}
+
+// ステージ表の内容を反映する
+function applyStage(n, first = false) {
+  S.stage = n;
+  S.stageT = 0;
+  S.phaseT = 0;
+  S.rushIndex = 0;
+  const st = stageAt(n);
+  combat.level = st.diff;
+  combat.density = st.density;
+  combat.waveTable = st.waves;
+  world.applyTheme(st.palette);
+  world.setObstacles(st.obstacles);
+  world.setCeiling(st.ceiling);
+  S.baseSpeed = st.speed;
+  S.stageLen = DEV_STAGE_LEN || st.length;
+  setBGMMode('rock', st.bgm);
+  const title = `STAGE ${n}`;
+  if (st.kind === 'bonus') {
+    startBonus(title, st.name);
+  } else if (st.kind === 'rush') {
+    S.phase = 'warning';
+    showMsg(title, `${st.name} - BOSS RUSH`, 3.5);
+    sfx.warning();
+  } else {
+    S.phase = 'normal';
+    showMsg(first ? 'GO AHEAD!' : title, first ? `${title}  ${st.name}` : st.name, first ? READY_TIME : 2.5);
+  }
+  say(first ? 'Go ahead!' : `Stage ${n}`);
 }
 
 function togglePause(p) {
@@ -208,6 +246,7 @@ async function enterVR() {
     S.floorOffset = type === 'local' ? 1.6 : 0;
     session.addEventListener('end', onSessionEnd);
     await renderer.xr.setSession(session);
+    renderer.xr.setFoveation?.(1); // 視野の端を粗く描いて軽くする (Quest で効く)
     startPlay();
   } catch (err) {
     console.error(err);
@@ -230,6 +269,9 @@ const approach = (v, target, step) => (v < target ? Math.min(target, v + step) :
 const ease = (t) => t * t * (3 - 2 * t);
 
 const isSide = () => settings.mode === 'side';
+const vrGentle = () => renderer.xr.isPresenting && settings.vrGentle;
+const yMax = () => Math.min(stageAt(S.stage).ceiling ? CEIL_Y - 8 : Y_MAX, vrGentle() ? 12 : Y_MAX);
+const moveY = () => MOVE_Y * (vrGentle() ? 0.6 : 1);
 
 function movePlayer(dt, a) {
   if (isSide()) return moveSide(dt, a);
@@ -238,38 +280,43 @@ function movePlayer(dt, a) {
     // マウス: 画面上の位置へ機体が寄っていく (原作のような操作感)
     const k = 1 - Math.exp(-dt * 5);
     S.px += (a.abs.x * X_LIMIT - S.px) * k;
-    S.py += ((a.abs.y * 0.5 + 0.5) * Y_MAX - S.py) * k;
+    S.py += ((a.abs.y * 0.5 + 0.5) * yMax() - S.py) * k;
   } else {
     // スティック: 速度を滑らかに変える (急に動き出すと VR で酔いやすい)
     const k = 1 - Math.exp(-dt * 8);
     const my = settings.invertY ? -a.move.y : a.move.y; // 上下反転 (操縦桿のように、前に倒すと下がる)
     S.vx += (a.move.x * MOVE_X - S.vx) * k;
-    S.vy += (my * MOVE_Y - S.vy) * k;
+    S.vy += (my * moveY() - S.vy) * k;
     S.px += S.vx * dt;
     S.py += S.vy * dt;
   }
   S.px = clamp(S.px, -X_LIMIT, X_LIMIT);
-  S.py = clamp(S.py, 0, Y_MAX);
+  S.py = clamp(S.py, 0, yMax());
   S.vx = (S.px - ox) / dt;
   S.vy = (S.py - oy) / dt;
 }
 
 function nextStage() {
-  S.stage++;
-  combat.level = S.stage;
-  world.applyTheme(S.stage - 1);
-  S.baseSpeed = Math.min(60, SPEED.base + (S.stage - 1) * 4);
-  S.phase = 'normal';
-  S.stageT = 0;
-  showMsg(`STAGE ${S.stage}`, THEMES[(S.stage - 1) % THEMES.length].name, 2.5);
-  say(`Stage ${S.stage}`);
+  if (S.stage >= STAGE_COUNT) return allClear();
+  applyStage(S.stage + 1);
+}
+
+// 全 18 面クリア
+function allClear() {
+  S.phase = 'ending';
+  S.phaseT = 0;
+  showMsg('ALL CLEAR!!', `CONGRATULATIONS!  SCORE ${combat.score}`, 8);
+  sfx.clear();
+  say('Congratulations');
+  setBGMMode('bonus');
 }
 
 // ステージの進行: 通常 → WARNING → ボス → STAGE CLEAR → 次のステージ
 function updateStage(dt) {
   S.stageT += dt;
   S.phaseT += dt;
-  if (S.phase === 'normal' && S.stageT > STAGE_LEN) {
+  const st = stageAt(S.stage);
+  if (S.phase === 'normal' && S.stageT > S.stageLen) {
     S.phase = 'warning';
     S.phaseT = 0;
     showMsg('WARNING!!', '巨大な敵が接近中', 3.5);
@@ -277,18 +324,30 @@ function updateStage(dt) {
   } else if (S.phase === 'warning' && S.phaseT > 3.5) {
     S.phase = 'boss';
     S.phaseT = 0;
-    combat.spawnBoss();
-    setBGMMode(true);
-  } else if (S.phase === 'boss' && combat.bossDefeated) {
-    combat.bossDefeated = false;
-    S.phase = 'clear';
+    combat.spawnBoss(st.kind === 'rush' ? st.rush[S.rushIndex] : st.boss);
+    setBGMMode('boss');
+  } else if (S.phase === 'boss' && (combat.bossDefeated || combat.bossEscaped)) {
+    const escaped = combat.bossEscaped;
+    combat.bossDefeated = combat.bossEscaped = false;
     S.phaseT = 0;
-    showMsg('STAGE CLEAR!', `BOSS BONUS ${10000 * S.stage}`, 4.5);
-    sfx.clear();
-    setBGMMode(false);
+    if (st.kind === 'rush' && S.rushIndex < st.rush.length - 1) {
+      // ボスラッシュ: 次のボスへ
+      S.rushIndex++;
+      S.phase = 'warning';
+      S.phaseT = 1.5;
+      showMsg(`BOSS ${S.rushIndex + 1} / ${st.rush.length}`, '', 2);
+      sfx.warning();
+    } else {
+      S.phase = 'clear';
+      showMsg('STAGE CLEAR!', escaped ? '敵は逃げ去った' : `BOSS BONUS ${10000 * st.diff}`, 4.5);
+      if (!escaped) combat.score += 10000 * st.diff;
+      sfx.clear();
+      setBGMMode('rock', st.bgm);
+    }
   } else if (S.phase === 'clear' && S.phaseT > 5) {
-    if (S.stage % 2 === 1) startBonus();
-    else nextStage();
+    nextStage();
+  } else if (S.phase === 'ending' && S.phaseT > 8) {
+    gameOver(true);
   } else if (S.phase === 'bonus' && S.phaseT > BONUS_LEN) {
     S.phase = 'bonusEnd';
     S.phaseT = 0;
@@ -322,7 +381,7 @@ function playerExplosion(big) {
 }
 
 // ボーナスステージ: 龍の頭に乗って、木をなぎ倒す (敵は出ず、ダメージも受けない)
-function startBonus() {
+function startBonus(title = 'BONUS STAGE', name = '') {
   S.phase = 'bonus';
   S.phaseT = 0;
   S.bonusCount = 0;
@@ -330,7 +389,7 @@ function startBonus() {
   ride.start();
   avatar.riding = true;
   setBGMMode('bonus');
-  showMsg('BONUS STAGE', '龍に乗って木をなぎ倒せ!', 3);
+  showMsg(title, `${name ? name + ' - ' : ''}BONUS STAGE: 龍に乗って木をなぎ倒せ!`, 3);
   say('Bonus stage');
 }
 
@@ -360,12 +419,17 @@ function updateRide(dt) {
   }
 }
 
-function gameOver() {
+function gameOver(cleared = false) {
   S.mode = 'over';
   S.overT = 0;
-  S.boomT = 0;
-  avatar.destroyed = true;
-  playerExplosion(true);
+  S.boomT = cleared ? Infinity : 0;
+  S.cleared = cleared;
+  if (!cleared && settings.player === 'human') {
+    S.boomT = Infinity; // 人間は爆発せず、地面に倒れる (avatar.fall)
+  } else if (!cleared) {
+    avatar.destroyed = true;
+    playerExplosion(true);
+  }
   S.paused = false;
   setBGMMode(false);
   stopBGM();
@@ -373,8 +437,8 @@ function gameOver() {
     hiScore = combat.score;
     try { localStorage.setItem('skyrunner.hi', String(hiScore)); } catch (_) { /* 保存不可 */ }
   }
-  showMsg('GAME OVER', `SCORE ${combat.score}   HI ${hiScore}`, Infinity);
-  say('Game over');
+  showMsg(cleared ? 'CONGRATULATIONS!' : 'GAME OVER', `SCORE ${combat.score}   HI ${hiScore}`, Infinity);
+  if (!cleared) say('Game over');
 }
 
 // damage: 減らすライフの量
@@ -383,17 +447,17 @@ function moveSide(dt, a) {
   if (a.abs && !renderer.xr.isPresenting) {
     const k = 1 - Math.exp(-dt * 5);
     S.pz += ((SIDE_Z_MIN + SIDE_Z_MAX) / 2 - a.abs.x * (SIDE_Z_MAX - SIDE_Z_MIN) / 2 - S.pz) * k;
-    S.py += ((a.abs.y * 0.5 + 0.5) * Y_MAX - S.py) * k;
+    S.py += ((a.abs.y * 0.5 + 0.5) * yMax() - S.py) * k;
   } else {
     const k = 1 - Math.exp(-dt * 8);
     const my = settings.invertY ? -a.move.y : a.move.y;
     S.vz += (-a.move.x * MOVE_X - S.vz) * k; // 右へ倒すと前 (-Z) へ
-    S.vy += (my * MOVE_Y - S.vy) * k;
+    S.vy += (my * moveY() - S.vy) * k;
     S.pz += S.vz * dt;
     S.py += S.vy * dt;
   }
   S.pz = clamp(S.pz, SIDE_Z_MIN, SIDE_Z_MAX);
-  S.py = clamp(S.py, 0, Y_MAX);
+  S.py = clamp(S.py, 0, yMax());
   S.vz = (S.pz - oz) / dt;
   S.vy = (S.py - oy) / dt;
   S.vx = 0;
@@ -402,6 +466,7 @@ function moveSide(dt, a) {
 function onHit(damage) {
   if (S.invuln > 0 || S.mode !== 'play' || S.phase === 'bonus' || S.phase === 'bonusEnd') return;
   S.hits++;
+  vignette.hit(0.4 + damage / 60);
   S.life -= damage;
   if (S.life > 0) {
     S.invuln = 0.8;
@@ -412,6 +477,11 @@ function onHit(damage) {
   }
   // ライフが尽きた: 残機を 1 減らしてライフを満タンに戻す
   S.lives--;
+  const human = settings.player === 'human';
+  if (human) {
+    sfx.scream(); // 「あーっ」
+    avatar.fall(S.lives <= 0);
+  }
   if (S.lives <= 0) {
     S.life = 0;
     flash.material.opacity = 0.8;
@@ -427,8 +497,18 @@ function onHit(damage) {
   sfx.damage();
   sfx.explode(true);
   input.rumble(1.0, 500);
-  playerExplosion(true);
+  if (!human) playerExplosion(true);
   showMsg('MISS!', `残機 ${S.lives}`, 2);
+}
+
+// 人間が茂みに足を引っかけた: ダメージは受けず、よろけて減速する
+function stumble() {
+  if (S.invuln > 0) return;
+  S.invuln = 0.8;
+  S.factor = Math.min(S.factor, 0.6);
+  avatar.stumble();
+  sfx.hit();
+  input.rumble(0.5, 150);
 }
 
 function onPickup(type) {
@@ -518,7 +598,7 @@ function updateCombat(dt, speed, a) {
   const halfHeight = (layer?.framebufferHeight ?? renderer.getDrawingBufferSize(_v2).y) / 2;
 
   combat.update({
-    dt, scroll: speed, world, side, planeX: side ? 0 : null,
+    dt, scroll: side ? speed * SIDE_SCROLL : speed, world, side, planeX: side ? 0 : null,
     spawn: S.mode === 'play' && S.ready >= 1 && S.phase === 'normal',
     active: S.mode === 'play' && S.ready >= 1 && !['clear', 'bonus', 'bonusEnd'].includes(S.phase),
     player: P, playerR: avatar.radius, eye: eyeW,
@@ -609,10 +689,14 @@ function update(dt) {
   P.copy(avatar.hitPoint);
   world.side = side;
   // ボス戦 (WARNING から撃破まで) は障害物を出さない
-  world.update(dt, speed, P, running && !(play && (S.phase === 'warning' || S.phase === 'boss')));
+  world.update(dt, side ? speed * SIDE_SCROLL : speed, P, running && !(play && (S.phase === 'warning' || S.phase === 'boss')));
 
   if (play && running) updateRide(dt);
-  if (play && running && !ride.active && S.invuln <= 0 && world.hitTest(P, avatar.radius)) onHit(OBSTACLE_DAMAGE);
+  if (play && running && !ride.active && S.invuln <= 0) {
+    const o = world.hitTest(P, avatar.radius);
+    if (o && o.kind === 'bush' && settings.player === 'human') stumble();
+    else if (o) onHit(OBSTACLE_DAMAGE);
+  }
   // ライフが少ないときは警告音
   if (play && running && S.life < LIFE_MAX * 0.3 && (S.lowLifeT -= dt) <= 0) {
     S.lowLifeT = 1.2;
@@ -627,6 +711,15 @@ function update(dt) {
   else if (S.mode === 'over') updateCombat(dt, speed, { ...a, fire: false, handFire: [], missile: false }); // 爆発や煙の続きを見せる
 
   flash.material.opacity = Math.max(0, flash.material.opacity - dt * 1.2);
+  if (renderer.xr.isPresenting) flash.material.opacity = 0; // VR では視界全体を光らせない
+  // ビネットの強さ: 速さと上下左右の動きに合わせる (VR のときだけ)
+  {
+    const lvl = renderer.xr.isPresenting ? VIGNETTE_LEVELS[settings.vignette] ?? 0 : 0;
+    const motion = play && running
+      ? THREE.MathUtils.clamp(Math.max(0, speed / S.baseSpeed - 0.85) * 1.6 + Math.abs(S.vy) / MOVE_Y * 0.7 + Math.abs(S.vx) / MOVE_X * 0.5 + Math.abs(S.vz) / MOVE_X * 0.3, 0, 1)
+      : 0;
+    vignette.update(dt, lvl * (0.25 + 0.75 * motion));
+  }
   setEngine(S.mode === 'play' && running ? speed / SPEED.base : 0);
 
   // デスクトップのみ: 機体の傾きと速度による画角の変化 (VR ではカメラを動かさない)
@@ -670,7 +763,7 @@ function update(dt) {
     life: Math.max(0, Math.round(S.life)),
     lifeMax: LIFE_MAX,
     blink: S.life < LIFE_MAX * 0.3 && Math.floor(performance.now() / 250) % 2 === 0,
-    stage: S.stage,
+    stage: `${S.stage}/${STAGE_COUNT} ${stageAt(S.stage).name}`,
     hi: Math.max(hiScore, combat.score),
     mult: Math.round(combat.mult * 10) / 10,
     boss: combat.bossRatio === null ? null : Math.round(combat.bossRatio * 100) / 100,
@@ -678,7 +771,7 @@ function update(dt) {
   });
 
   S.fps += (1 / Math.max(dt, 1e-4) - S.fps) * 0.05;
-  debugPanel.draw(dt, { fps: S.fps, xr: renderer.xr.isPresenting, refSpace: S.refSpace, scale: settings.scale, version: buildInfo }, input);
+  debugPanel.draw(dt, { fps: S.fps, xr: renderer.xr.isPresenting, refSpace: S.refSpace, scale: settings.scale, version: buildInfo, calls: renderer.info.render.calls, tris: renderer.info.render.triangles }, input);
 }
 
 // 開発用: 自動テストからすぐ撃墜させる
@@ -686,7 +779,7 @@ window.__debugPx = () => S.px;
 window.__debugKill = () => { S.lives = 1; S.invuln = 0; onHit(999); };
 // 開発用: 自動テストから状態を読む
 window.__debugState = () => ({
-  bonusCount: S.bonusCount, destroyed: avatar.destroyed, shipVisible: avatar.models.ship?.obj.visible, overT: S.overT, frame: renderer.info.render.frame, mode: S.mode, py: S.py, version: document.getElementById('version').textContent, phase: S.phase, stage: S.stage, lives: S.lives, boss: combat.bossRatio, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,
+  gameMode: settings.mode, bonusCount: S.bonusCount, destroyed: avatar.destroyed, shipVisible: avatar.models.ship?.obj.visible, overT: S.overT, frame: renderer.info.render.frame, mode: S.mode, py: S.py, version: document.getElementById('version').textContent, phase: S.phase, stage: S.stage, lives: S.lives, boss: combat.bossRatio, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,
   shots: combat.shots.length, missiles: combat.missiles.length, stock: combat.missileStock, locks: combat.locks.length, hits: S.hits,
 });
 
@@ -734,7 +827,10 @@ playerInputs.forEach((el) => el.addEventListener('change', () => setPlayer(el.va
 showHiScore();
 selScale.value = String(settings.scale);
 chkReturn.checked = settings.autoReturn;
-for (const key of ['bgm', 'engine', 'invertY']) {
+const selVignette = document.getElementById('vignette');
+selVignette.value = settings.vignette;
+selVignette.addEventListener('change', () => { settings.vignette = selVignette.value; saveSettings(); });
+for (const key of ['bgm', 'engine', 'invertY', 'vrGentle']) {
   const el = document.getElementById(key);
   el.checked = settings[key];
   el.addEventListener('change', () => { settings[key] = el.checked; saveSettings(); applyAudioSettings(); });
@@ -744,12 +840,12 @@ addEventListener('keydown', (e) => {
 });
 selScale.addEventListener('change', () => { settings.scale = Number(selScale.value); saveSettings(); });
 chkReturn.addEventListener('change', () => { settings.autoReturn = chkReturn.checked; saveSettings(); });
-btnDesk.addEventListener('click', startPlay);
+btnDesk.addEventListener('click', () => startPlay()); // クリックの情報をステージ番号と取り違えないように
 btnVR.addEventListener('click', enterVR);
 if (new URLSearchParams(location.search).has('play')) startPlay(); // 開発用: ?play ですぐ開始
-if (new URLSearchParams(location.search).has('bonus')) { // 開発用: ?play&bonus でボーナスステージから始める
+if (new URLSearchParams(location.search).has('bonus')) { // 開発用: ?play&bonus でボーナスステージ (5 面) から始める
   S.ready = 1;
-  startBonus();
+  applyStage(5);
 }
 
 if (!window.isSecureContext) {
