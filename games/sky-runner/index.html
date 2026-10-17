@@ -102,6 +102,48 @@
   .snd-list button:hover { background: rgba(255, 255, 255, 0.14); }
   .snd-list button.playing { border-color: var(--sun); background: rgba(255, 200, 60, 0.18); }
   .snd-list button.playing::before { content: "■ "; color: var(--sun); }
+  /* ハンコン設定 */
+  .wh-summary { font-weight: normal; opacity: 0.7; }
+  .wheel { display: grid; gap: 8px; padding: 0 12px 12px; font-size: 13px; }
+  .wheel .sub { margin: 6px 0 0; font-size: 12px; letter-spacing: 0.15em; color: var(--sun); }
+  .wheel label { display: grid; gap: 4px; }
+  .wheel label:has(> input[type="checkbox"]) { display: block; }
+  .wheel input[type="range"] { width: 100%; }
+  .wh-status { margin: 0; padding: 6px 9px; border-radius: 8px; font-size: 12px; line-height: 1.5; }
+  .wh-status.ok { background: rgba(80, 220, 120, 0.15); border: 1px solid rgba(80, 220, 120, 0.5); }
+  .wh-status.ng { background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); opacity: 0.85; }
+  .wh-bar { display: flex; flex-wrap: wrap; gap: 6px; }
+  .wh-btn, .wh-ops button { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.1); color: #fff; font-size: 12px; }
+  .wh-btn.primary { background: linear-gradient(90deg, var(--sun), var(--hot)); color: #1a0b2e; border-color: transparent; font-weight: bold; }
+  .wh-btn.ghost, .wh-ops button.ghost { background: transparent; }
+  .wh-btn:hover, .wh-ops button:hover { filter: brightness(1.2); }
+  .wh-learn { padding: 10px; border-radius: 10px; border: 2px solid var(--sun); background: rgba(255, 210, 58, 0.1); line-height: 1.5; }
+  .wh-learn p { margin: 4px 0; }
+  .wheel .muted, .wh-learn .muted { opacity: 0.7; font-size: 12px; }
+  .wh-rows { display: grid; gap: 2px; }
+  .wh-row { display: grid; grid-template-columns: minmax(0, 1fr) 70px auto; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--line); }
+  .wh-name b { font-weight: normal; }
+  .wh-name em { margin-left: 6px; font-style: normal; font-size: 10px; opacity: 0.6; }
+  .wh-name small { display: block; font-size: 11px; opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wh-name small.none { opacity: 0.45; }
+  .wh-ops { display: flex; gap: 4px; }
+  .wh-ops button { padding: 4px 7px; font-size: 11px; }
+  .wh-meter { height: 10px; border-radius: 5px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+  .wh-meter.wide { margin-top: 8px; }
+  .wh-meter i { display: block; height: 100%; width: 0; background: #50dc78; }
+  .wh-meter i.center { background: linear-gradient(90deg, var(--sky), #50dc78); }
+  .wh-raw summary { font-size: 12px; font-weight: normal; }
+  .wh-raw > div { display: grid; gap: 6px; padding: 0 8px 8px; }
+  .wh-pad { padding: 8px; border-radius: 8px; border: 1px solid var(--line); font-size: 11px; }
+  .wh-pad b { display: block; margin-bottom: 4px; font-weight: normal; word-break: break-all; }
+  .wh-axes { display: flex; flex-wrap: wrap; gap: 4px; }
+  .wh-axes span { position: relative; width: 14px; height: 36px; background: rgba(255, 255, 255, 0.1); border-radius: 3px; overflow: hidden; }
+  .wh-axes i { position: absolute; bottom: 0; left: 0; right: 0; background: var(--sky); }
+  .wh-axes em { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; font-style: normal; font-size: 9px; }
+  .wh-btns { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px; }
+  .wh-btns span { width: 18px; height: 16px; border-radius: 3px; font-size: 9px; display: grid; place-items: center; background: rgba(255, 255, 255, 0.1); }
+  .wh-btns span.on { background: #50dc78; color: #000; }
+  @media (max-width: 560px) { .wh-row { grid-template-columns: minmax(0, 1fr) auto; } .wh-row .wh-meter { grid-column: 1 / -1; grid-row: 2; } }
   select { font: inherit; padding: 3px 6px; }
   .tablewrap { overflow-x: auto; padding: 0 8px 10px; }
   table { border-collapse: collapse; font-size: 12px; width: 100%; }
@@ -206,6 +248,54 @@
         <p class="note">Pimax など高解像度の PCVR で重い場合は、解像度を 0.5〜0.75 にしてください。入力の確認は I キー / パッドの Back / 左スティック押し込み、音を消すのは M キーです。</p>
       </div>
     </details>
+    <details id="wheelPanel">
+      <summary>ハンコン設定 <small class="wh-summary" data-wheel="summary"></small></summary>
+      <div class="wheel">
+        <p class="wh-status" data-wheel="status"></p>
+        <p class="note" data-wheel="model"></p>
+        <div class="wh-bar">
+          <button type="button" class="wh-btn primary" data-wheel="wizard">順番に割り当てる</button>
+          <button type="button" class="wh-btn" data-wheel="reconnect" hidden>ブリッジに再接続</button>
+          <button type="button" class="wh-btn ghost" data-wheel="reset">すべて初期化</button>
+        </div>
+        <div class="wh-learn" data-wheel="learn" hidden>
+          <div data-wheel="msg"></div>
+          <div class="wh-bar">
+            <button type="button" class="wh-btn primary" data-wheel="done">完了</button>
+            <button type="button" class="wh-btn" data-wheel="skip">スキップ</button>
+            <button type="button" class="wh-btn ghost" data-wheel="cancel">キャンセル</button>
+          </div>
+        </div>
+        <div class="wh-rows" data-wheel="rows"></div>
+        <p class="sub">ハンドル</p>
+        <label>ハンドルの回転角 (ドライバーの設定に合わせる)
+          <select data-cfg="steer.wheelDeg">
+            <option value="270">270°</option><option value="360">360°</option><option value="540">540°</option>
+            <option value="720">720°</option><option value="900">900°</option><option value="1080">1080°</option>
+          </select>
+        </label>
+        <label>端まで切る角度 <span data-show="steer.lockDeg"></span>
+          <input type="range" min="60" max="360" step="10" data-cfg="steer.lockDeg"></label>
+        <label>中央の遊び <span data-show="steer.deadzone"></span>
+          <input type="range" min="0" max="0.2" step="0.01" data-cfg="steer.deadzone"></label>
+        <label><input type="checkbox" data-cfg="steer.invert"> 左右を反転</label>
+        <p class="sub">FFB (デバイスブリッジ経由)</p>
+        <label><input type="checkbox" data-cfg="ffb.enabled"> 被弾・障害物で振動させる</label>
+        <label>振動の強さ <span data-show="ffb.rumble"></span>
+          <input type="range" min="0" max="1" step="0.05" data-cfg="ffb.rumble"></label>
+        <label>中央へ戻すばね <span data-show="ffb.spring"></span>
+          <input type="range" min="0" max="0.6" step="0.05" data-cfg="ffb.spring"></label>
+        <div class="wh-bar">
+          <button type="button" class="wh-btn" data-test="rumble">振動のテスト</button>
+          <button type="button" class="wh-btn" data-test="center">ばねのテスト</button>
+        </div>
+        <details class="wh-raw">
+          <summary>デバイスの生の値</summary>
+          <div data-wheel="pads"></div>
+        </details>
+        <p class="note">VR の最中は、ブラウザからハンコンが見えなくなることがあります。PC で <b>ffb-bridge</b> (TURBO KART VR と同じデバイスブリッジ) を起動しておくと、VR の最中もブリッジ経由で読めます。割り当てはブリッジ接続中に行うのがおすすめです。FFB の最大出力はブリッジの <code>--max</code> で頭打ちになります。</p>
+      </div>
+    </details>
     <details id="soundTest">
       <summary>サウンドテスト (BGM・効果音)</summary>
       <div class="sound">
@@ -229,6 +319,7 @@
         <tr><td>機体の選択</td><td>—</td><td>左右</td><td>クリック</td></tr>
         <tr><td>ポーズ</td><td>X</td><td>START</td><td>Esc</td></tr>
       </table>
+      <p class="note">ハンコン: ハンドルで左右、アクセル / ブレーキで加速 / 減速、クラッチの踏み込み量で高さ (2 ペダルの機種はパドルの右で上昇・左で下降)。機関砲・ミサイル・視点・ポーズのボタンは「ハンコン設定」で割り当てます。</p>
       </div>
     </details>
 
@@ -254,7 +345,7 @@
     <button class="tbtn fire" data-hold="fire" aria-label="射撃">FIRE</button>
   </div>
 </div>
-<script type="module" src="./js-49b90ba/main.js"></script>
+<script type="module" src="./js-44c4fe5/main.js"></script>
 <script>
   // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
   if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {

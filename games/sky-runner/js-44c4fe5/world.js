@@ -4,7 +4,7 @@ import * as THREE from 'three';
 export const FOG_NEAR = 70;
 export const FOG_FAR = 210;
 const SPAWN_Z = -210;
-const SPAWN_SPACING = 11;   // 何 m 進むごとに障害物を出すか (速度に関係なく密度が一定になる)
+const SPAWN_SPACING = 14;   // 何 m 進むごとに障害物を出すか (速度に関係なく密度が一定になる。巨大なので間隔は広め)
 const REMOVE_Z = 40;        // 後ろを振り返っても急に消えて見えないよう、少し後ろまで残す
 const CHECKER = 8;          // 市松模様の1マス (m)
 export const CEIL_Y = 26;   // 天井の高さ (m)
@@ -230,18 +230,18 @@ export class World {
     const roll = kind ? { column: 0, bush: 0.5, tree: 0.9 }[kind] ?? -1 : Math.random();
     let o;
     if (kind === 'rock') {
-      // 浮遊岩: 空中に浮かび、ゆっくり回る。撃って壊せる
-      const r = rand(1.2, 2.6);
+      // 浮遊岩: 空中に浮かぶ大岩。ゆっくり回る。撃って壊せる
+      const r = rand(2.6, 5.5);
       const m = new THREE.Mesh(this.geo.rock, this.mat.rock);
       m.scale.set(r, r * rand(0.7, 1), r);
       m.rotation.set(rand(0, 3), rand(0, 3), 0);
-      const cy = rand(3, this.ceiling.visible ? 16 : 14);
+      const cy = rand(r + 1, this.ceiling.visible ? CEIL_Y - r - 1 : 17);
       m.position.y = cy;
       g.add(m);
       o = { kind: 'rock', group: g, r, cy, breakable: true, spin: rand(-1, 1), mesh: m, baseY: cy };
     } else if (kind === 'mushroom') {
       // 巨大キノコ: 色とりどりのかさ。撃って壊せる
-      const h = rand(4, 9), cr = h * rand(0.45, 0.6);
+      const h = rand(8, 18), cr = h * rand(0.45, 0.6);
       const stem = new THREE.Mesh(this.geo.mushStem, this.mat.mushStem);
       stem.scale.set(h * 0.18, h, h * 0.18);
       stem.position.y = h / 2;
@@ -258,17 +258,19 @@ export class World {
       }
       o = { kind: 'mushroom', group: g, r: cr * 0.8, h: h + cr * 0.6, breakable: true };
     } else if (roll < 0.4) {
-      const r = rand(0.9, 1.5), h = rand(5, 16);
+      // 巨大な柱: 半分ほどは飛び越えられない高さで、横によけるしかない
+      const r = rand(1.8, 3.4);
+      const h = Math.min(Math.random() < 0.5 ? rand(12, 20) : rand(24, 40), this.ceiling.visible ? CEIL_Y - 0.6 : Infinity);
       const col = new THREE.Mesh(this.geo.column, this.mat.column);
       col.scale.set(r, h, r);
       col.position.y = h / 2;
       const cap = new THREE.Mesh(this.geo.cap, this.mat.cap);
-      cap.scale.set(r * 2.6, 0.6, r * 2.6);
-      cap.position.y = h + 0.3;
+      cap.scale.set(r * 2.2, 0.9, r * 2.2);
+      cap.position.y = h + 0.45;
       g.add(col, cap);
-      o = { kind: 'column', group: g, r, h: h + 0.6 };
+      o = { kind: 'column', group: g, r, h: h + 0.9 };
     } else if (roll < 0.75) {
-      const r = rand(0.8, 2.0);
+      const r = rand(1.4, 3.2);
       const b = new THREE.Mesh(this.geo.bush, this.mat.bush);
       b.scale.set(r, r * 0.8, r);
       b.rotation.y = rand(0, Math.PI);
@@ -276,9 +278,9 @@ export class World {
       g.add(b);
       o = { kind: 'bush', group: g, r, cy: r * 0.6, breakable: true };
     } else {
-      const h = rand(4, 9);
+      const h = rand(9, 22);
       const trunk = new THREE.Mesh(this.geo.trunk, this.mat.trunk);
-      trunk.scale.set(1, h * 0.45, 1);
+      trunk.scale.set(h / 7, h * 0.45, h / 7);
       trunk.position.y = h * 0.225;
       const leaf = new THREE.Mesh(this.geo.leaf, this.mat.leaf);
       leaf.scale.set(h * 0.28, h * 0.65, h * 0.28);
@@ -323,7 +325,7 @@ export class World {
         }
         this.spawnOne(camPos.x + rand(-38, 38), z); // プレイヤーのまわりに出す (端へ行っても障害物がある)
         // ときどきプレイヤーの進路上にも置いて、避ける必要を作る
-        if (Math.random() < (this.obstacleTable?.lane ?? 0.25)) this.spawnOne(camPos.x + rand(-4, 4), z - rand(0, 5));
+        if (Math.random() < (this.obstacleTable?.lane ?? 0.25) * 0.7) this.spawnOne(camPos.x + rand(-4, 4), z - rand(0, 5));
       }
     }
 

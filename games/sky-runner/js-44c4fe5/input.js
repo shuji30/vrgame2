@@ -1,4 +1,4 @@
-// 入力層: VR コントローラー / コントロールパッド / キーボード・マウスを
+// 入力層: VR コントローラー / コントロールパッド / キーボード・マウス / タッチ / ハンコン (src/wheel/) を
 // 共通の操作 (移動・速度・射撃・視点・ポーズなど) に変換する
 
 const DZ = 0.18;
@@ -29,6 +29,7 @@ export const HINTS = {
   kb: 'Space: 機関砲   F: ミサイル   WASD: 移動   E/Shift: 加速   Q/Z: 減速   V: 視点   Esc: ポーズ',
   mouse: '左クリック: 機関砲   右クリック/F: ミサイル   マウス: 移動   E: 加速   Q: 減速   V: 視点',
   touch: '左: スティックで移動   右下: 射撃 (長押し)・ミサイル・加速・減速',
+  wheel: 'ハンドル: 左右   アクセル/ブレーキ: 加速/減速   クラッチ (2 ペダルはパドル): 高さ   ボタン: 機関砲・ミサイル・視点・ポーズ',
 };
 
 export class Input {
@@ -71,6 +72,8 @@ export class Input {
     return {
       move: { x: 0, y: 0 }, // -1..1 (y は上が +)
       abs: null,            // マウスの絶対位置 {x, y} (-1..1)。マウス操作中のみ
+      altitude: null,       // 高さの絶対値 0 (地面) .. 1 (最高高度)。ハンコンのクラッチを使っているときのみ
+      lift: 0,              // 上下の入力のうち、上下反転の設定を効かせないもの (ハンコンのパドル。+ が上)
       throttle: 0,          // -1 (ブレーキ) .. +1 (アクセル)
       fire: false,          // パッド / キーボード / マウスの射撃
       missile: false,       // ミサイル (押した瞬間だけ true)
@@ -123,9 +126,16 @@ export class Input {
 
     // ---- コントロールパッド (Gamepad API)。WebXR のコントローラーはここには出てこない
     this.debug.pads = [];
-    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const wheel = this.wheel;
+    // ハンコンの割り当ての学習中は、パッドとハンコンをゲームの操作として読まない (ボタンを押して出撃しないように)
+    const pads = wheel?.busy ? [] : navigator.getGamepads ? navigator.getGamepads() : [];
     for (const gp of pads) {
       if (!gp || !gp.connected) continue;
+      // 割り当て済みのハンコンは、下のハンコンの処理で読む (ハンドルの軸が左右の移動に二重に入らないように)
+      if (wheel?.hasBindings() && wheel.claims(gp.id)) {
+        this.debug.pads.push({ id: gp.id, mapping: '(ハンコンとして読む)', axes: [...gp.axes], buttons: gp.buttons.map((b) => b.value) });
+        continue;
+      }
       const btn = gp.buttons.map((b) => b.pressed);
       const ed = this.edges('pad' + gp.index, btn);
       let x = dz(gp.axes[0] ?? 0), y = dz(gp.axes[1] ?? 0);
@@ -211,8 +221,34 @@ export class Input {
       if (t.move.x || t.move.y || t.fire || t.throttle) this.lastSource = 'touch';
     }
 
+    // ---- ハンコン (ハンドル + ペダル。ブラウザが直接読むか、デバイスブリッジ経由)
+    const w = wheel?.read();
+    if (w) {
+      const ed = this.edges('wheel', w.held);
+      s.move.x += w.steer;
+      s.throttle += w.throttle - w.brake;
+      // 2 ペダルの機種: パドルの右 = 上昇・左 = 下降 (押している間)
+      s.lift = (w.held.up ? 1 : 0) - (w.held.down ? 1 : 0);
+      // 3 ペダルの機種: クラッチの踏み込み量 = 高さ。ほかの入力で上下を操作している間は、そちらを優先する
+      if (w.clutch != null && !s.move.y && !s.lift && !(this.mouse.active && !w.touched)) s.altitude = w.clutch;
+      if (w.held.fire) s.fire = true;
+      if (ed('fire')) s.confirm = true;
+      if (ed('missile')) s.missile = true;
+      if (ed('view')) s.view = true;
+      if (ed('pause')) s.pause = true;
+      if (ed('back')) s.back = true;
+      if (ed('recenter')) s.recenter = true;
+      if (w.touched) {
+        this.mouse.active = false;
+        s.abs = null;
+        this.lastSource = 'wheel';
+      }
+    }
+    wheel?.updateForce();
+
     s.move.x = clamp1(s.move.x);
     s.move.y = clamp1(s.move.y);
+    s.lift = clamp1(s.lift);
     s.throttle = clamp1(s.throttle);
     s.source = this.lastSource;
     this.state = s;
@@ -231,5 +267,6 @@ export class Input {
     for (const c of this.controllers) {
       try { c.userData.src?.gamepad?.hapticActuators?.[0]?.pulse?.(strength, ms); } catch (_) { /* 非対応 */ }
     }
+    this.wheel?.rumble(strength, ms); // ハンコン (デバイスブリッジ経由の FFB)
   }
 }
