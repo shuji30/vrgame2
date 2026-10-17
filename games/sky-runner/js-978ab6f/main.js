@@ -94,6 +94,7 @@ const ride = new SledRide(scene);
 combat.forceWave = new URLSearchParams(location.search).get('wave'); // 開発用: ?wave=moai などで出す敵を固定する
 loadEnemyModels('./assets/enemies.glb').catch((e) => console.error('敵のモデルを読み込めませんでした', e));
 debugPanel.visible = new URLSearchParams(location.search).has('debug');
+if (debugPanel.visible) Object.assign(window, { __combat: combat, __input: input }); // 開発用: ?debug のときだけ、戦闘と入力の中身を見られるようにする
 
 // VR の酔い対策: 速く飛んでいるときや大きく動いているときに、視野の周りを暗くする
 const vignette = new Vignette(camera);

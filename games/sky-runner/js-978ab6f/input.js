@@ -32,6 +32,10 @@ export const HINTS = {
   wheel: 'ハンドル: 左右   アクセル/ブレーキ: 加速/減速   クラッチ (2 ペダルはパドル): 高さ   ボタン: 機関砲・ミサイル・視点・ポーズ',
 };
 
+// ハンコン・ペダル・シフターなどのシム機器 (名前で見分ける)。割り当てたときだけハンコンとして読み、普通のパッドとしては読まない
+// (ペダルは離した状態で軸が -1 などになり、スティックを倒しっぱなしと取り違えて左右や上下が効かなくなるため)
+const SIM_DEVICE = /wheel|pedal|fanatec|thrustmaster|logitech g(2|9)|driving force|moza|simagic|simucube|cammus|heusinkveld|asetek|vrs|t300|t150|t248|t818|tmx|csl|clubsport|podium|shifter|handbrake|sim /i;
+
 export class Input {
   constructor(dom) {
     this.controllers = []; // XR コントローラー (userData.src に XRInputSource)
@@ -41,6 +45,7 @@ export class Input {
     this.mouse = { x: 0, y: 0, down: false, active: false };
     this.prevButtons = new Map();
     this.prevDir = new Map();
+    this.padRest = new Map(); // パッドごとの、最初に見えたときの軸の値 (止まっていても端にある軸を見分ける)
     this.lastSource = 'kb';
     this.debug = { pads: [], xr: [] };
     this.state = this.blank();
@@ -136,13 +141,26 @@ export class Input {
         this.debug.pads.push({ id: gp.id, mapping: '(ハンコンとして読む)', axes: [...gp.axes], buttons: gp.buttons.map((b) => b.value) });
         continue;
       }
+      const std = gp.mapping === 'standard';
+      // 割り当てていないハンコン・ペダルは読まない (標準の並びでないシム機器)
+      if (!std && SIM_DEVICE.test(gp.id)) {
+        this.debug.pads.push({ id: gp.id, mapping: '(ハンコン・ペダル: ハンコン設定で割り当てると使える)', axes: [...gp.axes], buttons: gp.buttons.map((b) => b.value) });
+        continue;
+      }
+      // 標準の並びでない機器は、止まっていても端 (±1 近く) にある軸をスティックとして読まない
+      const key = gp.index + ':' + gp.id;
+      if (!this.padRest.has(key)) this.padRest.set(key, [...gp.axes]);
+      const rest = this.padRest.get(key);
+      const axis = (i) => (std || Math.abs(rest[i] ?? 0) < 0.5 ? dz(gp.axes[i] ?? 0) : 0);
       const btn = gp.buttons.map((b) => b.pressed);
       const ed = this.edges('pad' + gp.index, btn);
-      let x = dz(gp.axes[0] ?? 0), y = dz(gp.axes[1] ?? 0);
-      if (pressed(gp, PAD.LEFT)) x = -1;
-      if (pressed(gp, PAD.RIGHT)) x = 1;
-      if (pressed(gp, PAD.UP)) y = -1;
-      if (pressed(gp, PAD.DOWN)) y = 1;
+      let x = axis(0), y = axis(1);
+      if (std) { // 十字キーのボタン番号は、標準の並びのときだけ当てにする
+        if (pressed(gp, PAD.LEFT)) x = -1;
+        if (pressed(gp, PAD.RIGHT)) x = 1;
+        if (pressed(gp, PAD.UP)) y = -1;
+        if (pressed(gp, PAD.DOWN)) y = 1;
+      }
       const th = value(gp, PAD.RT) - value(gp, PAD.LT);
       if (x || y) {
         s.move.x += x;

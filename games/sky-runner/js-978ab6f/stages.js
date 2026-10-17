@@ -16,7 +16,7 @@
 //   ceiling  天井がある面
 //   palette  地面の 2 色 (a, b)、霧と地平線 (fog)、空の上 (sky)、遠景の山 (mount)、柱の帯 (col)、茂みや木の葉 (bush)
 //   bgm      通常の曲のキー (半音) とテンポ
-//   boss     { type: 'serpent' | 'twin' | 'squad' | 'swarm' | 'mirror' (ミラーコア。tier 1〜3) | 'geodering' (晶洞の輪。tier 1〜2) | 'mine' (浮遊鉱山。escape 秒耐えれば撃破), hp, escape (秒。この時間で逃げる。0 = 倒すまで), diff (ボスラッシュで使う強さ) }
+//   boss     { type: 'serpent' | 'twin' | 'squad' | 'swarm' | 'mirror' (ミラーコア。tier 1〜3) | 'geodering' (晶洞の輪。tier 1〜2) | 'mine' (浮遊鉱山。escape 秒耐えれば撃破) | 'colossus' (磁鉄の巨像), hp, escape (秒。この時間で逃げる。0 = 倒すまで), diff (ボスラッシュで使う強さ) }
 //   rush     ボスラッシュの順番 (18 面)
 
 export const STAGES = [
@@ -118,7 +118,7 @@ export const STAGES = [
     obstacles: { monolith: 2, crystal: 1.5, ring: 1, lane: 0.3 },
     palette: { a: 0xd6e4f2, b: 0x3a5a8a, fog: 0xe0ecf8, sky: 0x1a3a7a, mount: 0x3a5a7a, col: ['#ffffff', '#2a4a8a'], bush: 0x3a6a8a },
     bgm: { key: 5, tempo: 162, song: 'pops' },
-    boss: { type: 'geodering', escape: 32, tier: 2 },
+    boss: { type: 'geodering', escape: 32, tier: 2, diff: 6 },
   },
   {
     name: 'SHADOW HALL', kind: 'normal', length: 45, speed: 48, diff: 6, density: 1.3, ceiling: true,
@@ -150,7 +150,7 @@ export const STAGES = [
     obstacles: { crystal: 1.5, column: 1.5, arch: 1, rock: 1, monolith: 1, lane: 0.36 },
     palette: { a: 0xebe3d3, b: 0x404040, fog: 0xc8c0b0, sky: 0x282018, mount: 0x4a4038, col: ['#ffffff', '#202020'], bush: 0x5a5a4a },
     bgm: { key: 7, tempo: 170, song: 'rock' },
-    boss: { type: 'twin', hp: 1000, escape: 0 },
+    boss: { type: 'colossus', hp: 340, escape: 0 },
   },
   {
     name: 'THE VOID', kind: 'rush', length: 4, speed: 46, diff: 8, density: 0,
@@ -161,8 +161,8 @@ export const STAGES = [
     rush: [
       { type: 'serpent', hp: 300, escape: 0, diff: 1 }, { type: 'twin', hp: 380, escape: 0, diff: 3 },
       { type: 'mirror', hp: 180, tier: 2, escape: 0, diff: 3 },
-      { type: 'squad', hp: 0, escape: 22, diff: 3 }, { type: 'swarm', hp: 0, escape: 22, diff: 4 },
-      { type: 'serpent', hp: 450, escape: 0, diff: 5 }, { type: 'twin', hp: 600, escape: 0, diff: 6 },
+      { type: 'squad', hp: 0, escape: 22, diff: 3 }, { type: 'geodering', tier: 1, escape: 22, diff: 4 },
+      { type: 'mine', escape: 20, diff: 6 }, { type: 'colossus', hp: 280, escape: 0, diff: 6 },
     ],
   },
 ];

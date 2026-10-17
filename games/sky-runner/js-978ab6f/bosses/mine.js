@@ -22,12 +22,14 @@ function mat(color, emissive, extra = {}) {
 }
 
 // 出撃口の位置 (本体から見たずれ)。横スクロールは縦に並べる
-const hatchOffset = (i, side) => (side ? new THREE.Vector3(0, -5 + i * 5, 9) : new THREE.Vector3(-9 + i * 9, -2.5, 8.5));
+// 本体の当たり (半径 10) より前に出して、機関砲で撃てるようにする
+const hatchOffset = (i, side) => (side ? new THREE.Vector3(0, -5 + i * 5, 13) : new THREE.Vector3(-9 + i * 9, -2.5, 13));
 
 export function spawnMine(c, def) {
   const side = c.sideMode;
   const escape = def.escape || 35;
-  const grp = { type: 'mine', t: 0, escape, total: 1, kills: 0, leaving: false, bonus: 8000, endure: true };
+  // 耐えきったときのボーナスは、壊した出撃口の数で増える (3000 + 1 つ 1000、最大 12000)
+  const grp = { type: 'mine', t: 0, escape, total: 1, kills: 0, leaving: false, bonus: 3000, endure: true };
   grp.ratio = () => Math.max(0, 1 - grp.t / grp.escape); // 去るまでの残り時間
   c.bossGroup = grp;
   const rockM = mat(0x4a3a4a, 0x000000, { roughness: 0.9 });
@@ -55,7 +57,7 @@ export function spawnMine(c, def) {
   const k = side ? 0.6 : 1;
   g.scale.setScalar(k);
   const body = {
-    kind: 'mine', mesh: g, mats: [rockM, veinM, bandM], r: 12 * k, hp: Infinity, score: 0, t: 0, flash: 0, fireT: 4, noLock: true, noAssist: true,
+    kind: 'mine', mesh: g, mats: [rockM, veinM, bandM], r: 10 * k, hp: Infinity, score: 0, t: 0, flash: 0, fireT: 4, noLock: true, noAssist: true,
     k, x: c.lastPlayer?.x ?? 0, y: side ? 15 : 19, z: SPAWN_Z, hatches: [null, null, null], down: [0, 0, 0], launchT: 2.5, bossGroup: grp,
   };
   g.position.set(body.x, body.y, SPAWN_Z);
@@ -68,7 +70,7 @@ function makeHatch(c, body, i) {
   const m = mat(0x30202a, 0xff7020);
   const mesh = new THREE.Mesh(GEO.hatch, m);
   mesh.scale.set(3.6, 3, 1).multiplyScalar(body.k);
-  const h = { kind: 'hatch', mesh, mats: [m], r: 2.4 * body.k, hp: 5 + Math.floor(c.level / 2), score: 500, t: 0, flash: 0, fireT: Infinity, body, slot: i };
+  const h = { kind: 'hatch', mesh, mats: [m], r: 2.4 * body.k, hp: 5 + Math.floor(c.level / 2), score: 500, t: 0, flash: 0, fireT: Infinity, body, slot: i, noItem: true };
   mesh.position.copy(body.mesh.position).add(hatchOffset(i, c.sideMode).multiplyScalar(body.k));
   c.addEnemy(h, 0);
   h.shadow.visible = false;
@@ -77,6 +79,7 @@ function makeHatch(c, body, i) {
 
 export const MINE_KINDS = {
   mine: {
+    shielded: () => true, // 本体は壊せない (弾を跳ね返す。光って効いているように見せない)
     update(c, e, dt, scroll, ctx, p) {
       const grp = e.bossGroup;
       const hz = c.holdZ(-58);
@@ -93,13 +96,17 @@ export const MINE_KINDS = {
       // 出撃口: 壊れていたら 8 秒で直す。直っている口から、順にドローンを送り出す
       for (let i = 0; i < 3; i++) {
         const h = e.hatches[i];
-        if (h && h.dead) { e.hatches[i] = null; e.down[i] = 8; }
+        if (h && h.dead) {
+          e.hatches[i] = null;
+          e.down[i] = 6;
+          if (h.hp <= 0) grp.bonus = Math.min(12000, grp.bonus + 1000); // 撃って壊した口
+        }
         if (!e.hatches[i] && !grp.leaving && (e.down[i] -= dt) <= 0) makeHatch(c, e, i);
       }
       e.launchT -= dt;
       if (e.launchT <= 0 && !grp.leaving && e.z >= hz - 1) {
-        e.launchT = 1.4 / (1 + (c.level - 1) * 0.08);
         const open = e.hatches.filter((h) => h && !h.dead);
+        e.launchT = (1.4 * 3) / Math.max(1, open.length) / (1 + (c.level - 1) * 0.08); // 出撃口を壊すほど、ドローンが減る
         if (open.length) launchDrone(c, open[Math.floor(Math.random() * open.length)], ctx);
       }
     },
@@ -128,7 +135,7 @@ export const MINE_KINDS = {
     kamikaze: true,
     sideAbs: true,
     update(c, e, dt, scroll, ctx, p) {
-      if (e.t < 1.6) {
+      if (e.t < 0.8) { // 追うのは最初の 0.8 秒だけ (そのあとは横へよければ外れる)
         const want = _a.subVectors(ctx.player, p).normalize().multiplyScalar(e.speed);
         e.vel.lerp(want, Math.min(1, dt * 2.2));
       }

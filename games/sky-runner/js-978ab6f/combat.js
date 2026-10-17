@@ -984,7 +984,9 @@ export class Combat {
         if (e.kind === 'mech') { e.group.regroup = false; e.group.phase = 'retreat'; }
       }
     }
-    if (alive.length === 0 && g.t > 1) {
+    // 保険: 逃げ始めて 8 秒たっても残っていたら消す (どのボスでも面が止まらないように)
+    if (g.leaving && g.t > g.escape + 8) for (const e of alive) e.dead = true;
+    if ((alive.length === 0 || (g.leaving && g.t > g.escape + 8)) && g.t > 1) {
       this.bossGroup = null;
       if (g.kills >= g.total || g.endure) { // endure: 耐えきれば撃破扱い (壊せない母艦)
         this.bossDefeated = true;
@@ -1259,7 +1261,7 @@ export class Combat {
     this.explode(e.mesh.position, !!big);
     if (e.kind === 'pill') this.splitPill(e);
     EXTRA[e.kind]?.onDeath?.(this, e);
-    if ((['gunship', 'mech', 'moai'].includes(e.kind) || EXTRA[e.kind]?.big) && Math.random() < 0.35) this.spawnItem(e.mesh.position);
+    if ((['gunship', 'mech', 'moai'].includes(e.kind) || EXTRA[e.kind]?.big) && !e.noItem && Math.random() < 0.35) this.spawnItem(e.mesh.position);
   }
 
   // ---- 毎フレーム
