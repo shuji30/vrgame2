@@ -7,6 +7,9 @@ import { SUN_KINDS, spawnSun } from './sun.js';
 import { CROWN_KINDS, spawnCrown } from './crown.js';
 import { WORM_KINDS, spawnWorm } from './worm.js';
 import { TURBINE_KINDS, spawnTurbine } from './turbine.js';
+import { PHANTOM_KINDS, spawnPhantom } from './phantom.js';
+import { LASERWING_KINDS, spawnLaserWing } from './laserwing.js';
+import { MANTIS_KINDS, spawnMantis } from './mantis.js';
 
 export const BOSSES = {
   mirror: { spawn: spawnMirror, kinds: MIRROR_KINDS },       // ミラーコア: 鏡が弾を撃ち返す
@@ -16,5 +19,8 @@ export const BOSSES = {
   sun: { spawn: spawnSun, kinds: SUN_KINDS },
   crown: { spawn: spawnCrown, kinds: CROWN_KINDS },            // 氷晶の冠: つららの雨 (地面に予告の印)
   worm: { spawn: spawnWorm, kinds: WORM_KINDS },               // 砂岩の大蛇: 地面から弧を描いて飛び出す。頭だけが弱点
-  turbine: { spawn: spawnTurbine, kinds: TURBINE_KINDS },      // 双子の回転刃: 円盤を投げてくる。中央の核を撃つ                  // 最終ボス プリズムの太陽: 鏡 → 投げる → 開いたときだけ
+  turbine: { spawn: spawnTurbine, kinds: TURBINE_KINDS },      // 双子の回転刃: 円盤を投げてくる。中央の核を撃つ
+  phantom: { spawn: spawnPhantom, kinds: PHANTOM_KINDS },      // 水晶の亡霊: 分身と入れ替わる。影のある本物を撃つ
+  laserwing: { spawn: spawnLaserWing, kinds: LASERWING_KINDS }, // 光翼の母船: 予告の線のあと光線で薙ぎ払う
+  mantis: { spawn: spawnMantis, kinds: MANTIS_KINDS },         // 硝子のカマキリ: 鎌の斬撃。振り終わりに腹の結晶が開く                  // 最終ボス プリズムの太陽: 鏡 → 投げる → 開いたときだけ
 };
