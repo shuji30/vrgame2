@@ -28,6 +28,7 @@ export const HINTS = {
   pad: 'A/RB: 機関砲   X/LB: ミサイル   左スティック: 移動   RT/LT: 加速/減速   Y: 視点   START: ポーズ',
   kb: 'Space: 機関砲   F: ミサイル   WASD: 移動   E/Shift: 加速   Q/Z: 減速   V: 視点   Esc: ポーズ',
   mouse: '左クリック: 機関砲   右クリック/F: ミサイル   マウス: 移動   E: 加速   Q: 減速   V: 視点',
+  touch: '左: スティックで移動   右下: 射撃 (長押し)・ミサイル・加速・減速',
 };
 
 export class Input {
@@ -191,6 +192,23 @@ export class Input {
         hand, profiles: (src.profiles || []).join(', '),
         axes: [...gp.axes], buttons: gp.buttons.map((b) => b.value),
       });
+    }
+
+    // ---- タッチ (スマートフォン)
+    const t = this.touch;
+    if (t && !t.root.hidden) {
+      if (t.move.x || t.move.y) {
+        s.move.x += t.move.x;
+        s.move.y += t.move.y;
+        this.mouse.active = false;
+        s.abs = null;
+      }
+      if (t.fire) s.fire = true;
+      if (t.throttle) s.throttle += t.throttle;
+      if (t.takeEdge('missile')) s.missile = true;
+      if (t.takeEdge('view')) s.view = true;
+      if (t.takeEdge('pause')) s.pause = true;
+      if (t.move.x || t.move.y || t.fire || t.throttle) this.lastSource = 'touch';
     }
 
     s.move.x = clamp1(s.move.x);

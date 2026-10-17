@@ -272,7 +272,7 @@ const ITEM_COL = new THREE.Color(0.3, 1, 0.5);
 const BOSS_GREEN = 0x2e9a3c, BOSS_DARK_GREEN = 0x1d4a26;
 const FIRE_COL = new THREE.Color(1, 0.55, 0.15);
 
-// ボーナスステージで乗る、白と金の龍 (頭と胴体の節)。敵ではないので当たり判定はない
+// ボーナスステージで乗る「水晶のそり」(先頭と、うしろに連なる光のかけら)。敵ではないので当たり判定はない
 export function makeFriendlyDragon(nSegs = 10, scale = 0.6) {
   const part = (tpl, fallbackR, scale) => {
     let made;
@@ -399,6 +399,8 @@ export class Combat {
     this.waveTable = null;   // 出てくる敵と重み (ステージ表)
     this.bossGroup = null;   // 群れのボス (ロボット部隊・旋回する群れ)
     this.bossEscaped = false;
+    this.ceilingY = Infinity; // 天井のある面では、空を飛ぶ敵とボスの高さの上限
+    this.lastBossBonus = 0;
     this.mult = 1;           // スコア倍率 (速く飛ぶほど上がる)
     this.boss = null;
     this.bossDefeated = false;
@@ -541,13 +543,13 @@ export class Combat {
     this.addEnemy(e, 3.5 * GUNSHIP_SCALE);
   }
 
-  // 出す敵の群れを重み付きで選ぶ。重いもの (ガンシップ・重モビルスーツ) は同時に出しすぎない
+  // 出す敵の群れを重み付きで選ぶ。重いもの (ガンシップ・建設ロボ) は同時に出しすぎない
   spawnWave(px, py) {
     const heavy = this.enemies.filter((e) => e.kind === 'gunship' || e.kind === 'mech').length;
     // ステージ表の組み合わせ (なければ全種類)。重いもの (ガンシップ・重機) は同時に出しすぎない
     const base = this.waveTable || [['fighter', 3], ['gremlin', 2.2], ['pill', 2], ['moai', 1.6], ['ptero', 1.8], ['mech', 1.3], ['gunship', 1]];
     const table = base.map(([k, w]) => [k, k === 'mech' ? (heavy === 0 ? w : 0) : k === 'gunship' ? (heavy < 2 ? w : 0) : w]);
-    if (table.every(([, w]) => w <= 0)) return;
+    if (table.every(([, w]) => w <= 0)) table.push(['fighter', 1]); // 重い敵がいて全部の重みが 0 になったら、戦闘機を出す
     let r = Math.random() * table.reduce((a, [, w]) => a + w, 0);
     const kind = this.forceWave || table.find(([, w]) => (r -= w) < 0)?.[0] || 'fighter';
     ({
@@ -561,7 +563,7 @@ export class Combat {
     })[kind]();
   }
 
-  // モアイ風の石像: 地面に立ち、口を開けてリングを吐く (左右に2体並ぶことが多い)
+  // 晶洞岩 (GEODE): 地面に立ち、二枚貝のように割れて開き、中の結晶から光の輪を吐く (左右に2体並ぶことが多い)
   spawnMoai(px) {
     const xs = Math.random() < 0.6 ? [px - rand(7, 11), px + rand(7, 11)] : [px + rand(-9, 9)];
     for (const [i, x] of xs.entries()) {
@@ -574,7 +576,7 @@ export class Combat {
     }
   }
 
-  // グレムリン風の小鬼: 小さくてすばしこい。ジグザグに跳ね回り、近くで体当たりしてくる
+  // 結晶の小虫: 小さくてすばしこい。ジグザグに跳ね回り、近くで体当たりしてくる
   spawnGremlins(px, py) {
     const n = 3 + Math.floor(Math.random() * 3);
     for (let k = 0; k < n; k++) {
@@ -589,7 +591,7 @@ export class Combat {
     }
   }
 
-  // 重モビルスーツの3機編隊: 縦一列で突っ込んできて、先頭から順に撃っては左右上へ散る (ジェットストリームアタック)
+  // 建設ロボの3機編隊: 縦一列で突っ込んできて、先頭から順に撃っては左右上へ散る (DOMINO RUSH)
   spawnMechTrio(px) {
     const group = { phase: 'approach', lane: px, at: 0 };
     for (let role = 0; role < 3; role++) {
@@ -612,7 +614,7 @@ export class Combat {
       const made = TPL.ptero ? instance(TPL.ptero) : fallback(0x73331f, 1.2);
       const e = {
         kind: 'ptero', ...made, r: 2.2 * PTERO_SCALE, hp: 4 + this.level, score: 600, t: rand(0, 6), flash: 0, fireT: rand(1, 2.5) + k * 0.7,
-        state: 'glide', z: SPAWN_Z - k * 18, alt: rand(16, 26), phase: k * 1.3, vel: new THREE.Vector3(),
+        state: 'glide', z: SPAWN_Z - k * 18, alt: Math.min(this.ceilingY, rand(16, 26)), phase: k * 1.3, vel: new THREE.Vector3(),
       };
       e.mesh.scale.setScalar(PTERO_SCALE);
       e.mesh.position.set(px, e.alt, e.z);
@@ -760,7 +762,7 @@ export class Combat {
         if (p.z > -55) {
           G.phase = 'attack';
           G.at = 0;
-          this.announce = 'JET STREAM ATTACK!';
+          this.announce = 'DOMINO RUSH!';
         }
       }
       e.z += (scroll * 0.5 + 46) * dt;
@@ -868,7 +870,7 @@ export class Combat {
     this.enemies.push(e);
   }
 
-  // ---- ボス: 緑の龍。頭のうしろに胴体の節がつながり、うねりながら頭を追う。
+  // ---- ボス: プリズム連珠。大きなプリズムの頭のうしろに光るガラス玉の節がつながり、うねりながら頭を追う。
   // 偶数ステージは二首: 胴体の先が二股に分かれ、首ごとに頭が付く (2 つの頭は別々に動いて交互に攻撃する)
   // def: { type: 'serpent' | 'twin' | 'squad' | 'swarm', hp, escape }
   spawnBoss(def = { type: 'serpent', hp: 400 }) {
@@ -961,7 +963,8 @@ export class Combat {
       this.bossGroup = null;
       if (g.kills >= g.total) {
         this.bossDefeated = true;
-        this.score += Math.round(5000 * this.level * this.mult);
+        this.lastBossBonus = Math.round(5000 * this.level * this.mult);
+        this.score += this.lastBossBonus;
       } else {
         this.bossEscaped = true;
       }
@@ -1018,7 +1021,7 @@ export class Combat {
     for (const H of b.heads) {
       const target = _d.set(
         P.x * 0.4 + H.side * 11 + 18 * Math.sin(t * 0.62 + H.phase) + 5 * Math.sin(t * 1.9 + H.phase),
-        THREE.MathUtils.clamp(P.y + 3 + 6 * Math.sin(t * 1.3 + H.phase) + 2 * Math.sin(t * 2.7 + H.phase), 6, 22),
+        THREE.MathUtils.clamp(P.y + 3 + 6 * Math.sin(t * 1.3 + H.phase) + 2 * Math.sin(t * 2.7 + H.phase), 6, Math.min(22, this.ceilingY)),
         ctx.side ? -20 + 5 * Math.sin(t * 0.41 + H.phase) : -38 + 8 * Math.sin(t * 0.41 + H.phase),
       );
       if (t < 5) target.z = THREE.MathUtils.lerp(ctx.side ? -60 : -200, target.z, t / 5); // 遠くから迫ってくる
@@ -1090,7 +1093,7 @@ export class Combat {
   }
 
   // ---- 発射
-  // style: 'beam' (宇宙船の光線)、'fireball' (ハリアーの火の玉。龍の吐く玉のように火の粉を散らして飛ぶ)
+  // style: 'beam' (宇宙船の光線)、'fireball' (ランナーの火の玉。火の粉を散らして飛ぶ)
   fireGun(origin, target, style = 'beam') {
     const dir = _d.subVectors(target, origin).normalize();
     let m, speed = GUN_SPEED;
@@ -1139,7 +1142,7 @@ export class Combat {
     return n;
   }
 
-  // type: 'orb' (光る弾)、'ring' (モアイのリング、遅いが大きい)、'shell' (バズーカ、煙を引く)
+  // type: 'orb' (光る弾)、'ring' (晶洞岩の光の輪、遅いが大きい)、'shell' (バズーカ、煙を引く)
   fireBullet(from, at, spread = 0, type = 'orb') {
     const dir = _d.subVectors(at, from).normalize();
     if (spread) dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), spread);
@@ -1206,7 +1209,8 @@ export class Combat {
       sfx.hit();
       if (b.hp <= 0) {
         b.dying = 0;
-        this.score += Math.round(10000 * this.level * this.mult);
+        this.lastBossBonus = Math.round(10000 * this.level * this.mult);
+        this.score += this.lastBossBonus;
         this.kills++;
         sfx.explode(true);
       }

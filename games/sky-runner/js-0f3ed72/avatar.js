@@ -22,7 +22,7 @@ export class Avatar {
     this.anchor = new THREE.Vector3(0, 1.6, 0); // 一人称で目を合わせる頭の位置 (rig の中)
     this.recenterPending = true;
     this.destroyed = false;  // ゲームオーバーで爆発したら消す
-    this.riding = false;     // ボーナスステージで龍に乗っている (一人称では機体を隠す)
+    this.riding = false;     // ボーナスステージで水晶のそりに乗っている (一人称では機体を隠す)
     this.stumbleT = 0;       // 茂みにつまずいてよろけている残り時間
     this.fallT = -1;         // やられて地面に落ちている時間 (-1 = 落ちていない)
     this.fallHold = false;   // true なら落ちたまま (ゲームオーバー)
