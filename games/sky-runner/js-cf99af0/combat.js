@@ -1,6 +1,9 @@
 // 戦闘: 敵、敵弾、自機の機関砲、ロックオン、追尾ミサイル、爆発と煙
 import * as THREE from 'three';
 import { EXTRA } from './enemies.js';
+import { MIRROR_KINDS, spawnMirror } from './bosses/mirror.js';
+
+Object.assign(EXTRA, MIRROR_KINDS); // 新しいボスの部品も、追加の敵と同じ形で動かす
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { sfx } from './audio.js';
@@ -15,6 +18,7 @@ const SIDE_BULLET_SCALE = 0.55;
 const GEODE_Y = 1.6; // 晶洞岩の中心の高さ (モデルの原点は足元)
 const FIGHTER_SCALE = 1.6, GUNSHIP_SCALE = 1.4, MOAI_SCALE = 1.7, GREMLIN_SCALE = 2.6, MECH_SCALE = 1.4, PILL_SCALE = 1.6, BOSS_SCALE = 2.2, PTERO_SCALE = 1.5;
 const REMOVE_Z = 40;
+const SMALL_KINDS = new Set(['gremlin', 'pillpart', 'dart', 'bat', 'satellite']); // 体当たりのダメージが 15 の小さい敵 (ほかは 25)
 
 const GUN_SPEED = 230;      // 機関砲の弾速 (m/s)
 const LOCK_ANGLE = 0.14;    // この角度 (rad, 約8度) の中に入った敵をロックする
@@ -24,7 +28,7 @@ const LOCK_INTERVAL = 0.13; // 1機ロックするのにかかる時間 (s)
 const MISSILE_MAX = 8;
 const MISSILE_REGEN = 1.6;  // 1発回復するまでの時間 (s)
 
-const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3();
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _e = new THREE.Vector3(), _f = new THREE.Vector3();
 
 // 線分 a-b と点 c の距離が r 未満か (高速の弾が1フレームですり抜けないように)
 function segHit(a, b, c, r) {
@@ -544,15 +548,26 @@ export class Combat {
     this.addEnemy(e, 3.5 * GUNSHIP_SCALE);
   }
 
-  // 出す敵の群れを重み付きで選ぶ。重いもの (ガンシップ・建設ロボ) は同時に出しすぎない
+  // 横スクロールで「止まって撃つ」敵の止まる位置 (画面の中)。3D では z3d のまま
+  holdZ(z3d) {
+    return this.sideMode ? -18 : z3d;
+  }
+
+  // 出す敵の群れを重み付きで選ぶ。重いもの (ガンシップ・建設ロボ・レンズ・衛星コア) は同時に出しすぎない
   spawnWave(px, py) {
-    const heavy = this.enemies.filter((e) => e.kind === 'gunship' || e.kind === 'mech' || EXTRA[e.kind]?.heavy).length;
-    // ステージ表の組み合わせ (なければ全種類)。重いもの (ガンシップ・重機) は同時に出しすぎない
+    const isHeavy = (k) => k === 'gunship' || k === 'mech' || !!EXTRA[k]?.heavy;
+    // 重い敵は「組」で数える (建設ロボは 3 機で 1 組)。建設ロボの組は、ほかの重い敵とは別に 1 組まで
+    const live = this.enemies.filter((e) => !e.dead && isHeavy(e.kind));
+    const heavy = new Set(live.map((e) => e.group || e)).size;
+    const mechGroups = new Set(live.filter((e) => e.kind === 'mech').map((e) => e.group)).size;
+    const ok = (k) => (k === 'mech' ? mechGroups === 0 : isHeavy(k) ? heavy - mechGroups < 2 : true);
+    // ステージ表の組み合わせ (なければ全種類)
     const base = this.waveTable || [['fighter', 3], ['gremlin', 2.2], ['pill', 2], ['moai', 1.6], ['ptero', 1.8], ['mech', 1.3], ['gunship', 1]];
-    const table = base.map(([k, w]) => [k, k === 'mech' ? (heavy === 0 ? w : 0) : k === 'gunship' || EXTRA[k]?.heavy ? (heavy < 2 ? w : 0) : w]);
-    if (table.every(([, w]) => w <= 0)) table.push(['fighter', 1]); // 重い敵がいて全部の重みが 0 になったら、戦闘機を出す
+    let table = base.filter(([k]) => ok(k));
+    if (!table.length) table = base.filter(([k]) => !isHeavy(k)); // 上限で出せないときは、表の中の重くない敵から選び直す
+    if (!table.length) table = [['fighter', 1]];
     let r = Math.random() * table.reduce((a, [, w]) => a + w, 0);
-    const kind = this.forceWave || table.find(([, w]) => (r -= w) < 0)?.[0] || 'fighter';
+    const kind = this.forceWave || table.find(([, w]) => (r -= w) < 0)?.[0] || table[0][0];
     if (EXTRA[kind]) return EXTRA[kind].spawn(this, px, py); // 追加の敵 (enemies.js)
     ({
       fighter: () => this.spawnFighterWave(px, py),
@@ -879,6 +894,7 @@ export class Combat {
     this.bossDefeated = false;
     this.bossEscaped = false;
     if (def.type === 'squad' || def.type === 'swarm') return this.spawnBossGroup(def);
+    if (def.type === 'mirror') return spawnMirror(this, def); // ミラーコア (src/bosses/mirror.js)
     const lv = this.level;
     const twin = def.type === 'twin';
     const hp = def.hp || Math.round((300 + lv * 100) * (twin ? 1.4 : 1));
@@ -970,7 +986,7 @@ export class Combat {
       this.bossGroup = null;
       if (g.kills >= g.total) {
         this.bossDefeated = true;
-        this.lastBossBonus = Math.round(5000 * this.level * this.mult);
+        this.lastBossBonus = Math.round((g.bonus ?? 5000) * this.level * this.mult);
         this.score += this.lastBossBonus;
       } else {
         this.bossEscaped = true;
@@ -981,7 +997,7 @@ export class Combat {
   get bossRatio() {
     if (this.boss) return Math.max(0, this.boss.hp / this.boss.maxHp);
     const g = this.bossGroup;
-    if (g) return (g.total - g.kills) / g.total;
+    if (g) return g.ratio ? g.ratio() : (g.total - g.kills) / g.total;
     return null;
   }
 
@@ -1355,8 +1371,9 @@ export class Combat {
         this.updateFighter(e, dt, scroll, ctx);
       } else if (e.kind === 'gunship') {
         if (e.hover < 7) {
-          e.z = Math.min(-40, e.z + (scroll * 0.5 + 26) * dt);
-          if (e.z >= -40) e.hover += dt;
+          const hz = this.holdZ(-40);
+          e.z = Math.min(hz, e.z + (scroll * 0.5 + 26) * dt);
+          if (e.z >= hz) e.hover += dt;
           p.set(ctx.player.x * 0.3 + e.x * 0.7 + Math.sin(e.t * 0.9) * 14, e.y + Math.sin(e.t * 1.6) * 3, e.z);
         } else {
           // 去っていく (上昇しながら遠ざかる)
@@ -1386,7 +1403,8 @@ export class Combat {
 
       // 敵の攻撃
       e.fireT -= dt;
-      if (ctx.active && e.kind !== 'boss' && e.fireT <= 0 && p.z > -170 && p.z < -35) {
+      const inRange = ctx.side ? p.z > -30 && p.z < -6 : p.z > -170 && p.z < -35; // 撃ってよい距離 (横スクロールは画面の中)
+      if (ctx.active && e.kind !== 'boss' && e.fireT <= 0 && inRange) {
         const lv = 1 + (this.level - 1) * 0.2;
         if (e.kind === 'fighter') {
           e.fireT = rand(3, 6) / lv;
@@ -1412,7 +1430,7 @@ export class Combat {
         }
       }
       if (!e.dead && p.distanceTo(ctx.player) < e.r + ctx.playerR) {
-        ctx.onPlayerHit(e.kind === 'boss' ? 30 : 25);
+        ctx.onPlayerHit(e.kind === 'boss' ? 30 : e.dmg ?? (SMALL_KINDS.has(e.kind) ? 15 : 25)); // 小さい敵の体当たりは軽め
         // 体当たりしてくる敵は、ぶつかったら自分も爆発する
         if (e.kind === 'gremlin' || e.kind === 'pillpart' || e.kind === 'pill' || EXTRA[e.kind]?.kamikaze) {
           e.dead = true;
@@ -1425,8 +1443,15 @@ export class Combat {
     const flat = ctx.planeX !== undefined && ctx.planeX !== null;
     for (const b of this.bullets) {
       if (flat) b.vel.x = 0;
+      _e.copy(b.mesh.position);
       b.mesh.position.addScaledVector(b.vel, dt * (flat ? SIDE_BULLET_SCALE : 1));
       if (flat) b.mesh.position.x = ctx.planeX;
+      // 障害物に当たった弾は止まる (柱や石板の陰に隠れてよけられる)。炎・光の帯は止まらない
+      if (ctx.world && b.type !== 'fire' && ctx.world.shotTest(_e, b.mesh.position, _f)) {
+        b.dead = true;
+        this.sparks.emit(_f, _c.set(0, 2, 0), WHITE, 0.5, 0.12);
+        continue;
+      }
       b.life -= dt;
       b.age += dt;
       if (b.type === 'fire') {
@@ -1495,6 +1520,18 @@ export class Combat {
       if (s.dead) continue;
       for (const e of this.enemies) {
         if (!e.dead && !s.ricochet && segHit(s.prev, s.pos, e.mesh.position, e.r)) {
+          if (EXTRA[e.kind]?.reflect) {
+            // 鏡: 当たった弾を、プレイヤーへ撃ち返す (撃ち返しはボス全体で 0.6 秒に 1 発まで。ほかは鏡に吸われる)
+            s.dead = true;
+            this.sparks.emit(s.pos, _b.set(0, 3, 4), WHITE, 0.8, 0.2);
+            const host = e.core || e;
+            if (host.reflectT <= 0) {
+              host.reflectT = 0.6;
+              this.fireBullet(s.pos.clone(), ctx.player);
+              sfx.ricochet();
+            }
+            break;
+          }
           if (this.pillShielded(e)) {
             // 跳ね返る: 当たった面で反射して、弱く飛んでいく (もう当たらない)
             const n = _a.subVectors(s.pos, e.mesh.position).normalize();
@@ -1620,7 +1657,7 @@ export class Combat {
   nearestInCone(origin, dir, angle, exclude = []) {
     let best = null, bestA = angle;
     for (const e of this.enemies) {
-      if (e.dead || exclude.includes(e)) continue;
+      if (e.dead || e.noLock || exclude.includes(e)) continue;
       const v = _c.subVectors(e.mesh.position, origin);
       if (v.z > -8 || v.length() > 220) continue;
       const a = v.angleTo(dir);

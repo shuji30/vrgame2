@@ -16,7 +16,7 @@ const GEO = {
   dart: new THREE.OctahedronGeometry(1, 0).scale(0.55, 0.55, 2.2),
   lens: new THREE.CylinderGeometry(2.4, 2.4, 0.5, 10).rotateX(Math.PI / 2),
   lensCore: new THREE.SphereGeometry(0.9, 10, 8),
-  tower: new THREE.CylinderGeometry(1.1, 1.5, 6, 6).translate(0, 3, 0),
+  tower: new THREE.CylinderGeometry(1.1, 1.5, 6, 6).translate(0, -4.4, 0), // 水晶塔の胴 (原点 = 頭。頭の 1.4〜7.4 m 下)
   towerHead: new THREE.OctahedronGeometry(1.4, 0),
   batBody: new THREE.OctahedronGeometry(0.8, 0).scale(0.8, 0.6, 1.3),
   batWing: new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, -0.6, 0, 0, 0.7, 2.6, 0.3, -0.2], 3)),
@@ -27,7 +27,7 @@ GEO.batWing.computeVertexNormals();
 
 // 被弾で白く光らせるため、マテリアルは敵ごとに作る (元の発光色を覚えておく)
 function mat(color, emissive = 0x000000, extra = {}) {
-  const m = new THREE.MeshStandardMaterial({ color, emissive, flatShading: true, roughness: 0.2, metalness: 0.2, side: THREE.DoubleSide, ...extra });
+  const m = new THREE.MeshStandardMaterial({ color, emissive, flatShading: true, roughness: 0.2, metalness: 0.2, ...extra });
   m.userData.base = m.emissive.clone();
   return m;
 }
@@ -79,10 +79,10 @@ export const EXTRA = {
       const n = Math.random() < 0.4 ? 2 : 1;
       for (let k = 0; k < n; k++) {
         const side = (k ? -1 : 1) * (Math.random() < 0.5 ? 1 : -1);
-        const glass = mat(0xd8f6ff, 0x123040, { transparent: true, opacity: 0.85 });
+        const glass = mat(0xd8f6ff, 0x2a6a88, { transparent: true, opacity: 0.85, forceSinglePass: true });
         const core = mat(0xffffff, 0x60e0ff);
-        const e = { kind: 'lens', ...build([[GEO.lens, glass], [GEO.lensCore, core]]), r: 2.6 * K, hp: 5 + c.level, score: 700, t: 0, flash: 0, fireT: Infinity,
-          state: 'slide', side, x0: px + side * 48, tx: px + side * rand(4, 11), y: THREE.MathUtils.clamp(py + rand(2, 6), 4, 14), z: rand(-95, -70), spin: 0, shotA: 0 };
+        const e = { kind: 'lens', ...build([[GEO.lens, glass], [GEO.lensCore, core]]), r: 2.6 * K, hp: 5 + c.level, score: 800, t: 0, flash: 0, fireT: Infinity, delay: k * 0.25,
+          state: 'slide', side, x0: px + side * 48, tx: px + side * rand(4, 11), y: THREE.MathUtils.clamp(py + rand(2, 6), 4, 14) + k * 5, z: c.holdZ(rand(-95, -70)), spin: 0, shotA: 0 };
         e.mesh.scale.setScalar(K);
         e.mesh.position.set(e.x0, e.y, e.z);
         c.addEnemy(e, 2 * K);
@@ -91,15 +91,16 @@ export const EXTRA = {
     update(c, e, dt, scroll, ctx, p) {
       if (e.state === 'slide') {
         p.x += (e.tx - p.x) * Math.min(1, dt * 2.2);
-        if (Math.abs(e.tx - p.x) < 0.5) { e.state = 'hover'; e.hold = 4.5; }
+        // 横スクロールでは x を平面にそろえられるので、時間で止まる
+        if (ctx.side ? e.t > 1.2 : Math.abs(e.tx - p.x) < 0.5) { e.state = 'hover'; e.hold = 3.5; e.fireT = 0.3 + e.delay; }
       } else if (e.state === 'hover') {
         e.hold -= dt;
         e.spin += dt * 4;
         if (e.hold <= 0) e.state = 'leave';
       } else {
         p.x -= e.side * 30 * dt;
-        p.y += 4 * dt;
-        if (Math.abs(p.x - ctx.player.x) > 70) e.dead = true;
+        e.y += 4 * dt;
+        if (ctx.side ? e.t > 9 : Math.abs(p.x - ctx.player.x) > 70) e.dead = true;
       }
       p.y = e.y + Math.sin(e.t * 1.7) * 1.2;
       p.z = e.z;
@@ -108,10 +109,10 @@ export const EXTRA = {
     },
     fire(c, e, ctx, p, lv) {
       if (e.state !== 'hover') return;
-      e.fireT = 0.28 / Math.min(1.6, lv);
-      // 渦巻き: 狙う向きを少しずつ回しながら 2 発ずつ
-      e.shotA += 0.55;
-      for (const s of [0, Math.PI]) c.fireBullet(p.clone(), ctx.player, Math.sin(e.shotA + s) * 0.45);
+      e.fireT = 0.5 / Math.min(1.3, lv);
+      // 3 発の扇を、向きを少しずつ回しながら撃つ (渦巻き)
+      e.shotA += 0.7;
+      for (const s of [-0.25, 0, 0.25]) c.fireBullet(p.clone(), ctx.player, Math.sin(e.shotA) * 0.35 + s);
     },
   },
 
@@ -122,25 +123,25 @@ export const EXTRA = {
       for (const [i, x] of xs.entries()) {
         const body = mat(0x6a4a9a, 0x1a0a30);
         const head = mat(0xff9af0, 0x803070);
-        const made = build([[GEO.tower, body], [GEO.towerHead, head, (m) => { m.position.y = 7.4; m.name = 'head'; }]]);
-        const e = { kind: 'turret', ...made, r: 2.4 * K, hp: 6 + c.level * 2, score: 900, t: 0, flash: 0, fireT: Infinity, rise: 0, burst: 0, ground: true };
+        // 当たり・ロック・ミサイルは原点を見るので、原点を光る頭に置く (胴は下へ伸ばす)
+        const made = build([[GEO.tower, body], [GEO.towerHead, head, (m) => { m.name = 'head'; }]]);
+        const e = { kind: 'turret', ...made, r: 2.4 * K, hp: Math.round(4 + c.level * 1.5), score: 900, t: 0, flash: 0, fireT: Infinity, rise: 0, burst: 0 };
         e.head = e.mesh.getObjectByName('head');
         e.mesh.scale.setScalar(K);
-        e.mesh.position.set(x, -9 * K, SPAWN_Z + 40 - i * 12);
+        e.mesh.position.set(x, -2 * K, (c.sideMode ? SPAWN_Z - 60 : SPAWN_Z + 40) - i * 12);
         c.addEnemy(e, 1.8 * K);
       }
     },
     update(c, e, dt, scroll, ctx, p) {
       p.z += scroll * dt; // 地面と一緒に流れてくる
       if (p.z > -160) e.rise = Math.min(1, e.rise + dt * 1.4);
-      p.y = -9 * K * (1 - e.rise) ** 3; // 地面からせり上がる
+      p.y = 7.4 * K - 9.4 * K * (1 - e.rise) ** 3; // 地面からせり上がる (頭が 7.4 × K の高さまで)
       e.head.rotation.y += dt * 3;
       if (e.rise >= 1 && e.fireT === Infinity) e.fireT = 0.6;
     },
     fire(c, e, ctx, p, lv) {
       // 3 連射して、少し休む
-      const muzzle = _a.copy(p).add(_b.set(0, 7.4 * K, 0));
-      c.fireBullet(muzzle.clone(), ctx.player, 0, 'shell');
+      c.fireBullet(p.clone(), ctx.player, 0, 'shell');
       e.burst++;
       e.fireT = e.burst % 3 ? 0.22 : rand(1.8, 2.6) / lv;
     },
@@ -152,12 +153,12 @@ export const EXTRA = {
     spawn(c, px) {
       const cx = px + rand(-6, 6), top = Math.min(18, (c.ceilingY ?? 40) - 3);
       for (let k = 0; k < 6; k++) {
-        const body = mat(0x3a2a5a, 0x401a60);
-        const wing = mat(0xc8a8ff, 0x4a2a8a, { transparent: true, opacity: 0.9 });
+        const body = mat(0x6a4aa0, 0x8040c0); // 霧になじまない明るさに
+        const wing = mat(0xc8a8ff, 0x4a2a8a, { transparent: true, opacity: 0.9, side: THREE.DoubleSide, forceSinglePass: true }); // 羽は 1 枚の三角なので両面
         const made = build([[GEO.batBody, body], [GEO.batWing, wing, (m) => { m.name = 'wL'; m.scale.x = -1; }], [GEO.batWing, wing, (m) => { m.name = 'wR'; }]]);
         const slot = k - 2.5;
-        const e = { kind: 'bat', ...made, r: 1.4 * K, hp: 1, score: 250, t: k * 0.3, flash: 0, fireT: Infinity,
-          state: 'cruise', x: cx + slot * 6.5, y: top - Math.abs(slot) * 1.2, z: SPAWN_Z - Math.abs(slot) * 6, diveAt: -100 + k * 9, u: 0 };
+        const e = { kind: 'bat', ...made, r: 1.4 * K, hp: 1, score: 250, t: 0, flapPh: k * 0.3, flash: 0, fireT: Infinity,
+          state: 'cruise', x: cx + slot * 6.5, y: top - Math.abs(slot) * 1.2, z: SPAWN_Z - Math.abs(slot) * 6, diveT: 2.4 + k * 0.4, u: 0 };
         e.wL = e.mesh.getObjectByName('wL');
         e.wR = e.mesh.getObjectByName('wR');
         e.mesh.scale.setScalar(K);
@@ -169,14 +170,20 @@ export const EXTRA = {
       e.z += (scroll * 0.45 + (e.state === 'cruise' ? 36 : 52)) * dt;
       if (e.state === 'cruise') {
         p.set(e.x + Math.sin(e.t * 2) * 1.5, e.y, e.z);
-        if (e.z > e.diveAt) { e.state = 'dive'; e.from = p.clone(); e.to = ctx.player.clone(); }
+        // 出てから決まった時間で、1 匹ずつ (0.4 秒ごとに) 降りはじめる
+        if (e.t > e.diveT) {
+          e.state = 'dive';
+          e.from = p.clone();
+          e.to = ctx.player.clone();
+          e.dur = THREE.MathUtils.clamp((-e.z - 4) / (scroll * 0.45 + 52), 0.6, 1.4); // z = -4 で狙った所に届く時間
+        }
       } else {
         // 急降下: 狙った位置まで弧を描いて降り、通り過ぎたら上へ抜ける
-        e.u += dt / 1.3;
+        e.u += dt / e.dur;
         const k = Math.min(1, e.u);
         p.set(THREE.MathUtils.lerp(e.from.x, e.to.x, k), THREE.MathUtils.lerp(e.from.y, e.to.y, Math.sin(k * Math.PI / 2)) + Math.max(0, e.u - 1) * 18, e.z);
       }
-      const flap = Math.sin(e.t * (e.state === 'dive' ? 10 : 16)) * 0.7;
+      const flap = Math.sin((e.t + e.flapPh) * (e.state === 'dive' ? 10 : 16)) * 0.7;
       e.wL.rotation.z = -flap;
       e.wR.rotation.z = flap;
       e.mesh.rotation.x = e.state === 'dive' && e.u < 1 ? 0.5 : 0;
@@ -193,7 +200,7 @@ export const EXTRA = {
     make(c, x, z, size, vx, hp) {
       const m = mat(0xffd36a, 0x7a4a10);
       const e = { kind: 'bouncer', ...build([[GEO.gem, m]]), r: size, size, hp, score: size > 3 ? 600 : 150, t: 0, flash: 0, fireT: Infinity,
-        vx, vy: rand(4, 10), z, x };
+        vx, vy: rand(4, 10), z, x, dmg: size > 3 ? 25 : 15 };
       e.mesh.scale.setScalar(size);
       e.mesh.position.set(x, size + 6, z);
       c.addEnemy(e, size);
@@ -246,8 +253,9 @@ export const EXTRA = {
     },
     shielded: (e) => e.sats.some((s) => !s.dead),
     update(c, e, dt, scroll, ctx, p) {
-      e.z = Math.min(-70, e.z + (scroll * 0.4 + 22) * dt);
-      if (e.z >= -70) e.hold = (e.hold || 0) + dt;
+      const hz = c.holdZ(-70);
+      e.z = Math.min(hz, e.z + (scroll * 0.4 + 22) * dt);
+      if (e.z >= hz) e.hold = (e.hold || 0) + dt;
       const leave = (e.hold || 0) > 8;
       p.set(e.cx + Math.sin(e.t * 0.9) * 12, e.cy + Math.sin(e.t * 1.8) * 3 + (leave ? (e.hold - 8) * 10 : 0), e.z);
       if (p.y > 50) e.dead = true;
