@@ -53,7 +53,7 @@ export class Hud {
       // 残機 (三角の印)
       g.fillStyle = '#ffe14a';
       for (let i = 0; i < d.lives; i++) {
-        const x = 1000 - i * 34, y = 150;
+        const x = 1000 - i * 34, y = 40;
         g.beginPath();
         g.moveTo(x - 12, y + 12);
         g.lineTo(x, y - 14);
@@ -74,8 +74,8 @@ export class Hud {
 
       // ライフゲージ (少ないと赤く点滅する)。画面の上に置く
       {
-        // 画面の上の中央 (スコアと速度計のあいだ)
-        const lx0 = 330, lx1 = 570, ly = 22, lh = 30;
+        // 画面の上の中央
+        const lx0 = 330, lx1 = 760, ly = 22, lh = 30;
         const r = d.life / d.lifeMax;
         text(g, 'LIFE', lx0 - 10, ly + lh - 4, 24, '#fff', 'right');
         g.fillStyle = 'rgba(0,0,0,0.55)';
@@ -102,17 +102,18 @@ export class Hud {
       text(g, 'MISSILE', 24, 408, 22, '#fff');
       if (d.locks) text(g, `LOCK ${d.locks}`, 24 + d.missileMax * 22 + 16, 452, 34, '#ff4040');
 
-      // 速度計: 0.5倍〜1.5倍。白い目盛りが基準速度 (1.0倍)
-      const x0 = 640, x1 = 1000, y = 28, h = 26;
+      // 速度計 (右側に縦置き): 0.5倍〜1.5倍で下から上へ伸びる。白い目盛りが基準速度 (1.0倍)
+      const sx = 968, sw = 30, sy0 = 140, sy1 = 400;
       const t = (d.factor - 0.5) / 1.0;
       g.fillStyle = 'rgba(0,0,0,0.5)';
-      g.fillRect(x0 - 4, y - 4, x1 - x0 + 8, h + 8);
+      g.fillRect(sx - 4, sy0 - 4, sw + 8, sy1 - sy0 + 8);
       g.fillStyle = `hsl(${120 - t * 120}, 85%, 55%)`;
-      g.fillRect(x0, y, (x1 - x0) * t, h);
+      g.fillRect(sx, sy1 - (sy1 - sy0) * t, sw, (sy1 - sy0) * t);
       g.fillStyle = '#fff';
-      g.fillRect(x0 + (x1 - x0) * 0.5 - 2, y - 6, 4, h + 12);
-      text(g, `${d.kmh} km/h`, x1, y + h + 40, 32, '#fff', 'right');
-      text(g, `x${d.factor.toFixed(2)}`, x0, y + h + 40, 28, '#ffe680');
+      g.fillRect(sx - 8, (sy0 + sy1) / 2 - 2, sw + 16, 4);
+      text(g, `x${d.factor.toFixed(2)}`, sx + sw, sy0 - 14, 26, '#ffe680', 'right');
+      text(g, `${d.kmh}`, sx + sw, sy1 + 36, 30, '#fff', 'right');
+      text(g, 'km/h', sx + sw, sy1 + 62, 20, '#fff', 'right');
     }
 
     if (d.msg) text(g, d.msg, 512, 236, 70, '#ffe14a', 'center');
