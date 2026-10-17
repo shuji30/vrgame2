@@ -7,7 +7,7 @@ import { sfx } from './audio.js';
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
 // 敵の大きさ (Blender のモデルに対する倍率)。近くまで迫ったとき画面いっぱいに見えるよう大きめにする
-const FIGHTER_SCALE = 1.6, GUNSHIP_SCALE = 1.4, MOAI_SCALE = 1.7, GREMLIN_SCALE = 2.6, MECH_SCALE = 1.4, PILL_SCALE = 1.6, BOSS_SCALE = 1.3;
+const FIGHTER_SCALE = 1.6, GUNSHIP_SCALE = 1.4, MOAI_SCALE = 1.7, GREMLIN_SCALE = 2.6, MECH_SCALE = 1.4, PILL_SCALE = 1.6, BOSS_SCALE = 2.2, PTERO_SCALE = 1.5;
 const REMOVE_Z = 40;
 
 const GUN_SPEED = 230;      // 機関砲の弾速 (m/s)
@@ -205,6 +205,7 @@ const MAT = {
   bullet: new THREE.MeshBasicMaterial({ color: 0xffd040 }),
   ring: new THREE.MeshBasicMaterial({ color: 0xd060ff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }),
   shell: new THREE.MeshBasicMaterial({ color: 0xff8030 }),
+  fire: new THREE.MeshBasicMaterial({ color: 0xff6010, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }),
   item: new THREE.MeshStandardMaterial({ color: 0x30ff80, emissive: 0x10a040, roughness: 0.2, metalness: 0.3, flatShading: true }),
   itemCross: new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }),
   itemHalo: new THREE.MeshBasicMaterial({ color: 0x40ff90, transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, depthWrite: false }),
@@ -311,6 +312,7 @@ export async function loadEnemyModels(url) {
     gremlin: ['Gremlin', ['GremEarL', 'GremEarR', 'GremWingL', 'GremWingR']],
     mech: ['HeavyMech', ['MechEye']],
     pill: ['PillBug', ['PillSeg0', 'PillSeg1', 'PillSeg2']],
+    ptero: ['Pterosaur', ['PteroWingL', 'PteroWingR']],
   };
   for (const [key, [name, parts]] of Object.entries(models)) {
     const node = gltf.scene.getObjectByName(name);
@@ -492,7 +494,7 @@ export class Combat {
   spawnWave(px, py) {
     const heavy = this.enemies.filter((e) => e.kind === 'gunship' || e.kind === 'mech').length;
     const table = [
-      ['fighter', 3], ['gremlin', 2.2], ['pill', 2], ['moai', 1.6],
+      ['fighter', 3], ['gremlin', 2.2], ['pill', 2], ['moai', 1.6], ['ptero', 1.8],
       ['mech', heavy === 0 ? 1.3 : 0], ['gunship', heavy < 2 ? 1 : 0],
     ];
     let r = Math.random() * table.reduce((a, [, w]) => a + w, 0);
@@ -504,6 +506,7 @@ export class Combat {
       pill: () => this.spawnPills(px),
       moai: () => this.spawnMoai(px),
       mech: () => this.spawnMechTrio(px),
+      ptero: () => this.spawnPteros(px),
     })[kind]();
   }
 
@@ -548,6 +551,57 @@ export class Combat {
       e.mesh.position.set(px, 3.3 * MECH_SCALE, e.z);
       e.eye = e.mesh.getObjectByName('MechEye');
       this.addEnemy(e, 2.6 * MECH_SCALE);
+    }
+  }
+
+  // 翼竜: 高空で大きな弧を描いて横切り、近づくと甲高く鳴いて急降下し、すぐ横をかすめて舞い上がる
+  spawnPteros(px) {
+    const n = 2 + Math.floor(Math.random() * 2);
+    for (let k = 0; k < n; k++) {
+      const made = TPL.ptero ? instance(TPL.ptero) : fallback(0x73331f, 1.2);
+      const e = {
+        kind: 'ptero', ...made, r: 2.2 * PTERO_SCALE, hp: 4 + this.level, score: 600, t: rand(0, 6), flash: 0, fireT: Infinity,
+        state: 'glide', z: SPAWN_Z - k * 18, alt: rand(16, 26), phase: k * 1.3, vel: new THREE.Vector3(),
+      };
+      e.mesh.scale.setScalar(PTERO_SCALE);
+      e.mesh.position.set(px, e.alt, e.z);
+      e.wings = ['PteroWingL', 'PteroWingR'].map((n2) => e.mesh.getObjectByName(n2)).filter(Boolean);
+      this.addEnemy(e, 2 * PTERO_SCALE);
+    }
+  }
+
+  updatePtero(e, dt, scroll, ctx) {
+    const p = e.mesh.position, P = ctx.player;
+    let flapRate = 4, flapAmp = 0.45, fold = 0;
+    if (e.state === 'glide') {
+      e.z += (scroll * 0.5 + 30) * dt;
+      const dist = Math.max(20, -e.z);
+      p.set(P.x + Math.tan(0.6 * Math.sin(e.t * 0.8 + e.phase)) * dist, e.alt + Math.sin(e.t * 1.5) * 2, e.z);
+      e.mesh.rotation.set(0, 0, -0.5 * Math.cos(e.t * 0.8 + e.phase));
+      if (e.z > -75 && Math.random() < dt * 1.5) {
+        // 急降下: 自機のすぐ横をねらって突っ込む
+        e.state = 'dive';
+        const side = Math.sign(p.x - P.x) || 1;
+        const aim = _a.set(P.x + side * (e.r + 4.5), P.y + 3, P.z);
+        e.vel.subVectors(aim, p).normalize().multiplyScalar(60);
+        sfx.screech();
+      }
+    } else if (e.state === 'dive') {
+      p.addScaledVector(e.vel, dt);
+      fold = 1;
+      if (p.z > -4) e.state = 'climb';
+    } else {
+      e.vel.y += 45 * dt; // 舞い上がる
+      p.addScaledVector(e.vel, dt);
+      flapRate = 9;
+      flapAmp = 0.7;
+      if (p.y > 70) e.dead = true;
+    }
+    if (e.state !== 'glide') e.mesh.lookAt(_b.copy(p).add(e.vel));
+    // 羽ばたき (急降下のときは翼をすぼめる)
+    for (const w of e.wings) {
+      const sign = w.name.endsWith('L') ? -1 : 1;
+      w.rotation.z = sign * (fold ? 0.9 : Math.sin(e.t * flapRate) * flapAmp);
     }
   }
 
@@ -688,7 +742,7 @@ export class Combat {
   spawnBoss() {
     const lv = this.level;
     const n = 10 + lv * 2;
-    const b = { parts: [], hp: 300 + lv * 100, maxHp: 300 + lv * 100, t: 0, fireT: 3, segFireT: 2, dying: -1, exploded: 0, lungeT: 9, lunge: 0 };
+    const b = { parts: [], hp: 300 + lv * 100, maxHp: 300 + lv * 100, t: 0, fireT: 3, segFireT: 2, dying: -1, exploded: 0, lungeT: 9, lunge: 0, breathT: 8, breath: 0, flameT: 0 };
     const add = (tpl, fallbackR, r, isHead) => {
       let made;
       if (tpl) made = instance(tpl);
@@ -733,9 +787,9 @@ export class Combat {
     }
     const head = b.parts[0];
     const target = _d.set(
-      ctx.player.x * 0.4 + 18 * Math.sin(t * 0.62),
-      THREE.MathUtils.clamp(ctx.player.y + 2 + 5 * Math.sin(t * 1.3), 3, 16),
-      -30 + 8 * Math.sin(t * 0.41),
+      ctx.player.x * 0.4 + 22 * Math.sin(t * 0.62),
+      THREE.MathUtils.clamp(ctx.player.y + 3 + 6 * Math.sin(t * 1.3), 6, 20),
+      -38 + 8 * Math.sin(t * 0.41),
     );
     if (t < 5) target.z = THREE.MathUtils.lerp(-200, target.z, t / 5); // 遠くから迫ってくる
     // 噛みつき: ときどき目の前まで突っ込んでくる
@@ -747,7 +801,7 @@ export class Combat {
     }
     if (b.lunge > 0) {
       b.lunge -= dt;
-      target.set(ctx.player.x + 4, ctx.player.y + 1.5, -10);
+      target.set(ctx.player.x + 7, ctx.player.y + 3, -14); // 巨大なので少し離れた位置で噛みつく
     }
     head.mesh.position.lerp(target, 1 - Math.exp(-dt * (b.lunge > 0 ? 3.5 : 2.6)));
     head.mesh.lookAt(ctx.player);
@@ -764,13 +818,31 @@ export class Combat {
       prev = part;
     }
     if (!ctx.active || t < 5) return;
+    // 火炎放射: ときどき口から炎を噴き出す (首を振るので、炎が左右に流れる)
+    b.breathT -= dt;
+    if (b.breathT <= 0 && b.lunge <= 0) {
+      b.breathT = rand(4.5, 6.5) / (1 + (this.level - 1) * 0.1);
+      b.breath = 1.6;
+      sfx.fireBreath();
+    }
+    if (b.breath > 0) {
+      b.breath -= dt;
+      b.flameT -= dt;
+      const mouth = _c.set(0, -0.6, 2.8).multiplyScalar(BOSS_SCALE).applyQuaternion(head.mesh.quaternion).add(head.mesh.position);
+      while (b.flameT <= 0) {
+        b.flameT += 0.04;
+        const sway = Math.sin(t * 2.2) * 0.25;
+        this.fireBullet(mouth.clone(), _b.copy(ctx.player).add(_a.set(rand(-1.5, 1.5), rand(-1, 1), 0)), sway, 'fire');
+      }
+      return; // 炎を吐いている間はほかの攻撃をしない
+    }
     // 攻撃: 頭から扇形に撃つ。体力が半分を切ると、胴体からも撃ってくる
     const hp = head.mesh.position;
     b.fireT -= dt;
     if (b.fireT <= 0) {
       b.fireT = Math.max(0.7, 1.6 - this.level * 0.12);
       const n = b.hp < b.maxHp * 0.5 ? 5 : 3;
-      const from = _c.copy(hp).add(_b.set(0, -0.5, 2.5));
+      const from = _c.copy(hp).add(_b.set(0, -0.5, 2.5).multiplyScalar(BOSS_SCALE));
       for (let k = 0; k < n; k++) this.fireBullet(from, ctx.player, (k - (n - 1) / 2) * 0.13);
     }
     if (b.hp < b.maxHp * 0.5) {
@@ -830,7 +902,16 @@ export class Combat {
     const dir = _d.subVectors(at, from).normalize();
     if (spread) dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), spread);
     let m, speed = 34, r = 0.45;
-    if (type === 'ring') {
+    let mats = null;
+    if (type === 'fire') {
+      // 炎: 進むにつれて大きく膨らみ、薄れていく
+      const mat = MAT.fire.clone();
+      mat.color.setHSL(rand(0.02, 0.1), 1, rand(0.5, 0.65));
+      m = new THREE.Mesh(GEO.bullet, mat);
+      mats = [mat];
+      speed = rand(30, 38);
+      r = 1.0;
+    } else if (type === 'ring') {
       m = new THREE.Mesh(GEO.ring, MAT.ring);
       speed = 22;
       r = 0.9;
@@ -846,8 +927,8 @@ export class Combat {
     m.position.copy(from);
     m.lookAt(_a.copy(from).add(dir));
     this.scene.add(m);
-    this.bullets.push({ mesh: m, vel: dir.clone().multiplyScalar(speed), r, life: 9, type, puffT: 0 });
-    sfx.enemyShot();
+    this.bullets.push({ mesh: m, vel: dir.clone().multiplyScalar(speed), r, life: type === 'fire' ? 2.4 : 9, age: 0, type, puffT: 0, mats });
+    if (type !== 'fire') sfx.enemyShot();
   }
 
   // ---- 爆発
@@ -891,7 +972,7 @@ export class Combat {
     e.dead = true;
     this.score += Math.round(e.score * this.mult);
     this.kills++;
-    this.explode(e.mesh.position, e.kind === 'gunship' || e.kind === 'mech' || e.kind === 'moai');
+    this.explode(e.mesh.position, ['gunship', 'mech', 'moai', 'ptero'].includes(e.kind));
     if (e.kind === 'pill') this.splitPill(e);
     if (['gunship', 'mech', 'moai'].includes(e.kind) && Math.random() < 0.35) this.spawnItem(e.mesh.position);
   }
@@ -949,6 +1030,8 @@ export class Combat {
         }
       } else if (e.kind === 'mech') {
         this.updateMech(e, dt, scroll, ctx);
+      } else if (e.kind === 'ptero') {
+        this.updatePtero(e, dt, scroll, ctx);
       } else if (e.kind === 'pill') {
         p.z += (scroll + 24) * dt; // 地面より速く転がってくる
         // ジグザグに転がりながら、プレイヤーの列へ寄ってくる
@@ -1025,7 +1108,17 @@ export class Combat {
     for (const b of this.bullets) {
       b.mesh.position.addScaledVector(b.vel, dt);
       b.life -= dt;
-      if (b.type === 'ring') {
+      b.age += dt;
+      if (b.type === 'fire') {
+        const k = b.age / 2.4;
+        b.mesh.scale.setScalar(1.5 + k * 7);
+        b.mats[0].opacity = 0.9 * (1 - k);
+        b.r = 1.0 + k * 2.5;
+        if ((b.puffT -= dt) <= 0) {
+          b.puffT = 0.05;
+          this.sparks.emit(b.mesh.position, _c.set(rand(-3, 3), rand(-1, 4), rand(-3, 3)), b.mats[0].color, 1.2, 0.35);
+        }
+      } else if (b.type === 'ring') {
         b.mesh.rotateZ(dt * 6);
         b.mesh.scale.setScalar(1 + Math.sin(this.time * 12) * 0.12);
       } else {
@@ -1038,7 +1131,7 @@ export class Combat {
       if (b.life <= 0 || b.mesh.position.z > REMOVE_Z) b.dead = true;
       else if (b.mesh.position.distanceTo(ctx.player) < b.r + ctx.playerR) {
         b.dead = true;
-        ctx.onPlayerHit(b.type === 'shell' ? 20 : b.type === 'ring' ? 18 : 12);
+        ctx.onPlayerHit(b.type === 'shell' ? 20 : b.type === 'ring' ? 18 : b.type === 'fire' ? 10 : 12);
       }
     }
 
@@ -1061,7 +1154,7 @@ export class Combat {
       s.life -= dt;
       if (s.life <= 0) { s.dead = true; continue; }
       for (const b of this.bullets) {
-        if (!b.dead && segHit(s.prev, s.pos, b.mesh.position, b.r + 0.3)) {
+        if (!b.dead && b.type !== 'fire' && segHit(s.prev, s.pos, b.mesh.position, b.r + 0.3)) { // 炎は撃ち落とせない
           b.dead = s.dead = true;
           this.score += 10;
           this.explode(b.mesh.position);

@@ -166,8 +166,11 @@ function togglePause(p) {
   setPaused(p);
 }
 
+const showHiScore = () => { document.getElementById('hiscore').textContent = String(hiScore); };
+
 function toTitle() {
   S.mode = 'title';
+  showHiScore();
   combat.reset();
   S.paused = false;
   S.msg = '';
@@ -500,7 +503,8 @@ function update(dt) {
     vx: S.vx, vy: S.vy, thrust: inGame ? speed / SPEED.base : 0.3, presenting: renderer.xr.isPresenting,
   });
   P.copy(avatar.hitPoint);
-  world.update(dt, speed, P, running);
+  // ボス戦 (WARNING から撃破まで) は障害物を出さない
+  world.update(dt, speed, P, running && !(play && (S.phase === 'warning' || S.phase === 'boss')));
 
   if (play && running && S.invuln <= 0 && world.hitTest(P, avatar.radius)) onHit(OBSTACLE_DAMAGE);
   // ライフが少ないときは警告音
@@ -525,6 +529,8 @@ function update(dt) {
     const shake = S.mode === 'over' ? Math.max(0, 1 - S.overT / 1.8) * 0.25 : 0;
     camera.position.set(THREE.MathUtils.randFloatSpread(shake), 1.6 + THREE.MathUtils.randFloatSpread(shake), 0);
     camera.rotation.z += (-S.vx * 0.012 - camera.rotation.z) * Math.min(1, dt * 6);
+    // タイトル画面では少し左を向き、自機がメニューに隠れず右寄りに見えるようにする
+    camera.rotation.y += ((S.mode === 'title' && innerWidth > 700 ? 0.3 : 0) - camera.rotation.y) * Math.min(1, dt * 3);
     const fov = 75 + (S.mode === 'play' ? (speed / SPEED.base - 1) * 14 : 0);
     if (Math.abs(fov - camera.fov) > 0.01) {
       camera.fov += (fov - camera.fov) * Math.min(1, dt * 4);
@@ -608,6 +614,7 @@ function setPlayer(kind) {
 }
 setPlayer(settings.player === 'human' ? 'human' : 'ship');
 playerInputs.forEach((el) => el.addEventListener('change', () => setPlayer(el.value)));
+showHiScore();
 selScale.value = String(settings.scale);
 chkReturn.checked = settings.autoReturn;
 for (const key of ['bgm', 'engine', 'invertY']) {
@@ -640,6 +647,6 @@ if (!window.isSecureContext) {
 setInterval(() => {
   const pads = [...(navigator.getGamepads?.() || [])].filter(Boolean);
   padStatus.textContent = pads.length
-    ? `パッド接続中: ${pads.map((p) => p.id.replace(/\s*\(.*\)/, '')).join(', ')}  (A / START で開始)`
+    ? `パッド接続中: ${pads.map((p) => p.id.replace(/\s*\(.*\)/, '')).join(', ')}  (A / START で出撃、左右で機体を選択)`
     : 'パッドを使う場合は、接続してからいずれかのボタンを押してください。';
 }, 500);

@@ -128,6 +128,39 @@ export const sfx = {
     osc('square', 520, t, 0.08, 0.1, sfxBus);
     osc('square', 520, t + 0.14, 0.08, 0.1, sfxBus);
   },
+  // 翼竜の鳴き声 (甲高く震えながら下がる)
+  screech() {
+    if (!ctx) return;
+    const t = now();
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(2200, t);
+    o.frequency.exponentialRampToValueAtTime(800, t + 0.7);
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 28;
+    const lg = ctx.createGain();
+    lg.gain.value = 120;
+    lfo.connect(lg).connect(o.frequency);
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 1800;
+    f.Q.value = 2;
+    const g = ctx.createGain();
+    env(g, t, 0.03, 0.7, 0.25);
+    o.connect(f).connect(g).connect(sfxBus);
+    o.start(t);
+    lfo.start(t);
+    o.stop(t + 0.8);
+    lfo.stop(t + 0.8);
+  },
+  // ボスの火炎放射 (ゴォーッという轟音)
+  fireBreath() {
+    if (!ctx) return;
+    const t = now();
+    noise(t, 1.7, 0.7, 700, sfxBus);
+    noise(t, 1.5, 0.3, 2500, sfxBus, 'bandpass');
+    osc('sawtooth', 70, t, 1.6, 0.25, sfxBus, 45);
+  },
   lock() {
     if (!ctx) return;
     osc('square', 1760, now(), 0.05, 0.08, sfxBus);
@@ -322,16 +355,16 @@ function sustainEnv(g, t, dur, vol) {
 }
 
 // パワーコード (根音 + 5度 + オクターブ) を左右のギターで重ねて弾く。muted = ブリッジミュートの刻み
-function powerChord(root, t, dur, muted) {
+function powerChord(root, t, dur, muted, intervals = [0, 7, 12]) {
   for (const [side, det] of [[band.gtrL, -8], [band.gtrR, 9]]) {
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
     lp.frequency.value = muted ? 900 : 7000;
     lp.connect(side);
-    for (const n of [root, root + 7, root + 12]) {
+    for (const iv of intervals) {
       const o = ctx.createOscillator();
       o.type = 'sawtooth';
-      o.frequency.value = mtof(n);
+      o.frequency.value = mtof(root + iv);
       o.detune.value = det;
       const g = ctx.createGain();
       sustainEnv(g, t, dur, muted ? 0.8 : 0.5);
@@ -527,13 +560,142 @@ function playStep(s, t) {
   if (i === 0 && (barNo === 0 || barNo === 4)) crash(t);
 }
 
+// ---- ボス戦の曲: 恐怖を感じさせる不協和音 (E ロクリアン、テンポ 126 の重いハーフタイム)
+//   ・低い E と B♭ (三全音) の持続音を、少しずらした 2 音のうなりで鳴らし続ける
+//   ・ギターは 5 度の代わりに三全音のパワーコードで、半音でうごめくリフを刻む
+//   ・高音で半音ずつぶつかる和音 (クラスター) を震わせて突き刺す
+//   ・倍音のずれた金属の鐘、後半は半音ずつ落ちていく悲鳴のようなリード
+//   ・ドラムは心臓の鼓動のようなバスドラ、最後は連打とタムで盛り上げる
+const BOSS_TEMPO = 126;
+const BOSS_ROOTS = [40, 40, 41, 40, 46, 45, 46, 47]; // E E F E B♭ A B♭ B (ギターの根音)
+const BOSS_RIFF = [
+  'X..x.x..X..x.xx.', 'X..x.x..X..xx.x.', 'X..x.x..X..x.xx.', 'X...X...x.x.x.x.',
+  'X..x.x..X..x.xx.', 'X..x.x..X..xx.x.', 'X..x.x..X...X...', 'xxxxxxxxX...X...',
+];
+const TRITONE = [0, 6, 12];
+// 悲鳴のようなリード: [小節, 開始ステップ, ノート, 長さ]
+const BOSS_LEAD = [
+  [4, 0, 88, 6], [4, 6, 87, 2], [4, 8, 86, 8],
+  [5, 0, 85, 6], [5, 6, 84, 2], [5, 8, 82, 8],
+  [6, 0, 81, 4], [6, 4, 82, 4], [6, 8, 76, 8],
+  [7, 8, 70, 2], [7, 10, 76, 2], [7, 12, 82, 4],
+];
+const BOSS_STEPS = BOSS_ROOTS.length * 16;
+
+function drone(t, dur) {
+  for (const [n, det] of [[28, 0], [28, 9], [34, -6], [34, 4]]) { // E1 と B♭1、少しずらしてうならせる
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.value = mtof(n);
+    o.detune.value = det;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(180, t);
+    lp.frequency.linearRampToValueAtTime(420, t + dur * 0.5); // じわじわ明るくなって迫る
+    lp.frequency.linearRampToValueAtTime(180, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.18, t + 0.3);
+    g.gain.setValueAtTime(0.18, t + dur - 0.2);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(lp).connect(g).connect(band.bass);
+    o.start(t);
+    o.stop(t + dur + 0.05);
+  }
+}
+
+// 半音でぶつかる高音の和音を、トレモロで震わせる
+function clusterStab(t, dur, notes) {
+  const out = ctx.createGain();
+  out.gain.value = 0;
+  const trem = ctx.createOscillator();
+  trem.frequency.value = 13;
+  const tremDepth = ctx.createGain();
+  tremDepth.gain.value = 0.05;
+  trem.connect(tremDepth).connect(out.gain);
+  out.gain.setValueAtTime(0.0001, t);
+  out.gain.exponentialRampToValueAtTime(0.09, t + 0.02);
+  out.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 5000;
+  out.connect(lp).connect(bgmBus);
+  for (const n of notes) {
+    for (const det of [-12, 12]) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = mtof(n);
+      o.detune.value = det;
+      o.connect(out);
+      o.start(t);
+      o.stop(t + dur + 0.05);
+    }
+  }
+  trem.start(t);
+  trem.stop(t + dur + 0.05);
+}
+
+// 金属の鐘: 倍音が整数倍からずれているので、不気味に濁って響く
+function bell(t, f) {
+  for (const [mult, vol, len] of [[1, 0.25, 2.4], [2.76, 0.12, 1.6], [5.4, 0.08, 1.0], [8.93, 0.05, 0.6]]) {
+    osc('sine', f * mult, t, len, vol, bgmBus);
+  }
+}
+
+function tom(t, f) {
+  osc('sine', f, t, 0.3, 0.8, band.drums, f * 0.5);
+  noise(t, 0.05, 0.2, 1500, band.drums);
+}
+
+function bossStep(s, t) {
+  ensureBand();
+  const barNo = Math.floor(s / 16), i = s % 16;
+  const spb = 60 / BOSS_TEMPO / 4;
+  const root = BOSS_ROOTS[barNo];
+  if (i === 0) drone(t, spb * 16);
+  // ギター: 三全音のパワーコード
+  const c = BOSS_RIFF[barNo][i];
+  if (c === 'x') powerChord(root, t, spb * 0.9, true, TRITONE);
+  if (c === 'X') {
+    let len = 1;
+    while (i + len < 16 && BOSS_RIFF[barNo][i + len] === '.') len++;
+    powerChord(root, t, spb * len * 0.95, false, TRITONE);
+  }
+  // ベース: 根音と、半音上をうごめく
+  if (i % 4 === 0) bassNote(root - 12 + (i === 12 ? 1 : 0), t, spb * 3.5);
+  // 高音のクラスター (2 小節ごと) と鐘 (4 小節ごと)
+  if (i === 0 && barNo % 2 === 1) clusterStab(t, spb * 7, [76, 77, 82, 83]);
+  if (i === 8 && barNo % 2 === 0) clusterStab(t, spb * 3, [71, 72, 77]);
+  if (i === 0 && barNo % 4 === 0) bell(t, 233);
+  if (i === 8 && barNo % 4 === 2) bell(t, 165);
+  // 悲鳴のようなリード (後半)
+  for (const [b, st, n, len] of BOSS_LEAD) {
+    if (b === barNo && st === i) leadNote(n, t, spb * len, spb, { fixedWah: 2200, vibrato: 0.03, vol: 0.55 });
+  }
+  // フランジャー: 4 小節目と 8 小節目でギュイーンと上げ、1・6 小節目で止める
+  if (i === 0) flangerSweep({ 3: 2, 7: 7, 0: 0, 5: 4 }[barNo] ?? -1, t, spb * 16);
+  // ドラム: 心臓の鼓動 (ドクッ、ドクン) とハーフタイムのスネア。最後の小節はバスドラの連打とタム
+  if (barNo === 7) {
+    if (i < 8) kick(t);
+    if (i >= 8) tom(t, [180, 180, 150, 150, 120, 120, 95, 95][i - 8]);
+  } else {
+    if (i === 0 || i === 2 || i === 6 || i === 10 || (barNo % 2 === 1 && i === 14)) kick(t);
+    if (i === 8) snare(t);
+    if (i % 4 === 2) hat(t, false);
+  }
+  if (i === 0 && (barNo === 0 || barNo === 4)) crash(t);
+}
+
+let song = 'rock';
+
 function schedule() {
-  const spb = 60 / tempo / 4;
+  const boss = song === 'boss';
+  const spb = 60 / (boss ? BOSS_TEMPO : tempo) / 4;
   while (nextTime < ctx.currentTime + 0.12) {
     // 1ステップの演奏でエラーが出ても、BGM 全体が止まらないように次へ進める
-    try { playStep(step, nextTime); } catch (e) { console.error(e); }
+    try { (boss ? bossStep : playStep)(step, nextTime); } catch (e) { console.error(e); }
     nextTime += spb;
-    step = (step + 1) % STEPS;
+    step = (step + 1) % (boss ? BOSS_STEPS : STEPS);
   }
 }
 
@@ -554,9 +716,16 @@ export function setBGMEnabled(on) {
   if (!on) stopBGM();
 }
 
+// boss = true でボス戦の曲に切り替える (曲の頭から)
 export function setBGMMode(boss) {
-  transpose = boss ? 1 : 0;
-  tempo = boss ? 172 : 152;
+  const next = boss ? 'boss' : 'rock';
+  if (next === song) return;
+  song = next;
+  step = 0;
+  transpose = 0;
+  tempo = 152;
+  // フランジャーを止めておく (前の曲の途中でかかっていた場合)
+  if (band) for (const side of [band.gtrL, band.gtrR]) side.fx.flanger.wet.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
 }
 
 // ポーズ中は音をすべて止める (BGM の位置もそのまま止まる)
