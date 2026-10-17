@@ -9,9 +9,9 @@ import { VERSION, loadBuildInfo } from './version.js';
 import { initAudio, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, toggleMute } from './audio.js';
 
 // ---- 定数
-const X_LIMIT = 14;        // 左右の移動範囲 (m)
+const X_LIMIT = 32;        // 左右の移動範囲 (m)
 const Y_MAX = 8;           // 上昇できる高さ (リグの高さ, m)
-const MOVE_X = 13;         // スティックを倒しきったときの横移動速度 (m/s)
+const MOVE_X = 18;         // スティックを倒しきったときの横移動速度 (m/s)
 const MOVE_Y = 9;
 const SPEED = {
   base: 40,                // 基準速度 (m/s)
@@ -538,6 +538,8 @@ function update(dt) {
   }
 
   hud.mesh.visible = inGame;
+  // デスクトップでは HUD を画面いっぱいに広げる (VR では視野の中央に収める)
+  hud.mesh.scale.setScalar(renderer.xr.isPresenting ? 1 : 1.7);
   hud.draw({
     play,
     dist: Math.floor(S.dist),
@@ -567,6 +569,7 @@ function update(dt) {
 }
 
 // 開発用: 自動テストからすぐ撃墜させる
+window.__debugPx = () => S.px;
 window.__debugKill = () => { S.lives = 1; S.invuln = 0; onHit(999); };
 // 開発用: 自動テストから状態を読む
 window.__debugState = () => ({

@@ -235,7 +235,7 @@ export class World {
       while (this.spawnAcc > SPAWN_SPACING) {
         this.spawnAcc -= SPAWN_SPACING;
         const z = SPAWN_Z + this.spawnAcc;
-        this.spawnOne(rand(-34, 34), z);
+        this.spawnOne(camPos.x + rand(-38, 38), z); // プレイヤーのまわりに出す (端へ行っても障害物がある)
         // ときどきプレイヤーの進路上にも置いて、避ける必要を作る
         if (Math.random() < 0.25) this.spawnOne(camPos.x + rand(-4, 4), z - rand(0, 5));
       }
