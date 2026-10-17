@@ -116,7 +116,7 @@ export const COLOSSUS_KINDS = {
       for (const arm of e.arms) arm.rotation.z = Math.sign(arm.position.x) * e.raise * 2.4;
       e.magM.userData.base.setHex(0x300808).lerp(new THREE.Color(0xff2a10), e.raise);
       if (e.throwT <= 0 && e.held.length) {
-        for (const d of e.held) if (!d.dead) launch(d, ctx);
+        for (const d of e.held) if (!d.dead) launchDebris(d, ctx);
         e.held = [];
         e.throwT = rand(4, 5.5) / (1 + (c.level - 1) * 0.06);
       }
@@ -169,7 +169,7 @@ export const COLOSSUS_KINDS = {
   },
 };
 
-function makeDebris(c, body, i, n) {
+export function makeDebris(c, body, i, n) {
   const pillar = i % 3 === 1; // 3 つに 1 つは壊せない柱
   const m = pillar ? mat(0x9a8a7a, 0x000000) : mat(0x6a5a4a, 0x000000);
   const mesh = new THREE.Mesh(pillar ? GEO.pillar : GEO.rock, m);
@@ -186,7 +186,7 @@ function makeDebris(c, body, i, n) {
   return d;
 }
 
-function launch(d, ctx) {
+export function launchDebris(d, ctx) {
   // 半分は正面、残りは左右に少しずらした所を狙う (よける楽しさ)
   const off = Math.random() < 0.5 ? 0 : rand(3, 6) * (Math.random() < 0.5 ? -1 : 1);
   const target = _a.copy(ctx.player).add(new THREE.Vector3(ctx.side ? 0 : off, ctx.side ? off * 0.6 : 0, 0));
