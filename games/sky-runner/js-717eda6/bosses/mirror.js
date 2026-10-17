@@ -21,24 +21,28 @@ function mat(color, emissive, extra = {}) {
 }
 
 const TIERS = {
-  1: { mirrors: 6, R: 14, speed: 0.45, size: 4.6, move: 0, fan: 5 },
-  2: { mirrors: 8, R: 15, speed: 0.6, size: 4.3, move: 1, fan: 5 },
-  3: { mirrors: 8, R: 15, speed: 0.75, size: 4.3, move: 1, fan: 7, reverse: true, spiral: true },
+  // side: 横スクロールのとき (輪を画面の面に立てるので、枚数を減らし小さくする)
+  1: { mirrors: 6, R: 14, speed: 0.45, size: 4.6, move: 0, fan: 5, side: { mirrors: 4, R: 8, k: 0.6 } },
+  2: { mirrors: 8, R: 15, speed: 0.6, size: 4.3, move: 1, fan: 5, side: { mirrors: 5, R: 8, k: 0.6 } },
+  3: { mirrors: 8, R: 15, speed: 0.75, size: 4.3, move: 1, fan: 7, reverse: true, spiral: true, side: { mirrors: 5, R: 8, k: 0.6 } },
 };
 
 // ボスを出す (combat.spawnBoss から呼ぶ)。def: { type: 'mirror', hp, tier }
 export function spawnMirror(c, def) {
-  const tier = TIERS[def.tier || 1];
+  const base = TIERS[def.tier || 1];
+  const sd = c.sideMode ? base.side : null;
+  const tier = sd ? { ...base, mirrors: sd.mirrors, R: sd.R, size: base.size * sd.k } : base;
+  const coreK = sd ? sd.k : 1;
   const hp = def.hp || 160 + c.level * 30;
   const coreMat = mat(0xbff8ff, 0x40c8ff);
   const shellMat = mat(0x9fe8ff, 0x1a5a80, { transparent: true, opacity: 0.45, forceSinglePass: true });
   const g = new THREE.Group();
   g.add(new THREE.Mesh(GEO.core, coreMat), new THREE.Mesh(GEO.shell, shellMat));
   const core = {
-    kind: 'mcore', mesh: g, mats: [coreMat, shellMat], r: 5.6, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 3,
+    kind: 'mcore', mesh: g, mats: [coreMat, shellMat], r: 5.6 * coreK, hp, noAssist: true, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 3,
     tier, cy: THREE.MathUtils.clamp((c.lastPlayer?.y ?? 6) + 5, 8, 13), cx: c.lastPlayer?.x ?? 0, z: SPAWN_Z, a: 0, dir: 1, mirrors: [], shotA: 0, reflectT: 0,
   };
-  g.scale.setScalar(5.2);
+  g.scale.setScalar(5.2 * coreK);
   g.position.set(core.cx, core.cy, SPAWN_Z);
   // 撃破・逃げる判定と体力の表示は bossGroup で (escape: Infinity = 倒すまで)
   const grp = { type: 'mirror', t: 0, escape: Infinity, total: 1, kills: 0, leaving: false, bonus: 10000, ratio: () => Math.max(0, core.hp / core.maxHp) };
@@ -55,7 +59,7 @@ export function spawnMirror(c, def) {
     mg.add(plate, rim);
     mg.scale.setScalar(tier.size);
     const m = { kind: 'mirror', mesh: mg, mats: [glass, rimM], r: tier.size * 0.95, hp: Infinity, score: 0, t: 0, flash: 0, fireT: Infinity,
-      core, slot: (i / tier.mirrors) * Math.PI * 2, noLock: true, reflectT: 0 };
+      core, slot: (i / tier.mirrors) * Math.PI * 2, noLock: true, reflectT: 0, dmg: 15 };
     mg.position.copy(g.position);
     c.addEnemy(m, 0);
     m.shadow.visible = false;
@@ -115,15 +119,21 @@ export const MIRROR_KINDS = {
   },
 
   mirror: {
-    // 弾を撃ち返す (combat.js の弾の当たりで、このフラグを見る)
-    reflect: true,
+    // 弾を撃ち返す (combat.js の弾の当たりで、このフラグを見る)。sideAbs: 横スクロールで z を縮めない
+    reflect: true, sideAbs: true,
     update(c, e, dt, scroll, ctx, p) {
       const core = e.core;
       if (core.dead) { e.dead = true; return; }
       const R = core.tier.R;
       const a = core.a + e.slot;
-      // 核のまわりの水平な輪 (少し傾ける)。前 (+z) を通るときに核を隠す
       const cp = core.mesh.position;
+      if (ctx.side) {
+        // 横スクロール: 輪を画面の面 (y-z) に立てる。鏡は外向き
+        p.set(cp.x, cp.y + Math.sin(a) * R, cp.z + Math.cos(a) * R);
+        e.mesh.lookAt(cp.x, cp.y + Math.sin(a) * R * 2, cp.z + Math.cos(a) * R * 2);
+        return;
+      }
+      // 核のまわりの水平な輪 (少し傾ける)。前 (+z) を通るときに核を隠す
       p.set(cp.x + Math.sin(a) * R, cp.y + Math.sin(a * 2) * 1.2 + Math.cos(a) * 1.5, cp.z + Math.cos(a) * R);
       // 鏡の面は外向き (輪の外側を向く)
       e.mesh.lookAt(cp.x + Math.sin(a) * R * 2, p.y, cp.z + Math.cos(a) * R * 2);

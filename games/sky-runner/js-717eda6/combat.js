@@ -1,9 +1,9 @@
 // 戦闘: 敵、敵弾、自機の機関砲、ロックオン、追尾ミサイル、爆発と煙
 import * as THREE from 'three';
 import { EXTRA } from './enemies.js';
-import { MIRROR_KINDS, spawnMirror } from './bosses/mirror.js';
+import { BOSSES } from './bosses/index.js';
 
-Object.assign(EXTRA, MIRROR_KINDS); // 新しいボスの部品も、追加の敵と同じ形で動かす
+for (const b of Object.values(BOSSES)) Object.assign(EXTRA, b.kinds); // 新しいボスの部品も、追加の敵と同じ形で動かす
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { sfx } from './audio.js';
@@ -215,6 +215,8 @@ const GEO = {
 const MAT = {
   shot: new THREE.MeshBasicMaterial({ color: 0x9ffcff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
   bullet: new THREE.MeshBasicMaterial({ color: 0xffd040 }),
+  glint: new THREE.MeshBasicMaterial({ color: 0xffffff }), // 鏡が撃ち返す光 (撃ち落とせない)
+  glintHalo: new THREE.MeshBasicMaterial({ color: 0x60e8ff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false }),
   ring: new THREE.MeshBasicMaterial({ color: 0xd060ff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }),
   shell: new THREE.MeshBasicMaterial({ color: 0xff8030 }),
   fire: new THREE.MeshBasicMaterial({ color: 0xff6010, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }),
@@ -894,7 +896,7 @@ export class Combat {
     this.bossDefeated = false;
     this.bossEscaped = false;
     if (def.type === 'squad' || def.type === 'swarm') return this.spawnBossGroup(def);
-    if (def.type === 'mirror') return spawnMirror(this, def); // ミラーコア (src/bosses/mirror.js)
+    if (BOSSES[def.type]) return BOSSES[def.type].spawn(this, def); // 新しいボス (src/bosses/)
     const lv = this.level;
     const twin = def.type === 'twin';
     const hp = def.hp || Math.round((300 + lv * 100) * (twin ? 1.4 : 1));
@@ -984,7 +986,7 @@ export class Combat {
     }
     if (alive.length === 0 && g.t > 1) {
       this.bossGroup = null;
-      if (g.kills >= g.total) {
+      if (g.kills >= g.total || g.endure) { // endure: 耐えきれば撃破扱い (壊せない母艦)
         this.bossDefeated = true;
         this.lastBossBonus = Math.round((g.bonus ?? 5000) * this.level * this.mult);
         this.score += this.lastBossBonus;
@@ -1190,6 +1192,10 @@ export class Combat {
       m = new THREE.Mesh(GEO.ring, MAT.ring);
       speed = 22;
       r = 0.9;
+    } else if (type === 'glint') {
+      m = new THREE.Mesh(GEO.bullet, MAT.glint);
+      m.add(new THREE.Mesh(GEO.bulletHalo, MAT.glintHalo));
+      speed = 38;
     } else if (type === 'shell') {
       m = new THREE.Mesh(GEO.shell, MAT.shell);
       m.add(new THREE.Mesh(GEO.bulletHalo, MAT.bulletHalo));
@@ -1386,7 +1392,7 @@ export class Combat {
         EXTRA[e.kind].update(this, e, dt, scroll, ctx, p);
       }
       if (ctx.planeX !== undefined && ctx.planeX !== null) p.x = ctx.planeX; // 横スクロール: 同じ平面にそろえる
-      if (ctx.side && e.kind !== 'boss') {
+      if (ctx.side && e.kind !== 'boss' && !EXTRA[e.kind]?.sideAbs) { // 毎フレーム位置を決め直す部品は縮めない
         p.z = z0 + (p.z - z0) * SIDE_Z_SCALE;
         if (typeof e.z === 'number') e.z = p.z;
       }
@@ -1482,7 +1488,7 @@ export class Combat {
       if (b.life <= 0 || b.mesh.position.z > REMOVE_Z) b.dead = true;
       else if (b.mesh.position.distanceTo(ctx.player) < b.r + ctx.playerR) {
         b.dead = true;
-        ctx.onPlayerHit(b.type === 'shell' ? 20 : b.type === 'ring' ? 18 : b.type === 'fire' ? 10 : b.type === 'fireball' ? 15 : 12);
+        ctx.onPlayerHit(b.type === 'shell' ? 20 : b.type === 'ring' ? 18 : b.type === 'fire' || b.type === 'glint' ? 10 : b.type === 'fireball' ? 15 : 12);
       }
     }
 
@@ -1493,7 +1499,8 @@ export class Combat {
       // 銃ごとに { origin: 銃口, aimOrigin / aimDir: 狙う向き }。銃口から照準の 90m 先へ撃つ
       const g = ctx.guns[this.gunSide++ % ctx.guns.length];
       // 照準の近くに敵がいれば、その敵へ向ける (エイムアシスト)
-      const near = this.nearestInCone(g.aimOrigin, g.aimDir, 0.08);
+      let near = this.nearestInCone(g.aimOrigin, g.aimDir, 0.08);
+      if (near?.noAssist) near = null; // ミラーコアの核は、見えている所を狙って撃つ (中心へ曲げると鏡に当たる)
       const aimAt = near ? near.mesh.position.clone() : g.aimOrigin.clone().addScaledVector(g.aimDir, 90);
       this.fireGun(g.origin, aimAt, ctx.gunStyle);
       sfx.shot();
@@ -1510,7 +1517,7 @@ export class Combat {
       }
       if (s.life <= 0) { s.dead = true; continue; }
       for (const b of this.bullets) {
-        if (!b.dead && b.type !== 'fire' && segHit(s.prev, s.pos, b.mesh.position, b.r + 0.3)) { // 炎と光の帯は撃ち落とせない
+        if (!b.dead && b.type !== 'fire' && b.type !== 'glint' && segHit(s.prev, s.pos, b.mesh.position, b.r + 0.3)) { // 炎・光の帯・鏡の光は撃ち落とせない
           b.dead = s.dead = true;
           this.score += 10;
           this.explode(b.mesh.position);
@@ -1527,7 +1534,7 @@ export class Combat {
             const host = e.core || e;
             if (host.reflectT <= 0) {
               host.reflectT = 0.6;
-              this.fireBullet(s.pos.clone(), ctx.player);
+              this.fireBullet(s.pos.clone(), ctx.player, 0, 'glint');
               sfx.ricochet();
             }
             break;
@@ -1611,7 +1618,13 @@ export class Combat {
       m.mesh.position.copy(m.pos);
       m.mesh.lookAt(_c.copy(m.pos).add(m.vel));
       m.mesh.rotateY(Math.PI); // モデルは -Z が先端なので向きを合わせる
-      if (m.target && !m.target.dead && m.pos.distanceTo(m.target.mesh.position) < m.target.r + 1) {
+      // ミサイルも鏡に当たると砕ける (ダメージなし)
+      const mirror = this.enemies.find((e) => !e.dead && EXTRA[e.kind]?.reflect && m.pos.distanceTo(e.mesh.position) < e.r);
+      if (mirror) {
+        m.dead = true;
+        sfx.ricochet();
+        this.explode(m.pos);
+      } else if (m.target && !m.target.dead && m.pos.distanceTo(m.target.mesh.position) < m.target.r + 1) {
         m.dead = true;
         if (this.pillShielded(m.target)) sfx.ricochet();
         else this.damage(m.target, 4);
