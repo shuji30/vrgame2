@@ -16,7 +16,7 @@
 //   ceiling  天井がある面
 //   palette  地面の 2 色 (a, b)、霧と地平線 (fog)、空の上 (sky)、遠景の山 (mount)、柱の帯 (col)、茂みや木の葉 (bush)
 //   bgm      通常の曲のキー (半音) とテンポ
-//   boss     { type: 'serpent' | 'twin' | 'squad' | 'swarm' | 'mirror' (ミラーコア。tier 1〜3) | 'geodering' (晶洞の輪。tier 1〜2), hp, escape (秒。この時間で逃げる。0 = 倒すまで), diff (ボスラッシュで使う強さ) }
+//   boss     { type: 'serpent' | 'twin' | 'squad' | 'swarm' | 'mirror' (ミラーコア。tier 1〜3) | 'geodering' (晶洞の輪。tier 1〜2) | 'mine' (浮遊鉱山。escape 秒耐えれば撃破) | 'colossus' (磁鉄の巨像), hp, escape (秒。この時間で逃げる。0 = 倒すまで), diff (ボスラッシュで使う強さ) }
 //   rush     ボスラッシュの順番 (18 面)
 
 export const STAGES = [
@@ -142,7 +142,7 @@ export const STAGES = [
     obstacles: { column: 2, ring: 1.5, monolith: 1, lane: 0.33 },
     palette: { a: 0x7a8298, b: 0x202838, fog: 0x505870, sky: 0x101828, mount: 0x283040, col: ['#e0e4ee', '#283040'], bush: 0x3a4a5a },
     bgm: { key: 6, tempo: 168, song: 'jazz' },
-    boss: { type: 'squad', hp: 0, escape: 34 },
+    boss: { type: 'mine', escape: 35 },
   },
   {
     name: 'BONE DESERT', kind: 'normal', length: 60, speed: 52, diff: 8, density: 1.5,
@@ -150,7 +150,7 @@ export const STAGES = [
     obstacles: { crystal: 1.5, column: 1.5, arch: 1, rock: 1, monolith: 1, lane: 0.36 },
     palette: { a: 0xebe3d3, b: 0x404040, fog: 0xc8c0b0, sky: 0x282018, mount: 0x4a4038, col: ['#ffffff', '#202020'], bush: 0x5a5a4a },
     bgm: { key: 7, tempo: 170, song: 'rock' },
-    boss: { type: 'twin', hp: 1000, escape: 0 },
+    boss: { type: 'colossus', hp: 340, escape: 0 },
   },
   {
     name: 'THE VOID', kind: 'rush', length: 4, speed: 46, diff: 8, density: 0,

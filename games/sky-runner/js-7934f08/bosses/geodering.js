@@ -14,7 +14,7 @@ const GEO = {
 
 const TIERS = {
   1: { open: 1.6, closed: [2.6, 3.8], R: [13, 7.5], speed: 0.5 },
-  2: { open: 1.0, closed: [2.2, 3.2], R: [14, 8], speed: 0.65, alternate: true },
+  2: { open: 1.3, closed: [2.4, 2.4], R: [14, 8], speed: 0.65, alternate: true }, // 交互に開くよう、閉じている時間は一定
 };
 
 export function spawnGeodeRing(c, def) {
@@ -41,7 +41,9 @@ export function spawnGeodeRing(c, def) {
     g.scale.setScalar(side ? 2.2 : 3);
     const e = {
       kind: 'geode', mesh: g, mats: [rock, gemM], r: side ? 2.4 : 3.2, hp: 3 + Math.floor(c.level / 3), score: 600, t: 0, flash: 0, fireT: Infinity,
-      center, tier, ring, slot, lid, gemM, open: 0, phase: 'closed', timer: rand(...tier.closed) * (tier.alternate ? 1 : 1) + (tier.alternate && ring ? tier.open + 0.4 : 0) + slot * 0.35,
+      center, tier, ring, slot, lid, gemM, open: 0, phase: 'closed',
+      // 交互に開く tier では、2 つ目の輪を半周期ずらす
+      timer: (tier.alternate ? 1 + ring * (tier.open + tier.closed[0]) / 2 : rand(...tier.closed)) + slot * 0.25,
       bossGroup: grp,
     };
     g.position.set(center.x, center.y, SPAWN_Z);
@@ -58,15 +60,17 @@ export const GEODERING_KINDS = {
     shielded: (e) => e.open < 0.6, // 殻が閉じている間は跳ね返す
     update(c, e, dt, scroll, ctx, p) {
       const C = e.center, T = e.tier;
-      // 輪の中心: 輪の最初の 1 個だけが動かす (ほかは同じ中心を使う)
-      if (e.ring === 0 && e.slot === 0) {
+      // 輪の中心: 1 フレームに 1 回だけ、最初に来た 1 個が動かす (どれを先に倒しても輪は回る)
+      if (C.lastT !== c.time) {
+        C.lastT = c.time;
+        if (e.bossGroup.leaving) C.leaveT = (C.leaveT || 0) + dt;
         const hz = c.holdZ(-62);
         C.z = Math.min(hz, C.z + (scroll * 0.4 + 30) * dt);
         C.a += dt * T.speed;
         C.x += ((ctx.player.x ?? 0) - C.x) * Math.min(1, dt * 0.3);
         if (e.bossGroup.leaving) C.y += 12 * dt; // 時間切れ: 上へ逃げていく
       }
-      if (e.bossGroup.leaving && C.y > 60) { e.dead = true; return; }
+      if (e.bossGroup.leaving && (C.y > 60 || C.leaveT > 8)) { e.dead = true; return; } // 逃げ始めて 8 秒で必ず消える
       // 2 つの輪は逆向きに回る
       const R = ctx.side ? [9, 5][e.ring] : T.R[e.ring];
       const a = (e.ring ? -C.a : C.a) + (e.slot / 4) * Math.PI * 2 + (e.ring ? Math.PI / 4 : 0);
@@ -77,13 +81,15 @@ export const GEODERING_KINDS = {
       e.timer -= dt;
       if (e.timer <= 0) {
         if (e.phase === 'closed') { e.phase = 'open'; e.timer = T.open; e.fireT = 0.35; }
-        else { e.phase = 'closed'; e.timer = rand(...T.closed) + (T.alternate ? T.open : 0); e.fireT = Infinity; }
+        else { e.phase = 'closed'; e.timer = rand(...T.closed); e.fireT = Infinity; }
       }
       const want = e.phase === 'open' && !e.bossGroup.leaving ? 1 : 0;
       e.open += THREE.MathUtils.clamp(want - e.open, -dt * 5, dt * 6);
-      e.lid.rotation.x = -1.2 * e.open;
-      // 倒せるときは中の結晶が明るい水色に光る (閉じている間は暗い)
-      e.gemM.userData.base.setHex(e.open > 0.6 ? 0x60f0ff : 0x103040);
+      // 開く 0.45 秒前の予告: 殻が小刻みに震えて、すき間から光が漏れる
+      const warn = e.phase === 'closed' && e.timer < 0.45 && !e.bossGroup.leaving;
+      e.lid.rotation.x = -1.2 * e.open - (warn ? 0.12 + Math.sin(e.t * 50) * 0.06 : 0);
+      // 倒せるときは中の結晶が明るい水色に光る (閉じている間は暗い、予告の間は少し光る)
+      e.gemM.userData.base.setHex(e.open > 0.6 ? 0x60f0ff : warn ? 0x2a8aa8 : 0x103040);
       e.mesh.lookAt(ctx.player.x, ctx.player.y, ctx.player.z + 40); // 開いた口をこちらへ向ける
     },
     fire(c, e, ctx, p) {

@@ -986,7 +986,7 @@ export class Combat {
     }
     if (alive.length === 0 && g.t > 1) {
       this.bossGroup = null;
-      if (g.kills >= g.total) {
+      if (g.kills >= g.total || g.endure) { // endure: 耐えきれば撃破扱い (壊せない母艦)
         this.bossDefeated = true;
         this.lastBossBonus = Math.round((g.bonus ?? 5000) * this.level * this.mult);
         this.score += this.lastBossBonus;
@@ -1259,7 +1259,7 @@ export class Combat {
     this.explode(e.mesh.position, !!big);
     if (e.kind === 'pill') this.splitPill(e);
     EXTRA[e.kind]?.onDeath?.(this, e);
-    if ((['gunship', 'mech', 'moai'].includes(e.kind) || EXTRA[e.kind]?.big) && Math.random() < 0.35) this.spawnItem(e.mesh.position);
+    if ((['gunship', 'mech', 'moai'].includes(e.kind) || EXTRA[e.kind]?.big) && !e.noItem && Math.random() < 0.35) this.spawnItem(e.mesh.position);
   }
 
   // ---- 毎フレーム
