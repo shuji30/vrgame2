@@ -422,6 +422,9 @@ const BOSS_INFO = {
   mine: ['浮遊鉱山', '壊せない。耐えろ、出撃口を壊せ'],
   colossus: ['磁鉄の巨像', '電極を先に壊せ'],
   sun: ['プリズムの太陽', '最後の戦い'],
+  crown: ['氷晶の冠', '赤い印につららが落ちる。つららを壊せば雨が減る'],
+  worm: ['砂岩の大蛇', '茶色い印から飛び出す。頭だけを狙え'],
+  turbine: ['双子の回転刃', '赤く光った刃が飛んでくる。真ん中の核を撃て'],
 };
 let bossSeen = new Set();
 try { bossSeen = new Set(JSON.parse(localStorage.getItem('skyrunner.bossSeen') || '[]')); } catch (_) { /* 保存なし */ }
@@ -924,7 +927,9 @@ function update(dt) {
     life: Math.max(0, Math.round(S.life)),
     lifeMax: LIFE_MAX,
     blink: S.life < LIFE_MAX * 0.3 && Math.floor(performance.now() / 250) % 2 === 0,
-    stage: `${S.stage}/${STAGE_COUNT} ${stageAt(S.stage).name}`,
+    stageNo: S.stage, stageCount: STAGE_COUNT,
+    // ボスラッシュの間は、何体目かも出す
+    stageName: stageAt(S.stage).kind === 'rush' && ['warning', 'boss'].includes(S.phase) ? `${stageAt(S.stage).name}  BOSS ${S.rushIndex + 1}/${stageAt(S.stage).rush.length}` : stageAt(S.stage).name,
     hi: Math.max(hiScore, combat.score),
     mult: Math.round(combat.mult * 10) / 10,
     boss: combat.bossRatio === null ? null : Math.round(combat.bossRatio * 100) / 100,

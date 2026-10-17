@@ -452,6 +452,7 @@ export class Combat {
   remove(o) {
     this.scene.remove(o.mesh);
     if (o.shadow) this.scene.remove(o.shadow);
+    if (o.marker) this.scene.remove(o.marker); // 地面の予告の印 (氷晶の冠のつららなど)
     if (o.mats) o.mats.forEach((m) => m.dispose());
   }
 
