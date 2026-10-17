@@ -1112,7 +1112,9 @@ export class Combat {
       if (b.type === 'fire') {
         const k = b.age / 2.4;
         b.mesh.scale.setScalar(1.5 + k * 7);
-        b.mats[0].opacity = 0.9 * (1 - k);
+        // カメラのすぐ近くでは薄くする (目の前で画面が真っ白にならないように)
+        const near = THREE.MathUtils.clamp((b.mesh.position.distanceTo(ctx.eye) - 3) / 10, 0.15, 1);
+        b.mats[0].opacity = 0.9 * (1 - k) * near;
         b.r = 1.0 + k * 2.5;
         if ((b.puffT -= dt) <= 0) {
           b.puffT = 0.05;
