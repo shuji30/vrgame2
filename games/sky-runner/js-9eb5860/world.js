@@ -155,6 +155,7 @@ export class World {
     this.spawnAcc = 0;
     this.offset = 0;
     this.mode = 'normal'; // 'bonus' のときは木だけを密に出す
+    this.side = false;    // 横スクロール: 障害物をプレイヤーの平面 (x = 0) と奥の背景に分けて置く
     this.applyTheme(0);
   }
 
@@ -234,10 +235,17 @@ export class World {
     if (spawn) {
       this.spawnAcc += d;
       const bonus = this.mode === 'bonus';
+      const spawnZ = this.side ? -70 : SPAWN_Z; // 横スクロールは画面の右端のすぐ外に出す
       const spacing = bonus ? 5 : SPAWN_SPACING;
       while (this.spawnAcc > spacing) {
         this.spawnAcc -= spacing;
-        const z = SPAWN_Z + this.spawnAcc;
+        const z = spawnZ + this.spawnAcc;
+        if (this.side) {
+          // 横スクロール: カメラは +X 側から見るので、手前 (x > 0) には置かない
+          if (Math.random() < (bonus ? 0.7 : 0.3)) this.spawnOne(0, z, bonus ? 'tree' : undefined);
+          this.spawnOne(-rand(12, 70), z - rand(0, 5), bonus ? 'tree' : undefined);
+          continue;
+        }
         if (bonus) {
           // ボーナスステージ: 木だけを、プレイヤーの進路のまわりに密に並べる
           this.spawnOne(camPos.x + rand(-16, 16), z, 'tree');

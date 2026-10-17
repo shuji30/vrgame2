@@ -83,7 +83,8 @@ export class Avatar {
   recenter() { this.recenterPending = true; }
 
   // kind: 'ship' | 'human'、view: '1st' | '3rd'
-  update(dt, { kind, view, vx, vy, thrust, presenting }) {
+  // sidePos: 横スクロールのときのプレイヤーの位置 (ワールド座標)
+  update(dt, { kind, view, vx, vy, thrust, presenting, sidePos }) {
     this.t += dt;
     this.radius = RADIUS[kind];
 
@@ -97,10 +98,16 @@ export class Avatar {
 
     for (const [k, m] of Object.entries(this.models)) {
       const show = k === kind && !(view === '1st' && (kind === 'human' || this.riding)) && !this.destroyed;
+      m.obj.rotation.order = view === 'side' ? 'YXZ' : 'XYZ';
       m.obj.visible = show;
       if (k !== kind) continue;
 
-      if (view === '1st') {
+      if (view === 'side') {
+        // リグは横を向いているので、ワールド座標をリグの中の座標に直して置き、向きは前 (-Z) に戻す
+        m.obj.position.copy(this.rig.worldToLocal(_v.copy(sidePos)));
+        const pitch = THREE.MathUtils.clamp(vy * 0.03, -0.4, 0.4);
+        m.obj.rotation.set(m.obj.rotation.x + (pitch - m.obj.rotation.x) * Math.min(1, dt * 6), -this.rig.rotation.y, 0);
+      } else if (view === '1st') {
         m.obj.position.copy(this.anchor).sub(m.eye);
         m.obj.rotation.set(0, 0, 0); // コックピットは傾けない (VR 酔い防止)
       } else {
@@ -122,7 +129,8 @@ export class Avatar {
 
     // 当たり判定の中心: 一人称は頭、三人称はモデルの位置
     const m = this.models[kind];
-    if (view === '3rd' && m) m.obj.getWorldPosition(this.hitPoint);
+    if (view === 'side') this.hitPoint.copy(sidePos);
+    else if (view === '3rd' && m) m.obj.getWorldPosition(this.hitPoint);
     else this.camera.getWorldPosition(this.hitPoint);
 
     const h = Math.max(0, this.hitPoint.y);

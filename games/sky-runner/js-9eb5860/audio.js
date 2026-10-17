@@ -686,16 +686,103 @@ function bossStep(s, t) {
   if (i === 0 && (barNo === 0 || barNo === 4)) crash(t);
 }
 
+// ---- ボーナスステージの曲: ポップで楽しい曲 (C メジャー、テンポ 160、C → G → Am → F)
+//   歪ませない明るいシンセのメロディ、裏拍で跳ねるコード、弾むベース、鉄琴のアルペジオ、手拍子
+const BONUS_TEMPO = 160;
+const BONUS_CHORDS = [
+  [36, [0, 4, 7]], [43, [0, 4, 7]], [45, [0, 3, 7]], [41, [0, 4, 7]],
+  [36, [0, 4, 7]], [43, [0, 4, 7]], [45, [0, 3, 7]], [41, [0, 4, 7]],
+];
+// メロディ: 小節ごとに [開始ステップ, ノート, 長さ]
+const BONUS_MEL = [
+  [[0, 72, 2], [2, 76, 2], [4, 79, 4], [8, 81, 2], [10, 79, 2], [12, 76, 4]],
+  [[0, 74, 2], [2, 79, 2], [4, 83, 4], [8, 81, 2], [10, 79, 2], [12, 74, 4]],
+  [[0, 76, 2], [2, 81, 2], [4, 84, 4], [8, 83, 2], [10, 81, 2], [12, 79, 4]],
+  [[0, 77, 2], [2, 81, 2], [4, 79, 2], [6, 77, 2], [8, 76, 4], [12, 74, 2], [14, 72, 2]],
+  [[0, 84, 4], [4, 83, 2], [6, 84, 2], [8, 79, 4], [12, 76, 4]],
+  [[0, 83, 4], [4, 81, 2], [6, 83, 2], [8, 79, 8]],
+  [[0, 81, 2], [2, 83, 2], [4, 84, 2], [6, 86, 2], [8, 88, 4], [12, 84, 4]],
+  [[0, 86, 2], [2, 84, 2], [4, 81, 2], [6, 77, 2], [8, 79, 4], [12, 83, 2], [14, 86, 2]],
+];
+const BONUS_STEPS = BONUS_CHORDS.length * 16;
+
+// 明るいシンセのメロディ (2 つの矩形波を少しずらして重ね、ビブラートをかける)
+function popLead(n, t, dur) {
+  const g = ctx.createGain();
+  sustainEnv(g, t, dur, 0.09);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 4500;
+  g.connect(lp).connect(bgmBus);
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = 6;
+  const lg = ctx.createGain();
+  lg.gain.setValueAtTime(0, t);
+  lg.gain.linearRampToValueAtTime(mtof(n) * 0.01, t + Math.min(dur, 0.4));
+  lfo.connect(lg);
+  for (const [type, det, mul] of [['square', -6, 1], ['square', 7, 1], ['triangle', 0, 2]]) {
+    const o = ctx.createOscillator();
+    o.type = type;
+    o.frequency.value = mtof(n) * mul;
+    o.detune.value = det;
+    lg.connect(o.frequency);
+    o.connect(g);
+    o.start(t);
+    o.stop(t + dur + 0.02);
+  }
+  lfo.start(t);
+  lfo.stop(t + dur + 0.02);
+}
+
+function popStab(notes, t, dur) {
+  for (const n of notes) osc('sawtooth', mtof(n), t, dur, 0.035, bgmBus);
+}
+
+function clap(t) {
+  for (const dt of [0, 0.012, 0.024]) noise(t + dt, 0.06, 0.35, 1500, band.drums, 'bandpass');
+}
+
+function bonusStep(s, t) {
+  ensureBand();
+  const barNo = Math.floor(s / 16), i = s % 16;
+  const spb = 60 / BONUS_TEMPO / 4;
+  let [root, chord] = BONUS_CHORDS[barNo];
+  if (barNo === 7 && i >= 8) root = 43; // 最後の小節の後半は G へ (頭に戻る準備)
+  // ベース: 根音・5度・オクターブを跳ねるように
+  const bassPat = [0, null, 12, null, 7, null, 12, 7, 0, null, 12, null, 7, 12, 7, null];
+  if (bassPat[i] !== null) osc('square', mtof(root - 12 + bassPat[i]), t, spb * 0.9, 0.11, band.bass);
+  // 裏拍で跳ねるコード
+  if (i % 4 === 2) popStab(chord.map((c) => root + 24 + c), t, spb * 0.8);
+  // メロディ
+  for (const [st, n, len] of BONUS_MEL[barNo]) if (st === i) popLead(n, t, spb * len * 0.95);
+  // 鉄琴のアルペジオ (キラキラ)
+  if (i % 2 === 1) {
+    const arp = [0, 4, 7, 12, 7, 4, 12, 16];
+    osc('sine', mtof(root + 48 + chord[0] + arp[(i >> 1) % arp.length] - (chord[1] === 3 && arp[(i >> 1) % arp.length] === 4 ? 1 : 0)), t, 0.3, 0.05, bgmBus);
+  }
+  // ドラム: バスドラ、手拍子 (2・4 拍目)、16 分のハイハット
+  if (i === 0 || i === 8 || (barNo % 2 === 1 && i === 10)) kick(t);
+  if (i === 4 || i === 12) clap(t);
+  hat(t, i % 4 === 2);
+  if (barNo === 7 && i >= 12) snare(t, 0.4 + (i - 12) * 0.15);
+  if (i === 0 && barNo % 4 === 0) crash(t);
+}
+
 let song = 'rock';
 
 function schedule() {
-  const boss = song === 'boss';
-  const spb = 60 / (boss ? BOSS_TEMPO : tempo) / 4;
+  const songs = {
+    rock: [playStep, tempo, STEPS],
+    boss: [bossStep, BOSS_TEMPO, BOSS_STEPS],
+    bonus: [bonusStep, BONUS_TEMPO, BONUS_STEPS],
+  };
+  const [play, bpm, steps] = songs[song];
+  const spb = 60 / bpm / 4;
   while (nextTime < ctx.currentTime + 0.12) {
     // 1ステップの演奏でエラーが出ても、BGM 全体が止まらないように次へ進める
-    try { (boss ? bossStep : playStep)(step, nextTime); } catch (e) { console.error(e); }
+    try { play(step, nextTime); } catch (e) { console.error(e); }
     nextTime += spb;
-    step = (step + 1) % (boss ? BOSS_STEPS : STEPS);
+    step = (step + 1) % steps;
   }
 }
 
@@ -716,9 +803,9 @@ export function setBGMEnabled(on) {
   if (!on) stopBGM();
 }
 
-// boss = true でボス戦の曲に切り替える (曲の頭から)
-export function setBGMMode(boss) {
-  const next = boss ? 'boss' : 'rock';
+// 曲を切り替える (曲の頭から)。mode: 'rock' (通常) | 'boss' | 'bonus'。true / false はボス戦 / 通常
+export function setBGMMode(mode) {
+  const next = mode === true ? 'boss' : mode === false ? 'rock' : mode;
   if (next === song) return;
   song = next;
   step = 0;

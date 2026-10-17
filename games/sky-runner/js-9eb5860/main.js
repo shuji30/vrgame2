@@ -20,6 +20,11 @@ const SPEED = {
   accel: 0.6,              // 倍率の変化の上限 (/s)。急な加減速は酔いやすいので抑える
   ret: 0.25,               // 自動で 1.0 倍に戻る速さ (/s)
 };
+// 横スクロール: カメラ (リグ) を +X 側の空中に置いて -X 向きにし、プレイヤーは x = 0 の平面を飛ぶ。
+// 画面の右 = 前 (-Z)。プレイヤーは画面の左寄り (z = +12) から始まる
+const SIDE_CAM = new THREE.Vector3(26, 8.5, -8);
+const SIDE_Z_MIN = -24, SIDE_Z_MAX = 10, SIDE_Z_START = 6; // 画面に収まる範囲
+const SIDE_SCROLL = 0.3; // 横スクロールでは地面の流れを遅くする (映る範囲が狭いため)
 const READY_TIME = 2.5;    // 開始時に 0 から基準速度までゆっくり加速する時間 (s)
 const STAGE_LEN = Number(new URLSearchParams(location.search).get('stageLen')) || 60; // ボスが出るまでの時間 (s)。開発用に ?stageLen=10 で短くできる
 const LIVES = 3;
@@ -35,10 +40,10 @@ let hiScore = 0;
 try { hiScore = Number(localStorage.getItem('skyrunner.hi')) || 0; } catch (_) { /* 保存なし */ }
 
 // ---- 設定 (localStorage に保存)
-const settings = { scale: 1.0, autoReturn: true, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st' };
+const settings = { scale: 1.0, autoReturn: true, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('skyrunner.settings') || '{}')); } catch (_) { /* 保存なし */ }
 // 開発用: ?player=ship|human&view=1st|3rd で上書きする
-for (const key of ['player', 'view']) {
+for (const key of ['player', 'view', 'mode']) {
   const v = new URLSearchParams(location.search).get(key);
   if (v) settings[key] = v;
 }
@@ -132,6 +137,7 @@ const S = {
   invuln: 0,
   msg: '', sub: '', msgT: 0,
   px: 0, py: 1, vx: 0, vy: 0,
+  pz: SIDE_Z_START, vz: 0, // 横スクロールでの画面の左右 (z)
   floorOffset: 0,       // 参照空間が 'local' (床の高さが分からない) のときの補正
   refSpace: '-',
   fps: 60,
@@ -148,9 +154,10 @@ const overlay = document.getElementById('overlay');
 function startPlay() {
   initAudio();
   Object.assign(S, {
-    mode: 'play', paused: false, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0,
+    mode: 'play', paused: false, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0, pz: SIDE_Z_START, vz: 0,
     stage: 1, phase: 'normal', phaseT: 0, stageT: 0, baseSpeed: SPEED.base, lives: LIVES, life: LIFE_MAX, lowLifeT: 0, nextExtend: EXTEND_EVERY, overT: 0,
   });
+  if (isSide()) S.py = 8; // 横スクロールは画面の中ほどの高さから
   setBGMMode(false);
   world.clear();
   world.applyTheme(0);
@@ -223,7 +230,10 @@ const clamp = THREE.MathUtils.clamp;
 const approach = (v, target, step) => (v < target ? Math.min(target, v + step) : Math.max(target, v - step));
 const ease = (t) => t * t * (3 - 2 * t);
 
+const isSide = () => settings.mode === 'side';
+
 function movePlayer(dt, a) {
+  if (isSide()) return moveSide(dt, a);
   const ox = S.px, oy = S.py;
   if (a.abs && !renderer.xr.isPresenting) {
     // マウス: 画面上の位置へ機体が寄っていく (原作のような操作感)
@@ -320,11 +330,13 @@ function startBonus() {
   world.mode = 'bonus';
   ride.start();
   avatar.riding = true;
+  setBGMMode('bonus');
   showMsg('BONUS STAGE', '龍に乗って木をなぎ倒せ!', 3);
   say('Bonus stage');
 }
 
 function endBonus() {
+  if (ride.active) setBGMMode('rock');
   ride.stop();
   avatar.riding = false;
   world.mode = 'normal';
@@ -367,6 +379,27 @@ function gameOver() {
 }
 
 // damage: 減らすライフの量
+function moveSide(dt, a) {
+  const oz = S.pz, oy = S.py;
+  if (a.abs && !renderer.xr.isPresenting) {
+    const k = 1 - Math.exp(-dt * 5);
+    S.pz += ((SIDE_Z_MIN + SIDE_Z_MAX) / 2 - a.abs.x * (SIDE_Z_MAX - SIDE_Z_MIN) / 2 - S.pz) * k;
+    S.py += ((a.abs.y * 0.5 + 0.5) * Y_MAX - S.py) * k;
+  } else {
+    const k = 1 - Math.exp(-dt * 8);
+    const my = settings.invertY ? -a.move.y : a.move.y;
+    S.vz += (-a.move.x * MOVE_X - S.vz) * k; // 右へ倒すと前 (-Z) へ
+    S.vy += (my * MOVE_Y - S.vy) * k;
+    S.pz += S.vz * dt;
+    S.py += S.vy * dt;
+  }
+  S.pz = clamp(S.pz, SIDE_Z_MIN, SIDE_Z_MAX);
+  S.py = clamp(S.py, 0, Y_MAX);
+  S.vz = (S.pz - oz) / dt;
+  S.vy = (S.py - oy) / dt;
+  S.vx = 0;
+}
+
 function onHit(damage) {
   if (S.invuln > 0 || S.mode !== 'play' || S.phase === 'bonus' || S.phase === 'bonusEnd') return;
   S.hits++;
@@ -427,6 +460,7 @@ const RETRY_HINT = {
 };
 
 // ---- 照準と射撃
+const sidePos = new THREE.Vector3(); // 横スクロールでのプレイヤーの位置
 const eyeW = new THREE.Vector3();
 const aimOrigin = new THREE.Vector3();
 const aimDir = new THREE.Vector3();
@@ -445,11 +479,15 @@ function controllerRay(c, out) {
 function updateCombat(dt, speed, a) {
   const presenting = renderer.xr.isPresenting;
   const kind = settings.player, view = settings.view;
-  const humanVR = presenting && kind === 'human' && view === '1st';
+  const side = isSide();
+  const humanVR = presenting && kind === 'human' && view === '1st' && !side;
   camera.getWorldPosition(eyeW);
 
-  // ロックオンの向き: VR は視線 (人間の一人称は右手のコントローラー)、デスクトップは正面
-  if (presenting) {
+  // ロックオンの向き: 横スクロールは前 (画面の右)、VR は視線 (人間の一人称は右手のコントローラー)、デスクトップは正面
+  if (side) {
+    aimOrigin.copy(P);
+    aimDir.set(0, 0, -1);
+  } else if (presenting) {
     aimOrigin.copy(eyeW);
     camera.getWorldDirection(aimDir);
     if (humanVR) {
@@ -481,7 +519,7 @@ function updateCombat(dt, speed, a) {
   const halfHeight = (layer?.framebufferHeight ?? renderer.getDrawingBufferSize(_v2).y) / 2;
 
   combat.update({
-    dt, scroll: speed, world,
+    dt, scroll: side ? speed * SIDE_SCROLL : speed, world, side, planeX: side ? 0 : null,
     spawn: S.mode === 'play' && S.ready >= 1 && S.phase === 'normal',
     active: S.mode === 'play' && S.ready >= 1 && !['clear', 'bonus', 'bonusEnd'].includes(S.phase),
     player: P, playerR: avatar.radius, eye: eyeW,
@@ -527,7 +565,9 @@ function update(dt) {
       speed = 0;
       running = false;
     } else {
-      if (a.view) {
+      if (a.view && isSide()) {
+        showMsg('SIDE VIEW', '横スクロールでは視点は固定です', 1.2);
+      } else if (a.view) {
         settings.view = settings.view === '1st' ? '3rd' : '1st';
         saveSettings();
         showMsg(settings.view === '1st' ? 'VIEW: 1ST PERSON' : 'VIEW: 3RD PERSON', '', 1.2);
@@ -552,16 +592,25 @@ function update(dt) {
     }
   }
 
-  rig.position.set(S.px, S.py + S.floorOffset, 0);
+  const side = isSide();
+  if (side) {
+    rig.position.set(SIDE_CAM.x, SIDE_CAM.y + S.floorOffset, SIDE_CAM.z);
+    rig.rotation.y = Math.PI / 2; // -X 向き (プレイヤーの平面を真横から見る)
+  } else {
+    rig.position.set(S.px, S.py + S.floorOffset, 0);
+    rig.rotation.y = 0;
+  }
+  sidePos.set(0, S.py + 1.6, S.pz);
   const play = S.mode === 'play';
   const inGame = play || S.mode === 'over';
   avatar.update(dt, {
-    kind: settings.player, view: inGame ? settings.view : '3rd',
-    vx: S.vx, vy: S.vy, thrust: inGame ? speed / SPEED.base : 0.3, presenting: renderer.xr.isPresenting,
+    kind: settings.player, view: side ? 'side' : inGame ? settings.view : '3rd',
+    vx: S.vx, vy: S.vy, thrust: inGame ? speed / SPEED.base : 0.3, presenting: renderer.xr.isPresenting, sidePos,
   });
   P.copy(avatar.hitPoint);
+  world.side = side;
   // ボス戦 (WARNING から撃破まで) は障害物を出さない
-  world.update(dt, speed, P, running && !(play && (S.phase === 'warning' || S.phase === 'boss')));
+  world.update(dt, side ? speed * SIDE_SCROLL : speed, P, running && !(play && (S.phase === 'warning' || S.phase === 'boss')));
 
   if (play && running) updateRide(dt);
   if (play && running && !ride.active && S.invuln <= 0 && world.hitTest(P, avatar.radius)) onHit(OBSTACLE_DAMAGE);
@@ -586,10 +635,10 @@ function update(dt) {
     // 爆発で画面を揺らす (デスクトップのみ)
     const shake = S.mode === 'over' ? Math.max(0, 1 - S.overT / 1.8) * 0.25 : 0;
     camera.position.set(THREE.MathUtils.randFloatSpread(shake), 1.6 + THREE.MathUtils.randFloatSpread(shake), 0);
-    camera.rotation.z += (-S.vx * 0.012 - camera.rotation.z) * Math.min(1, dt * 6);
+    camera.rotation.z += ((side ? 0 : -S.vx * 0.012) - camera.rotation.z) * Math.min(1, dt * 6);
     // タイトル画面では少し左を向き、自機がメニューに隠れず右寄りに見えるようにする
-    camera.rotation.y += ((S.mode === 'title' && innerWidth > 700 ? 0.3 : 0) - camera.rotation.y) * Math.min(1, dt * 3);
-    const fov = 75 + (S.mode === 'play' ? (speed / SPEED.base - 1) * 14 : 0);
+    camera.rotation.y += ((S.mode === 'title' && innerWidth > 700 && !side ? 0.3 : 0) - camera.rotation.y) * Math.min(1, dt * 3);
+    const fov = (side ? 50 : 75) + (S.mode === 'play' ? (speed / SPEED.base - 1) * (side ? 6 : 14) : 0);
     if (Math.abs(fov - camera.fov) > 0.01) {
       camera.fov += (fov - camera.fov) * Math.min(1, dt * 4);
       camera.updateProjectionMatrix();
@@ -610,7 +659,7 @@ function update(dt) {
     hits: S.hits,
     factor: Math.round(S.factor * 100) / 100,
     kmh: Math.round(speed * 3.6),
-    view: `${settings.player === 'ship' ? 'SHIP' : 'HUMAN'} ${settings.view.toUpperCase()}`,
+    view: `${settings.player === 'ship' ? 'SHIP' : 'HUMAN'} ${isSide() ? 'SIDE' : settings.view.toUpperCase()}`,
     score: combat.score,
     missiles: combat.missileStock,
     missileMax: MISSILE_MAX,
@@ -672,6 +721,16 @@ function setPlayer(kind) {
   playerInputs.forEach((el) => { el.checked = el.value === kind; });
 }
 setPlayer(settings.player === 'human' ? 'human' : 'ship');
+// モードの選択 (3D / 横スクロール)
+const modeInputs = [...document.querySelectorAll('input[name="mode"]')];
+function setMode(mode) {
+  settings.mode = mode;
+  saveSettings();
+  modeInputs.forEach((el) => { el.checked = el.value === mode; });
+  world.clear();
+}
+setMode(settings.mode === 'side' ? 'side' : '3d');
+modeInputs.forEach((el) => el.addEventListener('change', () => setMode(el.value)));
 playerInputs.forEach((el) => el.addEventListener('change', () => setPlayer(el.value)));
 showHiScore();
 selScale.value = String(settings.scale);

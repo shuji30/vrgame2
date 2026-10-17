@@ -6,6 +6,10 @@ import { sfx } from './audio.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
+// 横スクロール: 画面に映るのは奥行き 40m ほどなので、敵は画面の右端のすぐ外に出し、前後の動きを遅くする
+const SIDE_SPAWN_SHIFT = 175; // 遠くに出る敵を、この分だけ手前 (画面の右端の外) へずらす
+const SIDE_Z_SCALE = 0.3;     // 前後の動きの速さの倍率
+const SIDE_BULLET_SCALE = 0.55;
 // 敵の大きさ (Blender のモデルに対する倍率)。近くまで迫ったとき画面いっぱいに見えるよう大きめにする
 const FIGHTER_SCALE = 1.6, GUNSHIP_SCALE = 1.4, MOAI_SCALE = 1.7, GREMLIN_SCALE = 2.6, MECH_SCALE = 1.4, PILL_SCALE = 1.6, BOSS_SCALE = 2.2, PTERO_SCALE = 1.5;
 const REMOVE_Z = 40;
@@ -492,6 +496,7 @@ export class Combat {
         const side = Math.sign(p.x - P.x) || 1;
         e.passX = P.x + side * (e.r + 2.6);
         e.passY = P.y + rand(0.5, 2.5);
+        if (ctx.side) e.passY = Math.max(2, P.y + (Math.random() < 0.5 ? -1 : 1) * (e.r + 3)); // 横スクロールは上下にかすめる
       }
     } else {
       e.z += (scroll * 0.6 + 48) * dt;
@@ -609,7 +614,7 @@ export class Combat {
         // 急降下: 自機のすぐ横をねらって突っ込む
         e.state = 'dive';
         const side = Math.sign(p.x - P.x) || 1;
-        const aim = _a.set(P.x + side * (e.r + 4.5), P.y + 3, P.z);
+        const aim = ctx.side ? _a.set(P.x, P.y + e.r + 5, P.z) : _a.set(P.x + side * (e.r + 4.5), P.y + 3, P.z);
         e.vel.subVectors(aim, p).normalize().multiplyScalar(60);
         sfx.screech();
       }
@@ -677,7 +682,7 @@ export class Combat {
       e.z += (scroll * 0.5 + 46) * dt;
     } else if (G.phase === 'attack') {
       if (leader) G.at += dt;
-      e.z = Math.min(e.z + (scroll * 0.5 + 30) * dt, -20 - e.role * 7);
+      e.z = Math.min(e.z + (scroll * 0.5 + 30) * dt, ctx.side ? -10 - e.role * 6 : -20 - e.role * 7); // 横スクロールは画面の中で止まる
       const local = G.at - e.role * 0.7;
       if (local >= 0 && e.fired === 0) {
         e.fired = 1;
@@ -742,6 +747,7 @@ export class Combat {
     for (const it of this.items) {
       it.t += dt;
       const p = it.mesh.position;
+      if (ctx.planeX !== undefined && ctx.planeX !== null) p.x = ctx.planeX;
       p.z += scroll * dt;
       const d = p.distanceTo(ctx.player);
       if (d < 7) p.lerp(ctx.player, Math.min(1, dt * 4)); // 近づくと吸い寄せられる
@@ -759,6 +765,11 @@ export class Combat {
   }
 
   addEnemy(e, shadowR) {
+    if (this.sideMode && e.mesh.position.z < -100) {
+      e.mesh.position.z += SIDE_SPAWN_SHIFT;
+      if (typeof e.z === 'number') e.z += SIDE_SPAWN_SHIFT;
+      if (e.spine) e.spine.z += SIDE_SPAWN_SHIFT;
+    }
     e.shadow = new THREE.Mesh(GEO.shadow, MAT.shadow);
     e.shadow.scale.setScalar(shadowR);
     this.scene.add(e.mesh, e.shadow);
@@ -854,9 +865,9 @@ export class Combat {
       const target = _d.set(
         P.x * 0.4 + H.side * 11 + 18 * Math.sin(t * 0.62 + H.phase) + 5 * Math.sin(t * 1.9 + H.phase),
         THREE.MathUtils.clamp(P.y + 3 + 6 * Math.sin(t * 1.3 + H.phase) + 2 * Math.sin(t * 2.7 + H.phase), 6, 22),
-        -38 + 8 * Math.sin(t * 0.41 + H.phase),
+        ctx.side ? -20 + 5 * Math.sin(t * 0.41 + H.phase) : -38 + 8 * Math.sin(t * 0.41 + H.phase),
       );
-      if (t < 5) target.z = THREE.MathUtils.lerp(-200, target.z, t / 5); // 遠くから迫ってくる
+      if (t < 5) target.z = THREE.MathUtils.lerp(ctx.side ? -60 : -200, target.z, t / 5); // 遠くから迫ってくる
       // 噛みつき: ときどき目の前まで突っ込んでくる (同時に噛みつくのは 1 つの頭だけ)
       H.lungeT -= dt;
       if (H.lungeT <= 0 && t > 6 && !b.lunging && H.breath <= 0) {
@@ -867,7 +878,7 @@ export class Combat {
       }
       if (H.lunge > 0) {
         H.lunge -= dt;
-        target.set(P.x + (H.side || 1) * 7, P.y + 3, -14); // 巨大なので少し離れた位置で噛みつく
+        target.set(P.x + (H.side || 1) * 7, P.y + 3, ctx.side ? P.z - 9 : -14); // 巨大なので少し離れた位置で噛みつく
         if (H.lunge <= 0) b.lunging = null;
       }
       H.head.spine.lerp(target, 1 - Math.exp(-dt * (H.lunge > 0 ? 3.5 : 2.6)));
@@ -1062,17 +1073,19 @@ export class Combat {
 
   // ---- 毎フレーム
   // ctx: { dt, scroll, spawn (新しい敵を出すか), active (敵に攻撃させるか), player: Vector3 (当たり判定の中心), playerR, eye, world,
+  //        side / planeX (横スクロールのとき、敵をそろえる平面の x),
   //        aimOrigin / aimDir (ロックオンの向き), guns: [{ origin, aimOrigin, aimDir }], firing,
   //        missile (押した瞬間), missileOrigin, showAim, halfHeight, onPlayerHit }
   update(ctx) {
     const { dt, scroll } = ctx;
     this.time += dt;
+    this.sideMode = !!ctx.side;
 
     // 出現
     if (ctx.spawn) {
       this.spawn.wave -= dt;
       if (this.spawn.wave <= 0) {
-        this.spawn.wave = rand(3.5, 5.5) / (1 + (this.level - 1) * 0.15);
+        this.spawn.wave = rand(3.5, 5.5) / (1 + (this.level - 1) * 0.15) * (ctx.side ? 0.7 : 1); // 横スクロールは少し多めに出す
         this.spawnWave(ctx.player.x, ctx.player.y);
       }
     }
@@ -1083,6 +1096,7 @@ export class Combat {
     for (const e of this.enemies) {
       e.t += dt;
       const p = e.mesh.position;
+      const z0 = p.z;
       if (e.kind === 'boss') {
         // updateBoss で動かす
       } else if (e.kind === 'moai') {
@@ -1148,6 +1162,11 @@ export class Combat {
         }
         e.mesh.rotation.z = Math.sin(e.t * 0.7) * 0.15;
       }
+      if (ctx.planeX !== undefined && ctx.planeX !== null) p.x = ctx.planeX; // 横スクロール: 同じ平面にそろえる
+      if (ctx.side && e.kind !== 'boss') {
+        p.z = z0 + (p.z - z0) * SIDE_Z_SCALE;
+        if (typeof e.z === 'number') e.z = p.z;
+      }
       if (p.z > REMOVE_Z) e.dead = true;
       e.shadow.position.set(p.x, 0.05, p.z);
       if (!e.whooshed && e.kind !== 'boss' && p.distanceTo(ctx.eye) < e.r + 9) {
@@ -1195,8 +1214,11 @@ export class Combat {
     }
 
     // 敵弾
+    const flat = ctx.planeX !== undefined && ctx.planeX !== null;
     for (const b of this.bullets) {
-      b.mesh.position.addScaledVector(b.vel, dt);
+      if (flat) b.vel.x = 0;
+      b.mesh.position.addScaledVector(b.vel, dt * (flat ? SIDE_BULLET_SCALE : 1));
+      if (flat) b.mesh.position.x = ctx.planeX;
       b.life -= dt;
       b.age += dt;
       if (b.type === 'fire') {
