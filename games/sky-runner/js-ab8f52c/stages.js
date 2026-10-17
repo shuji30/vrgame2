@@ -16,7 +16,7 @@
 //   ceiling  天井がある面
 //   palette  地面の 2 色 (a, b)、霧と地平線 (fog)、空の上 (sky)、遠景の山 (mount)、柱の帯 (col)、茂みや木の葉 (bush)
 //   bgm      通常の曲のキー (半音) とテンポ
-//   boss     { type: 'serpent' | 'twin' | 'squad' | 'swarm' | 'mirror' (ミラーコア。tier 1〜3) | 'geodering' (晶洞の輪。tier 1〜2) | 'mine' (浮遊鉱山。escape 秒耐えれば撃破) | 'colossus' (磁鉄の巨像) | 'sun' (最終ボス) | 'crown' (氷晶の冠) | 'worm' (砂岩の大蛇) | 'turbine' (双子の回転刃) | 'phantom' (水晶の亡霊) | 'laserwing' (光翼の母船), hp, escape (秒。この時間で逃げる。0 = 倒すまで), diff (ボスラッシュで使う強さ) }
+//   boss     { type: 'serpent' | 'twin' | 'squad' | 'swarm' | 'mirror' (ミラーコア。tier 1〜3) | 'geodering' (晶洞の輪。tier 1〜2) | 'mine' (浮遊鉱山。escape 秒耐えれば撃破) | 'colossus' (磁鉄の巨像) | 'sun' (最終ボス) | 'crown' (氷晶の冠) | 'worm' (砂岩の大蛇) | 'turbine' (双子の回転刃) | 'phantom' (水晶の亡霊) | 'laserwing' (光翼の母船) | 'mantis' (硝子のカマキリ) | 'whale' (溶岩の結晶鯨), hp, escape (秒。この時間で逃げる。0 = 倒すまで), diff (ボスラッシュで使う強さ) }
 //   rush     ボスラッシュの順番 (18 面)
 
 export const STAGES = [
@@ -80,7 +80,7 @@ export const STAGES = [
     obstacles: { column: 1.5, rock: 1.5, arch: 1, lane: 0.3 },
     palette: { a: 0xbfae94, b: 0x6a5a48, fog: 0xd8ccb8, sky: 0x7a6a8a, mount: 0x6a5a5a, col: ['#efe6d8', '#7a5a3a'], bush: 0x6a7a4a },
     bgm: { key: 3, tempo: 160, song: 'reggae' },
-    boss: { type: 'worm', hp: 320, escape: 0 },
+    boss: { type: 'worm', hp: 240, escape: 0 },
   },
   {
     name: 'IRON TUNNEL', kind: 'normal', length: 38, speed: 49, diff: 6, density: 1.2, ceiling: true,
@@ -126,7 +126,7 @@ export const STAGES = [
     obstacles: { column: 2, crystal: 1.5, mushroom: 0.8, lane: 0.33 },
     palette: { a: 0x6a5a8a, b: 0x2a2040, fog: 0x3a2a50, sky: 0x0a0418, mount: 0x2a1a3a, col: ['#c8b8e8', '#3a2058'], bush: 0x5a3a7a },
     bgm: { key: 5, tempo: 166, song: 'metal' },
-    boss: { type: 'mirror', hp: 300, tier: 3, escape: 0 },
+    boss: { type: 'mantis', hp: 380, escape: 0 },
   },
   {
     name: 'CRIMSON WASTE', kind: 'normal', length: 55, speed: 49, diff: 7, density: 1.4,
@@ -134,7 +134,7 @@ export const STAGES = [
     obstacles: { rock: 2, spike: 1.5, column: 1.5, lane: 0.33 },
     palette: { a: 0xd8583a, b: 0x401818, fog: 0x8a5040, sky: 0x300808, mount: 0x501818, col: ['#ffd8c8', '#601010'], bush: 0x6a3a1a },
     bgm: { key: 6, tempo: 166, song: 'grunge' },
-    boss: { type: 'serpent', hp: 700, escape: 0 },
+    boss: { type: 'whale', hp: 300, escape: 0 },
   },
   {
     name: 'STORM DECK', kind: 'normal', length: 50, speed: 50, diff: 7, density: 1.4,

@@ -116,6 +116,9 @@
   .wh-btn, .wh-ops button { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.1); color: #fff; font-size: 12px; }
   .wh-btn.primary { background: linear-gradient(90deg, var(--sun), var(--hot)); color: #1a0b2e; border-color: transparent; font-weight: bold; }
   .wh-btn.ghost, .wh-ops button.ghost { background: transparent; }
+  .wh-dl { display: grid; gap: 4px; margin: 4px 0 8px; }
+  .wh-dl a { text-decoration: none; text-align: center; font-size: 13px; padding: 8px 10px; }
+  .wh-dl small { font-size: 11px; color: rgba(255, 255, 255, 0.7); line-height: 1.5; }
   .wh-btn:hover, .wh-ops button:hover { filter: brightness(1.2); }
   .wh-learn { padding: 10px; border-radius: 10px; border: 2px solid var(--sun); background: rgba(255, 210, 58, 0.1); line-height: 1.5; }
   .wh-learn p { margin: 4px 0; }
@@ -253,6 +256,10 @@
       <summary>ハンコン設定 <small class="wh-summary" data-wheel="summary"></small></summary>
       <div class="wheel">
         <p class="wh-status" data-wheel="status"></p>
+        <div class="wh-dl">
+          <a id="bridgeDl" class="wh-btn primary" href="https://shuji30.github.io/vrgame2/downloads/ffb-bridge.zip" download>⬇ デバイスブリッジをダウンロード (Windows・ZIP)</a>
+          <small>ZIP を展開して <b>start.bat</b> (使うときに起動) か <b>install-autostart.bat</b> (ログオン時に自動で起動) を実行。止めるときは uninstall-autostart.bat。VR の最中もハンコンを読めて、FFB (振動) も出せます</small>
+        </div>
         <p class="note" data-wheel="model"></p>
         <div class="wh-bar">
           <button type="button" class="wh-btn primary" data-wheel="wizard">順番に割り当てる</button>
@@ -346,11 +353,12 @@
     <button class="tbtn fire" data-hold="fire" aria-label="射撃">FIRE</button>
   </div>
 </div>
-<script type="module" src="./js-1dface2/main.js"></script>
+<script type="module" src="./js-ab8f52c/main.js"></script>
 <script>
   // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
   if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {
     document.getElementById('back').hidden = false;
+    document.getElementById('bridgeDl').href = '../../downloads/ffb-bridge.zip'; // 同じサイトからダウンロード
     const v = document.createElement('script');
     v.src = '../../version.js';
     document.body.appendChild(v);

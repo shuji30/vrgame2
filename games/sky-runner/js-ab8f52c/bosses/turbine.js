@@ -122,20 +122,22 @@ export const TURBINE_KINDS = {
           e.state = 'throw';
           e.u = 0;
           e.from.copy(p);
-          // プレイヤーのいた所を通り過ぎて、少し後ろまで飛ぶ
-          e.to.copy(ctx.player).add(_b.subVectors(ctx.player, p).normalize().multiplyScalar(14));
+          // プレイヤーのいた所の 7 m 手前で止まる (うしろへは回り込まない)
+          e.to.copy(ctx.player).add(_b.subVectors(p, ctx.player).normalize().multiplyScalar(7));
         }
       } else if (e.state === 'throw') {
-        e.u += dt / 1.1;
+        e.u += dt / 1.6; // VR で怖すぎないよう、ゆっくり
         p.lerpVectors(e.from, e.to, Math.min(1, e.u));
         if (e.u >= 1) { e.state = 'back'; e.u = 0; e.from.copy(p); }
       } else {
-        // 弧を描いて (上へふくらんで) 戻る
+        // 横へふくらむ弧を描いて戻る (金色に光る。上やうしろは通らない)
         e.u += dt / 1.4;
         const u = Math.min(1, e.u);
         const home = slot(e, ctx.side);
         p.lerpVectors(e.from, home, u);
-        p.y += Math.sin(u * Math.PI) * 8;
+        if (ctx.side) p.z -= Math.sin(u * Math.PI) * 8;
+        else p.x += e.sx * Math.sin(u * Math.PI) * 10;
+        e.mats[0].userData.base.setHex(0xffd040).multiplyScalar(0.5);
         if (u >= 1) e.state = 'hold';
       }
     },
