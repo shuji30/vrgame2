@@ -14,7 +14,7 @@ const RADIUS = { ship: 0.8, human: 0.4 };
 const _v = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const LEG_DOWN = 0.84; // 飛ぶ姿勢で後ろへ流れている脚を、真下へ向ける角度
-const GROUND_Y = 0.68; // 走るときのモデルの原点の高さ (足の裏が地面に着く)
+const _box = new THREE.Box3();
 
 // 人間のモデルの脚と左腕を、股関節・肩を支点にした組にまとめる (地面を走るときに振る)。
 // モデルの部品はばらばらなので、支点の Group に付け替える
@@ -36,6 +36,7 @@ function makeLimbs(obj) {
     L: limb(-0.115, -0.3, 0.02, ['ThighL', 'KneeL', 'ShinL', 'BootL']),
     R: limb(0.115, -0.3, 0.02, ['ThighR', 'KneeR', 'ShinR', 'BootR']),
     arm: limb(-0.28, 0.46, 0, ['UpperArmL', 'ForeArmL', 'HandL']), // 右腕はキャノンを構えているので振らない
+    feet: ['BootL', 'BootR'].map((n) => obj.getObjectByName(n)).filter(Boolean),
   };
 }
 
@@ -169,9 +170,14 @@ export class Avatar {
         m.legs.L.rotation.x = m.run * (LEG_DOWN + sw * 0.7);
         m.legs.R.rotation.x = m.run * (LEG_DOWN - sw * 0.7);
         m.legs.arm.rotation.x = m.run * sw * 0.7;
-        const bob = Math.abs(Math.cos(m.runPhase)) * 0.09;
-        m.obj.position.y += m.run * (GROUND_Y + bob - originY);
         m.obj.rotation.x *= 1 - m.run * 0.85;
+        if (m.run > 0.01 && m.legs.feet.length) {
+          // 低いほうの足の裏 (ブーツの下端) が地面 (y = 0) にちょうど着くように、体の高さを合わせる
+          this.rig.updateMatrixWorld(true); // このフレームで動かしたリグの位置も反映して測る
+          let foot = Infinity;
+          for (const f of m.legs.feet) foot = Math.min(foot, _box.setFromObject(f).min.y);
+          m.obj.position.y -= m.run * foot;
+        }
       }
 
       // よろける: 前のめりになって、少し跳ねる

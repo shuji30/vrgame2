@@ -19,6 +19,8 @@ import { BGM_LIST, SE_LIST, captureAudioStream, initAudio, previewBGM, sfx, setE
 const X_LIMIT = 32;        // 左右の移動範囲 (m)
 const Y_MAX = 20;          // 上昇できる高さ (リグの高さ, m)
 const MOVE_X = 18;         // スティックを倒しきったときの横移動速度 (m/s)
+const WHEEL_X_BOOST = 1.6; // ハンコンは切る角度が小さくなりがちなので、横移動を速くする
+const moveX = (a) => MOVE_X * (a.source === 'wheel' ? WHEEL_X_BOOST : 1);
 const MOVE_Y = 12;
 const SPEED = {
   base: 40,                // 基準速度 (m/s)
@@ -43,6 +45,7 @@ const BONUS_TREE = 500;    // 木 1 本の点数
 const LIFE_MAX = 100;      // ライフ。0 になると残機が 1 減り、満タンに戻る
 const HEAL = 35;           // 回復アイテム 1 個で戻るライフ
 const OBSTACLE_DAMAGE = 20;
+const RING_BONUS = 500; // 浮遊リングをくぐったときの点
 
 let hiScore = 0;
 let progress = 1; // 到達した面 (タイトルの CONTINUE で、そこから始められる)
@@ -368,7 +371,7 @@ function movePlayer(dt, a) {
     // スティック: 速度を滑らかに変える (急に動き出すと VR で酔いやすい)
     const k = 1 - Math.exp(-dt * 8);
     const my = liftInput(a); // 上下反転 (操縦桿のように、前に倒すと下がる)
-    S.vx += (a.move.x * MOVE_X - S.vx) * k;
+    S.vx += (a.move.x * moveX(a) - S.vx) * k;
     if (a.altitude != null) S.vy = altitudeVy(dt, a.altitude); // ハンコンのクラッチ: 高さを位置で決める
     else S.vy += (my * moveY() - S.vy) * k;
     S.px += S.vx * dt;
@@ -537,7 +540,7 @@ function moveSide(dt, a) {
   } else {
     const k = 1 - Math.exp(-dt * 8);
     const my = liftInput(a);
-    S.vz += (-a.move.x * MOVE_X - S.vz) * k; // 右へ倒すと前 (-Z) へ
+    S.vz += (-a.move.x * moveX(a) - S.vz) * k; // 右へ倒すと前 (-Z) へ
     if (a.altitude != null) S.vy = altitudeVy(dt, a.altitude);
     else S.vy += (my * moveY() - S.vy) * k;
     S.pz += S.vz * dt;
@@ -792,8 +795,19 @@ function update(dt) {
   world.update(dt, side ? speed * SIDE_SCROLL : speed, P, running && !(play && (S.phase === 'warning' || S.phase === 'boss')));
 
   if (play && running) updateRide(dt);
+  world.reach = yMax() + 1.6; // 今飛べる高さ (これより低い柱は飛び越えられる高さで出す)
+  if (play && running && !ride.active) {
+    // 浮遊リングの真ん中をくぐったらボーナス
+    const ringO = world.ringPass(P);
+    if (ringO) {
+      combat.score += Math.round(RING_BONUS * combat.mult);
+      showMsg(`RING +${Math.round(RING_BONUS * combat.mult)}`, '', 0.8);
+      sfx.lock();
+      input.rumble(0.2, 40);
+    }
+  }
   if (play && running && !ride.active && S.invuln <= 0) {
-    const o = world.hitTest(P, avatar.radius);
+    const o = world.hitTest(P, avatar.radius * 0.7); // 障害物には少し小さめの当たりで (かすっただけでは当たらない)
     if (o && o.kind === 'bush' && settings.player === 'human') stumble();
     else if (o) onHit(OBSTACLE_DAMAGE);
   }
@@ -885,6 +899,7 @@ window.__audioStream = () => captureAudioStream();
 // 開発用: 自動テストからすぐ撃墜させる
 window.__debugPx = () => S.px;
 window.__debugKill = () => { S.lives = 1; S.invuln = 0; onHit(999); };
+window.__enemies = () => combat.enemies.map((e) => [e.kind, ...e.mesh.position.toArray().map((v) => Math.round(v * 10) / 10)]); // 開発用: 敵の位置
 // 開発用: 自動テストから状態を読む
 window.__debugState = () => ({
   gameMode: settings.mode, bonusCount: S.bonusCount, destroyed: avatar.destroyed, shipVisible: avatar.models.ship?.obj.visible, overT: S.overT, frame: renderer.info.render.frame, mode: S.mode, py: S.py, version: document.getElementById('version').textContent, phase: S.phase, stage: S.stage, lives: S.lives, boss: combat.bossRatio, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,

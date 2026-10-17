@@ -30,8 +30,8 @@ const IGNORE = /pimax|vive|valve index|oculus|meta quest|htc|windows mixed reali
 export function defaultConfig() {
   return {
     bindings: {}, // action → { kind: 'axis'|'button', pad, padIndex, control, cal }
-    // wheelDeg: ドライバーで設定しているハンドルの回転角 (左端〜右端)。lockDeg: 端まで切ったことにする角度 (180° = 左右 90° ずつ)
-    steer: { wheelDeg: 900, lockDeg: 180, deadzone: 0.04, gamma: 1, invert: false },
+    // wheelDeg: ドライバーで設定しているハンドルの回転角 (左端〜右端)。lockDeg: 端まで切ったことにする角度 (90° = 左右 45° ずつ)
+    steer: { wheelDeg: 900, lockDeg: 90, deadzone: 0.04, gamma: 1, invert: false },
     // FFB: 被弾や障害物に当たったときの短い振動と、中央へ戻すばね (0 = 出さない)
     ffb: { enabled: true, rumble: 0.5, spring: 0 },
   };

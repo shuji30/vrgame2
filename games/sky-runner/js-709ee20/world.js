@@ -81,6 +81,9 @@ function stripeTexture(c1, c2) {
   return tex;
 }
 
+// 障害物の種類 (ステージ表 obstacles の重みの名前)
+export const OBSTACLE_KINDS = ['column', 'bush', 'tree', 'rock', 'mushroom', 'crystal', 'arch', 'monolith', 'spike', 'ring'];
+
 export class World {
   constructor(scene) {
     this.scene = scene;
@@ -155,6 +158,8 @@ export class World {
       mushStem: new THREE.CylinderGeometry(0.35, 0.5, 1, 8),
       mushCap: new THREE.SphereGeometry(1, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2),
       mushDot: new THREE.SphereGeometry(0.16, 6, 4),
+      crystal: new THREE.CylinderGeometry(0.75, 1, 1, 6),
+      ring: new THREE.TorusGeometry(1, 0.12, 8, 32),
     };
     this.mat = {
       column: new THREE.MeshStandardMaterial({ roughness: 0.5 }),
@@ -167,6 +172,10 @@ export class World {
       mushStem: new THREE.MeshStandardMaterial({ color: 0xf2ead8, roughness: 0.8 }),
       mushCap: new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.6 }),
       mushDot: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 }),
+      crystal: new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.15, metalness: 0.2 }),
+      glass: new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.1, metalness: 0.1, color: 0xd8f4ff, emissive: 0x204050 }),
+      obsidian: new THREE.MeshStandardMaterial({ color: 0x4a3a6a, roughness: 0.25, metalness: 0.3, emissive: 0x1a1030 }),
+      ring: new THREE.MeshBasicMaterial({ color: 0xffe066 }),
     };
 
     this.obstacles = [];
@@ -196,6 +205,9 @@ export class World {
     this.mat.leaf.color.setHex(th.bush).multiplyScalar(0.8);
     this.mat.rock.color.setHex(th.mount).lerp(new THREE.Color(0x8a8070), 0.5);
     this.mat.mushCap.color.setHex(th.col[1] ? parseInt(th.col[1].slice(1), 16) : 0xff4a6a);
+    // 水晶はステージの空の色を明るくした色、ほのかに光らせる
+    this.mat.crystal.color.setHex(th.crystal ?? th.sky).lerp(new THREE.Color(0xffffff), 0.45);
+    this.mat.crystal.emissive.setHex(th.crystal ?? th.sky).multiplyScalar(0.25);
   }
 
   // ステージごとの障害物の出方 ({ column, bush, tree, rock, mushroom, lane })
@@ -206,7 +218,7 @@ export class World {
   pickKind() {
     const t = this.obstacleTable;
     if (!t) return undefined;
-    const kinds = ['column', 'bush', 'tree', 'rock', 'mushroom'].filter((k) => t[k] > 0);
+    const kinds = OBSTACLE_KINDS.filter((k) => t[k] > 0);
     let r = Math.random() * kinds.reduce((a, k) => a + t[k], 0);
     return kinds.find((k) => (r -= t[k]) < 0) || kinds[0];
   }
@@ -224,24 +236,30 @@ export class World {
     o.shadow = s;
   }
 
-  spawnOne(x, z, force) {
+  // 障害物を 1 つ置く。lane = プレイヤーの進路上に置くもの (大きすぎないようにする)。
+  // 当たり判定は o.parts (グループの原点から見た形の一覧) で持つ:
+  //   { c: 'cyl', r, y0, y1 } 縦の円柱、{ c: 'sph', r, y } 球、{ c: 'box', hx, hz, y0, y1 } 箱。dx / dz で原点からずらす
+  spawnOne(x, z, force, lane = false) {
     const g = new THREE.Group();
     const kind = force || this.pickKind();
     const roll = kind ? { column: 0, bush: 0.5, tree: 0.9 }[kind] ?? -1 : Math.random();
+    const reach = this.reach || 20; // 今のプレイヤーが飛べる高さ (これより低い柱は飛び越えられる)
+    const tallH = (lo, hi) => Math.min(Math.random() < 0.5 ? rand(0.45, 0.75) * reach : rand(lo, hi), this.ceiling.visible ? CEIL_Y - 0.6 : Infinity);
+    const size = lane ? 0.7 : 1; // 進路上のものは小さめに
     let o;
     if (kind === 'rock') {
       // 浮遊岩: 空中に浮かぶ大岩。ゆっくり回る。撃って壊せる
-      const r = rand(2.6, 5.5);
+      const r = rand(2.6, 5.5) * size;
       const m = new THREE.Mesh(this.geo.rock, this.mat.rock);
       m.scale.set(r, r * rand(0.7, 1), r);
       m.rotation.set(rand(0, 3), rand(0, 3), 0);
       const cy = rand(r + 1, this.ceiling.visible ? CEIL_Y - r - 1 : 17);
       m.position.y = cy;
       g.add(m);
-      o = { kind: 'rock', group: g, r, cy, breakable: true, spin: rand(-1, 1), mesh: m, baseY: cy };
+      o = { kind: 'rock', group: g, r, cy, breakable: true, spin: rand(-1, 1), mesh: m, baseY: cy, parts: [{ c: 'sph', r: r * 0.85, y: cy }] };
     } else if (kind === 'mushroom') {
-      // 巨大キノコ: 色とりどりのかさ。撃って壊せる
-      const h = rand(8, 18), cr = h * rand(0.45, 0.6);
+      // 巨大キノコ: 色とりどりのかさ。撃って壊せる (当たるのは柄とかさだけ。かさの下はくぐれる)
+      const h = rand(8, 18) * size, cr = h * rand(0.45, 0.6);
       const stem = new THREE.Mesh(this.geo.mushStem, this.mat.mushStem);
       stem.scale.set(h * 0.18, h, h * 0.18);
       stem.position.y = h / 2;
@@ -256,11 +274,81 @@ export class World {
         dot.scale.setScalar(cr * 0.9);
         g.add(dot);
       }
-      o = { kind: 'mushroom', group: g, r: cr * 0.8, h: h + cr * 0.6, breakable: true };
+      o = { kind: 'mushroom', group: g, r: cr * 0.8, h: h + cr * 0.6, breakable: true,
+        parts: [{ c: 'cyl', r: h * 0.08, y0: 0, y1: h }, { c: 'cyl', r: cr * 0.9, y0: h * 0.92, y1: h * 0.92 + cr * 0.55 }] };
+    } else if (kind === 'crystal') {
+      // 水晶のクラスター: 傾いた六角柱が何本も地面から突き出す (高いものは飛び越えられない)
+      const h = tallH(16, 34) * size, n = 3 + Math.floor(Math.random() * 3);
+      const parts = [];
+      for (let i = 0; i < n; i++) {
+        const hh = h * (i === 0 ? 1 : rand(0.35, 0.7)), r = rand(0.9, 1.7) * (i === 0 ? 1.4 : 1);
+        const a = (i / n) * Math.PI * 2, d = i === 0 ? 0 : rand(1.2, 2.6);
+        const m = new THREE.Mesh(this.geo.crystal, this.mat.crystal);
+        m.scale.set(r, hh, r);
+        m.position.set(Math.cos(a) * d, hh / 2 - 0.3, Math.sin(a) * d);
+        m.rotation.set(Math.sin(a) * 0.25 * (i ? 1 : 0.2), rand(0, 1), Math.cos(a) * 0.25 * (i ? 1 : 0.2));
+        g.add(m);
+        parts.push({ c: 'cyl', r: r * 0.95, y0: 0, y1: hh, dx: Math.cos(a) * d, dz: Math.sin(a) * d });
+      }
+      o = { kind: 'crystal', group: g, r: 3.4, h, parts };
+    } else if (kind === 'arch') {
+      // ガラスのアーチ: 左右の柱と上の梁。真ん中をくぐり抜ける (横に長いので、進路には置かない)
+      const w = rand(9, 13), h = Math.min(rand(9, 14), reach - 1, this.ceiling.visible ? CEIL_Y - 3 : Infinity);
+      const parts = [];
+      for (const sx of [-1, 1]) {
+        const m = new THREE.Mesh(this.geo.cap, this.mat.glass);
+        m.scale.set(1.6, h, 1.6);
+        m.position.set(sx * w, h / 2, 0);
+        g.add(m);
+        parts.push({ c: 'box', hx: 0.9, hz: 0.9, y0: 0, y1: h, dx: sx * w });
+      }
+      const beam = new THREE.Mesh(this.geo.cap, this.mat.glass);
+      beam.scale.set(w * 2 + 1.6, 1.6, 1.6);
+      beam.position.y = h + 0.8;
+      g.add(beam);
+      const gem = new THREE.Mesh(this.geo.bush, this.mat.crystal);
+      gem.scale.setScalar(1.3);
+      gem.position.y = h + 2.2;
+      g.add(gem);
+      parts.push({ c: 'box', hx: w + 0.8, hz: 0.9, y0: h, y1: h + 1.6 });
+      o = { kind: 'arch', group: g, r: w + 1, h: h + 1.6, parts };
+    } else if (kind === 'monolith') {
+      // 黒曜石の石板: 横に広く薄い壁。回り込むか、上を飛び越える
+      const w = rand(4, 8) * size, h = Math.min(rand(0.35, 0.7) * reach, this.ceiling.visible ? CEIL_Y - 4 : Infinity), d = 1.2;
+      const m = new THREE.Mesh(this.geo.cap, this.mat.obsidian);
+      m.scale.set(w * 2, h, d);
+      m.position.y = h / 2;
+      g.add(m);
+      o = { kind: 'monolith', group: g, r: w, h, parts: [{ c: 'box', hx: w, hz: d / 2 + 0.3, y0: 0, y1: h }] };
+    } else if (kind === 'spike') {
+      // 地面のトゲ: 低い水晶のトゲの群れ。撃って壊せる
+      const r = rand(2, 3.6);
+      for (let i = 0; i < 5; i++) {
+        const a = rand(0, Math.PI * 2), d = i ? rand(0.6, r * 0.8) : 0, hh = rand(1.6, 3.4);
+        const m = new THREE.Mesh(this.geo.leaf, this.mat.crystal);
+        m.scale.set(0.5, hh, 0.5);
+        m.position.set(Math.cos(a) * d, hh / 2, Math.sin(a) * d);
+        m.rotation.set(rand(-0.3, 0.3), 0, rand(-0.3, 0.3));
+        g.add(m);
+      }
+      o = { kind: 'spike', group: g, r, h: 3, breakable: true, parts: [{ c: 'cyl', r: r * 0.85, y0: 0, y1: 2.6 }] };
+    } else if (kind === 'ring') {
+      // 浮遊リング: 空中に浮かぶ光の輪。真ん中をくぐるとボーナス (輪そのものに当たるとダメージ)
+      const R = rand(4, 5.5), cy = rand(R + 1.5, Math.max(R + 2, Math.min(reach - 1, this.ceiling.visible ? CEIL_Y - R - 1 : 16)));
+      const m = new THREE.Mesh(this.geo.ring, this.mat.ring);
+      m.scale.setScalar(R);
+      m.position.y = cy;
+      g.add(m);
+      const parts = [];
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2;
+        parts.push({ c: 'sph', r: 0.7, y: cy + Math.sin(a) * R, dx: Math.cos(a) * R });
+      }
+      o = { kind: 'ring', group: g, r: R + 0.7, cy, R, h: cy + R, parts, mesh: m };
     } else if (roll < 0.4) {
-      // 巨大な柱: 半分ほどは飛び越えられない高さで、横によけるしかない
-      const r = rand(1.8, 3.4);
-      const h = Math.min(Math.random() < 0.5 ? rand(12, 20) : rand(24, 40), this.ceiling.visible ? CEIL_Y - 0.6 : Infinity);
+      // 巨大な柱: 半分ほどは飛び越えられる高さ、残りは横によけるしかない高さ
+      const r = rand(1.8, 3.4) * (lane ? 0.75 : 1);
+      const h = tallH(24, 40);
       const col = new THREE.Mesh(this.geo.column, this.mat.column);
       col.scale.set(r, h, r);
       col.position.y = h / 2;
@@ -268,17 +356,17 @@ export class World {
       cap.scale.set(r * 2.2, 0.9, r * 2.2);
       cap.position.y = h + 0.45;
       g.add(col, cap);
-      o = { kind: 'column', group: g, r, h: h + 0.9 };
+      o = { kind: 'column', group: g, r, h: h + 0.9, parts: [{ c: 'cyl', r, y0: 0, y1: h }, { c: 'box', hx: r * 1.1, hz: r * 1.1, y0: h, y1: h + 0.9 }] };
     } else if (roll < 0.75) {
-      const r = rand(1.4, 3.2);
+      const r = rand(1.4, 3.2) * size;
       const b = new THREE.Mesh(this.geo.bush, this.mat.bush);
       b.scale.set(r, r * 0.8, r);
       b.rotation.y = rand(0, Math.PI);
       b.position.y = r * 0.6;
       g.add(b);
-      o = { kind: 'bush', group: g, r, cy: r * 0.6, breakable: true };
+      o = { kind: 'bush', group: g, r, cy: r * 0.6, breakable: true, parts: [{ c: 'sph', r: r * 0.85, y: r * 0.6 }] };
     } else {
-      const h = rand(9, 22);
+      const h = rand(9, 22) * size;
       const trunk = new THREE.Mesh(this.geo.trunk, this.mat.trunk);
       trunk.scale.set(h / 7, h * 0.45, h / 7);
       trunk.position.y = h * 0.225;
@@ -286,13 +374,81 @@ export class World {
       leaf.scale.set(h * 0.28, h * 0.65, h * 0.28);
       leaf.position.y = h * 0.45 + h * 0.3;
       g.add(trunk, leaf);
-      o = { kind: 'tree', group: g, r: h * 0.18, h };
+      // 葉は円すいなので、上へ行くほど細い 3 段の円柱で近似する (細い先の近くでは当たらない)
+      const L = h * 0.65, base = h * 0.45 - L * 0.05, R = h * 0.28;
+      o = { kind: 'tree', group: g, r: h * 0.18, h,
+        parts: [{ c: 'cyl', r: h / 7 * 0.35, y0: 0, y1: base }, { c: 'cyl', r: R * 0.8, y0: base, y1: base + L * 0.33 },
+          { c: 'cyl', r: R * 0.5, y0: base + L * 0.33, y1: base + L * 0.66 }, { c: 'cyl', r: R * 0.2, y0: base + L * 0.66, y1: base + L * 0.9 }] };
     }
     g.position.set(x, 0, z);
     o.prevZ = z;
     this.scene.add(g);
-    this.addShadow(o, o.r * 1.3);
+    this.addShadow(o, o.kind === 'arch' || o.kind === 'monolith' ? Math.min(o.r, 6) : Math.min(o.r * 1.3, 6));
+    if (o.kind === 'ring') o.shadow.visible = false;
     this.obstacles.push(o);
+    return o;
+  }
+
+  // 点 q (グループから見た座標) が部品 pt に、半径 r の球として触れているか
+  static touches(pt, qx, qy, qz, r) {
+    const x = qx - (pt.dx || 0), z = qz - (pt.dz || 0);
+    if (pt.c === 'sph') return x * x + (qy - pt.y) ** 2 + z * z < (pt.r + r) ** 2;
+    const dy = qy < pt.y0 ? pt.y0 - qy : qy > pt.y1 ? qy - pt.y1 : 0;
+    if (pt.c === 'cyl') {
+      const h = Math.max(0, Math.hypot(x, z) - pt.r);
+      return h * h + dy * dy < r * r;
+    }
+    const ex = Math.max(0, Math.abs(x) - pt.hx), ez = Math.max(0, Math.abs(z) - pt.hz);
+    return ex * ex + dy * dy + ez * ez < r * r;
+  }
+
+  // 点 p (半径 r) が障害物に当たったら、その障害物を返す (同じ障害物には 1 回だけ)。
+  // 高速時に1フレームですり抜けないよう、前フレームから z をまたいだかで判定する
+  hitTest(p, r, once = true) {
+    for (const o of this.obstacles) {
+      if (o.dead || o.knocked || (once && o.hurt)) continue;
+      const z0 = o.prevZ, z1 = o.group.position.z;
+      if (Math.min(z0, z1) - o.r - r - 3 > p.z || Math.max(z0, z1) + o.r + r + 3 < p.z) continue;
+      const qx = p.x - o.group.position.x;
+      for (const pt of o.parts) {
+        // 部品ごとに z をまたいだかを見る (またいだら z の差は 0 とみなす)
+        const a = z0 + (pt.dz || 0) - p.z, b = z1 + (pt.dz || 0) - p.z;
+        const qz = a * b <= 0 ? (pt.dz || 0) : b + (pt.dz || 0);
+        if (World.touches(pt, qx, p.y, qz, r)) {
+          if (once) o.hurt = true;
+          return o;
+        }
+      }
+    }
+    return null;
+  }
+
+  // 弾 (prev → pos の線分) が当たった障害物と、当たった点を返す
+  shotTest(prev, pos, out) {
+    for (const o of this.obstacles) {
+      if (o.dead || o.knocked) continue;
+      const op = o.group.position;
+      if (Math.abs(pos.z - op.z) > o.r + 8 && Math.abs(prev.z - op.z) > o.r + 8) continue;
+      for (let k = 0; k <= 4; k++) {
+        out.lerpVectors(prev, pos, k / 4);
+        for (const pt of o.parts) if (World.touches(pt, out.x - op.x, out.y, out.z - op.z, 0.3)) return o;
+      }
+    }
+    return null;
+  }
+
+  // 浮遊リングの真ん中をくぐったら、そのリングを返す (1 つにつき 1 回)
+  ringPass(p) {
+    for (const o of this.obstacles) {
+      if (o.kind !== 'ring' || o.passed || o.hurt) continue;
+      const z0 = o.prevZ, z1 = o.group.position.z;
+      if ((z0 - p.z) * (z1 - p.z) > 0) continue;
+      if (Math.hypot(p.x - o.group.position.x, p.y - o.cy) < o.R - 0.6) {
+        o.passed = true;
+        return o;
+      }
+    }
+    return null;
   }
 
   update(dt, speed, camPos, spawn) {
@@ -325,7 +481,14 @@ export class World {
         }
         this.spawnOne(camPos.x + rand(-38, 38), z); // プレイヤーのまわりに出す (端へ行っても障害物がある)
         // ときどきプレイヤーの進路上にも置いて、避ける必要を作る
-        if (Math.random() < (this.obstacleTable?.lane ?? 0.25) * 0.7) this.spawnOne(camPos.x + rand(-4, 4), z - rand(0, 5));
+        // 進路上のものは、前のものから 28 m 以上あける。横に長いアーチは置かない
+        this.laneGap = (this.laneGap || 0) + spacing;
+        if (this.laneGap >= 28 && Math.random() < (this.obstacleTable?.lane ?? 0.25) * 0.7) {
+          this.laneGap = 0;
+          let k = this.pickKind();
+          if (k === 'arch') k = 'column';
+          this.spawnOne(camPos.x + rand(-4, 4), z - rand(0, 5), k, true);
+        }
       }
     }
 
@@ -335,6 +498,9 @@ export class World {
       if (o.kind === 'rock') {
         o.mesh.rotation.y += o.spin * dt;
         o.mesh.position.y = o.baseY + Math.sin(o.prevZ * 0.05) * 0.6;
+        o.parts[0].y = o.mesh.position.y;
+      } else if (o.kind === 'ring') {
+        o.mesh.rotation.z += dt * 0.8; // 光の輪がゆっくり回る
       }
       if (o.knocked) {
         // なぎ倒された木: 前へ倒れながら跳ね上がる
@@ -358,26 +524,6 @@ export class World {
   removeObstacle(o) {
     this.scene.remove(o.group);
     this.scene.remove(o.shadow);
-  }
-
-  // 点 p (半径 r) が障害物に当たったら、その障害物を返す。
-  // 高速時に1フレームですり抜けないよう、前フレームから z をまたいだかで判定する
-  hitTest(p, r) {
-    for (const o of this.obstacles) {
-      if (o.dead || o.knocked) continue;
-      const z0 = o.prevZ, z1 = o.group.position.z;
-      const crossed = (z0 - p.z) * (z1 - p.z) <= 0;
-      const dz = crossed ? 0 : z1 - p.z;
-      if (Math.abs(dz) > o.r + r) continue;
-      const dx = p.x - o.group.position.x;
-      if (o.kind === 'bush' || o.kind === 'rock') {
-        const dy = p.y - o.cy;
-        if (dx * dx + dy * dy + dz * dz < (o.r + r) ** 2) return o;
-      } else if (p.y < o.h + r && dx * dx + dz * dz < (o.r + r) ** 2) {
-        return o;
-      }
-    }
-    return null;
   }
 
   knockDown(o) {
