@@ -340,12 +340,12 @@ function leadNote(n, t, dur, spb, opts = {}) {
 
 // スライド (ギュイーン): 音程を一気に駆け上がり、頂点で大きくビブラートをかける。
 // ピッキングハーモニクス風に、1オクターブ+5度上の倍音を重ねてキュイッと鳴かせる
-function slideUp(from, to, t, dur) {
+function slideUp(from, to, t, dur, riseRatio = 0.45) {
   const f = band.lead.fx.wah.filter.frequency;
   f.cancelScheduledValues(t);
   f.setValueAtTime(900, t);
-  f.exponentialRampToValueAtTime(2400, t + dur * 0.5);
-  const rise = dur * 0.45;
+  f.exponentialRampToValueAtTime(2400, t + rise);
+  const rise = dur * riseRatio;
   for (const [mult, vol] of [[1, 0.75], [3, 0.22]]) {
     const o = ctx.createOscillator();
     o.type = 'sawtooth';
@@ -355,7 +355,7 @@ function slideUp(from, to, t, dur) {
     lfo.frequency.value = 6.5;
     const lg = ctx.createGain();
     lg.gain.setValueAtTime(0, t + rise);
-    lg.gain.linearRampToValueAtTime(mtof(to) * mult * 0.03, t + dur * 0.8);
+    lg.gain.linearRampToValueAtTime(mtof(to) * mult * 0.03, t + rise + (dur - rise) * 0.5);
     lfo.connect(lg).connect(o.frequency);
     const g = ctx.createGain();
     sustainEnv(g, t, dur, vol);
@@ -416,14 +416,15 @@ const H = (a) => a.flat();
 const SHRED = {
   // 4小節目の後半: E ハーモニックマイナーで2オクターブ駆け上がってサビへ
   3: { start: 8, len: 2 / 3, notes: [64, 66, 67, 69, 71, 72, 75, 76, 78, 79, 81, 83] },
-  // 8小節目: 6音ずつ下がっていくシーケンス (ギュイーンの前まで)
+  // 8小節目の前半: 6音ずつ下がっていくシーケンス (ギュイーンの前まで)
   7: {
     start: 0, len: 2 / 3,
-    notes: H([[88, 86, 83, 86, 83, 81], [86, 83, 81, 83, 81, 79], [83, 81, 79, 81, 79, 76]]), // 18音 = 12ステップ
+    notes: H([[88, 86, 83, 86, 83, 81], [86, 83, 81, 83, 81, 79]]), // 12音 = 8ステップ
   },
 };
-// ギュイーン (スライド): 8小節目の最後の1拍で2オクターブ駆け上がり、ループの頭へ戻る
-const SLIDES = { 7: { start: 12, from: 64, to: 88, len: 4 } };
+// ギュイーン (スライド): 8小節目の後半で3オクターブを1拍半かけて駆け上がり、
+// 頂点でビブラートをかけたまま、ループの頭の1拍目まで伸ばす (12ステップ = 約1.2秒)
+const SLIDES = { 7: { start: 8, from: 52, to: 88, len: 12, rise: 0.5 } };
 const STEPS = BARS.length * 16;
 
 // フランジャーをかける場所。ディレイ時間を 10ms → 0.6ms へ縮めて「ギュイーン」と上げる
@@ -474,7 +475,7 @@ function playStep(s, t) {
     sh.notes.forEach((n, k) => leadNote(n + transpose, t + k * sh.len * spb, sh.len * spb * 1.05, spb, { fixedWah: 1700, vibrato: 0, vol: 0.6 }));
   }
   const sl = SLIDES[barNo];
-  if (sl && sl.start === i) slideUp(sl.from + transpose, sl.to + transpose, t, sl.len * spb * 1.1);
+  if (sl && sl.start === i) slideUp(sl.from + transpose, sl.to + transpose, t, sl.len * spb, sl.rise);
   if (i === 0) flangerSweep(barNo, t, spb * 16);
   // ドラム: 8ビート。サビは裏でもバスドラを踏む
   const chorus = barNo >= 4 && barNo < 7;
