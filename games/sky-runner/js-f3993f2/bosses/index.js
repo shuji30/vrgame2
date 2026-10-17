@@ -5,6 +5,9 @@ import { MINE_KINDS, spawnMine } from './mine.js';
 import { COLOSSUS_KINDS, spawnColossus } from './colossus.js';
 import { SUN_KINDS, spawnSun } from './sun.js';
 import { CROWN_KINDS, spawnCrown } from './crown.js';
+import { WORM_KINDS, spawnWorm } from './worm.js';
+import { TURBINE_KINDS, spawnTurbine } from './turbine.js';
+import { PHANTOM_KINDS, spawnPhantom } from './phantom.js';
 
 export const BOSSES = {
   mirror: { spawn: spawnMirror, kinds: MIRROR_KINDS },       // ミラーコア: 鏡が弾を撃ち返す
@@ -12,5 +15,8 @@ export const BOSSES = {
   mine: { spawn: spawnMine, kinds: MINE_KINDS },               // 浮遊鉱山: 壊せない母艦。耐えれば去る
   colossus: { spawn: spawnColossus, kinds: COLOSSUS_KINDS },   // 磁鉄の巨像: 電極のバリア、地面の破片を投げる
   sun: { spawn: spawnSun, kinds: SUN_KINDS },
-  crown: { spawn: spawnCrown, kinds: CROWN_KINDS },            // 氷晶の冠: つららの雨 (地面に予告の印)                  // 最終ボス プリズムの太陽: 鏡 → 投げる → 開いたときだけ
+  crown: { spawn: spawnCrown, kinds: CROWN_KINDS },            // 氷晶の冠: つららの雨 (地面に予告の印)
+  worm: { spawn: spawnWorm, kinds: WORM_KINDS },               // 砂岩の大蛇: 地面から弧を描いて飛び出す。頭だけが弱点
+  turbine: { spawn: spawnTurbine, kinds: TURBINE_KINDS },      // 双子の回転刃: 円盤を投げてくる。中央の核を撃つ
+  phantom: { spawn: spawnPhantom, kinds: PHANTOM_KINDS },      // 水晶の亡霊: 分身と入れ替わる。影のある本物を撃つ                  // 最終ボス プリズムの太陽: 鏡 → 投げる → 開いたときだけ
 };

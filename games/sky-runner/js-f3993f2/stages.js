@@ -16,7 +16,7 @@
 //   ceiling  天井がある面
 //   palette  地面の 2 色 (a, b)、霧と地平線 (fog)、空の上 (sky)、遠景の山 (mount)、柱の帯 (col)、茂みや木の葉 (bush)
 //   bgm      通常の曲のキー (半音) とテンポ
-//   boss     { type: 'serpent' | 'twin' | 'squad' | 'swarm' | 'mirror' (ミラーコア。tier 1〜3) | 'geodering' (晶洞の輪。tier 1〜2) | 'mine' (浮遊鉱山。escape 秒耐えれば撃破) | 'colossus' (磁鉄の巨像) | 'sun' (最終ボス) | 'crown' (氷晶の冠), hp, escape (秒。この時間で逃げる。0 = 倒すまで), diff (ボスラッシュで使う強さ) }
+//   boss     { type: 'serpent' | 'twin' | 'squad' | 'swarm' | 'mirror' (ミラーコア。tier 1〜3) | 'geodering' (晶洞の輪。tier 1〜2) | 'mine' (浮遊鉱山。escape 秒耐えれば撃破) | 'colossus' (磁鉄の巨像) | 'sun' (最終ボス) | 'crown' (氷晶の冠) | 'worm' (砂岩の大蛇) | 'turbine' (双子の回転刃) | 'phantom' (水晶の亡霊), hp, escape (秒。この時間で逃げる。0 = 倒すまで), diff (ボスラッシュで使う強さ) }
 //   rush     ボスラッシュの順番 (18 面)
 
 export const STAGES = [
@@ -80,7 +80,7 @@ export const STAGES = [
     obstacles: { column: 1.5, rock: 1.5, arch: 1, lane: 0.3 },
     palette: { a: 0xbfae94, b: 0x6a5a48, fog: 0xd8ccb8, sky: 0x7a6a8a, mount: 0x6a5a5a, col: ['#efe6d8', '#7a5a3a'], bush: 0x6a7a4a },
     bgm: { key: 3, tempo: 160, song: 'reggae' },
-    boss: { type: 'mirror', hp: 240, tier: 2, escape: 0 },
+    boss: { type: 'worm', hp: 320, escape: 0 },
   },
   {
     name: 'IRON TUNNEL', kind: 'normal', length: 38, speed: 49, diff: 6, density: 1.2, ceiling: true,
@@ -88,7 +88,7 @@ export const STAGES = [
     obstacles: { column: 2.5, monolith: 1, lane: 0.33 },
     palette: { a: 0x9a9aa0, b: 0x303438, fog: 0x9aa0a8, sky: 0x202838, mount: 0x40444c, col: ['#d8dce4', '#202428'], bush: 0x4a5a4a },
     bgm: { key: 3, tempo: 164, song: 'grunge' },
-    boss: { type: 'squad', hp: 0, escape: 30 },
+    boss: { type: 'turbine', hp: 360, escape: 0 },
   },
   {
     name: 'SPORE MARSH', kind: 'normal', length: 55, speed: 46, diff: 5, density: 1.3,
@@ -104,7 +104,7 @@ export const STAGES = [
     obstacles: { column: 2, arch: 1.5, rock: 1, lane: 0.32 },
     palette: { a: 0xf3a986, b: 0x7a3a5a, fog: 0xf8c8a8, sky: 0x4a2a6a, mount: 0x6a3a5a, col: ['#fff0e8', '#a03a5a'], bush: 0x7a5a3a },
     bgm: { key: 4, tempo: 162, song: 'classical' },
-    boss: { type: 'serpent', hp: 760, escape: 0 },
+    boss: { type: 'phantom', hp: 380, escape: 0 },
   },
   {
     name: 'NEON YARD', kind: 'bonus', length: 20, speed: 42, diff: 1, density: 0,

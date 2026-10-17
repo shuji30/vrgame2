@@ -423,6 +423,9 @@ const BOSS_INFO = {
   colossus: ['磁鉄の巨像', '電極を先に壊せ'],
   sun: ['プリズムの太陽', '最後の戦い'],
   crown: ['氷晶の冠', '赤い印につららが落ちる。つららを壊せば雨が減る'],
+  worm: ['砂岩の大蛇', '茶色い印から飛び出す。頭だけを狙え'],
+  turbine: ['双子の回転刃', '赤く光った刃が飛んでくる。真ん中の核を撃て'],
+  phantom: ['水晶の亡霊', '本物には影がある。目が水色のものを撃て'],
 };
 let bossSeen = new Set();
 try { bossSeen = new Set(JSON.parse(localStorage.getItem('skyrunner.bossSeen') || '[]')); } catch (_) { /* 保存なし */ }
