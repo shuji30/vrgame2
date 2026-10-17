@@ -46,8 +46,31 @@ export class Hud {
 
     if (d.play) {
       text(g, `SCORE ${d.score}`, 24, 52, 38);
-      text(g, `DIST ${d.dist} m   HIT ${d.hits}`, 24, 92, 24, '#ffd0d0');
-      text(g, `VIEW ${d.view}`, 24, 124, 20, '#cfe8ff');
+      if (d.mult > 1.05) text(g, `x${d.mult.toFixed(1)}`, 24 + g.measureText(`SCORE ${d.score}`).width + 16, 52, 30, '#ffe680');
+      text(g, `HI ${d.hi}   STAGE ${d.stage}`, 24, 90, 24, '#cfe8ff');
+      text(g, `VIEW ${d.view}   DIST ${d.dist} m`, 24, 120, 20, '#cfe8ff');
+
+      // 残機 (三角の印)
+      g.fillStyle = '#ffe14a';
+      for (let i = 0; i < d.lives; i++) {
+        const x = 1000 - i * 34, y = 150;
+        g.beginPath();
+        g.moveTo(x - 12, y + 12);
+        g.lineTo(x, y - 14);
+        g.lineTo(x + 12, y + 12);
+        g.closePath();
+        g.fill();
+      }
+
+      // ボスの体力
+      if (d.boss !== null) {
+        const bx0 = 312, bx1 = 712, by = 150;
+        text(g, 'BOSS', bx0 - 10, by + 20, 24, '#ff6060', 'right');
+        g.fillStyle = 'rgba(0,0,0,0.55)';
+        g.fillRect(bx0 - 3, by - 3, bx1 - bx0 + 6, 26);
+        g.fillStyle = '#ff3a3a';
+        g.fillRect(bx0, by, (bx1 - bx0) * d.boss, 20);
+      }
 
       // ミサイルの残り (四角) とロック数
       for (let i = 0; i < d.missileMax; i++) {
@@ -119,6 +142,7 @@ export class DebugPanel {
     };
     line('INPUT DEBUG  (I / Back / 右グリップ で閉じる)', '#7fffd4', 26);
     line(`fps ${info.fps.toFixed(0)}  xr ${info.xr}  refSpace ${info.refSpace}  fbScale ${info.scale}`);
+    line(info.version || '');
     const s = input.state;
     line(`source ${s.source}  move ${fmt(s.move.x)},${fmt(s.move.y)}  throttle ${fmt(s.throttle)}  fire ${s.fire || s.handFire.some((h) => h.fire)}`);
     y += 8;

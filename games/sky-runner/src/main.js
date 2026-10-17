@@ -3,8 +3,10 @@ import { World } from './world.js';
 import { Input, HINTS } from './input.js';
 import { Hud, DebugPanel } from './hud.js';
 import { Avatar } from './avatar.js';
-import { Combat, MISSILE_MAX } from './combat.js';
-import { initAudio, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setEngineEnabled, setPaused, toggleMute } from './audio.js';
+import { Combat, MISSILE_MAX, loadEnemyModels } from './combat.js';
+import { THEMES } from './world.js';
+import { VERSION, loadBuildInfo } from './version.js';
+import { initAudio, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, toggleMute } from './audio.js';
 
 // ---- 定数
 const X_LIMIT = 14;        // 左右の移動範囲 (m)
@@ -18,9 +20,16 @@ const SPEED = {
   ret: 0.25,               // 自動で 1.0 倍に戻る速さ (/s)
 };
 const READY_TIME = 2.5;    // 開始時に 0 から基準速度までゆっくり加速する時間 (s)
+const STAGE_LEN = Number(new URLSearchParams(location.search).get('stageLen')) || 60; // ボスが出るまでの時間 (s)。開発用に ?stageLen=10 で短くできる
+const LIVES = 3;
+const EXTEND_EVERY = 50000; // この点数ごとに残機が 1 増える
+const LIVES_MAX = 5;
+
+let hiScore = 0;
+try { hiScore = Number(localStorage.getItem('skyrunner.hi')) || 0; } catch (_) { /* 保存なし */ }
 
 // ---- 設定 (localStorage に保存)
-const settings = { scale: 1.0, autoReturn: true, bgm: true, engine: true, player: 'ship', view: '1st' };
+const settings = { scale: 1.0, autoReturn: true, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('skyrunner.settings') || '{}')); } catch (_) { /* 保存なし */ }
 // 開発用: ?player=ship|human&view=1st|3rd で上書きする
 for (const key of ['player', 'view']) {
@@ -51,6 +60,8 @@ const debugPanel = new DebugPanel(rig);
 const avatar = new Avatar(scene, rig, camera);
 avatar.load('./assets/').catch((e) => console.error('モデルを読み込めませんでした', e));
 const combat = new Combat(scene);
+combat.forceWave = new URLSearchParams(location.search).get('wave'); // 開発用: ?wave=moai などで出す敵を固定する
+loadEnemyModels('./assets/enemies.glb').catch((e) => console.error('敵のモデルを読み込めませんでした', e));
 debugPanel.visible = new URLSearchParams(location.search).has('debug');
 
 // 被弾したときに視界を赤くする
@@ -94,7 +105,15 @@ for (let i = 0; i < 2; i++) {
 
 // ---- ゲームの状態
 const S = {
-  mode: 'title',        // 'title' | 'play'
+  mode: 'title',        // 'title' | 'play' | 'over'
+  stage: 1,
+  phase: 'normal',      // 'normal' → 'warning' → 'boss' → 'clear' → 次のステージ
+  phaseT: 0,
+  stageT: 0,
+  baseSpeed: SPEED.base,
+  lives: LIVES,
+  nextExtend: EXTEND_EVERY,
+  overT: 0,
   paused: false,
   factor: 1,            // アクセル/ブレーキの倍率
   ready: 0,             // 開始時の加速 (0..1)
@@ -118,7 +137,11 @@ const overlay = document.getElementById('overlay');
 
 function startPlay() {
   initAudio();
-  Object.assign(S, { mode: 'play', paused: false, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0 });
+  Object.assign(S, {
+    mode: 'play', paused: false, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0,
+    stage: 1, phase: 'normal', phaseT: 0, stageT: 0, baseSpeed: SPEED.base, lives: LIVES, nextExtend: EXTEND_EVERY, overT: 0,
+  });
+  setBGMMode(false);
   world.clear();
   world.applyTheme(0);
   combat.reset();
@@ -194,8 +217,9 @@ function movePlayer(dt, a) {
   } else {
     // スティック: 速度を滑らかに変える (急に動き出すと VR で酔いやすい)
     const k = 1 - Math.exp(-dt * 8);
+    const my = settings.invertY ? -a.move.y : a.move.y; // 上下反転 (操縦桿のように、前に倒すと下がる)
     S.vx += (a.move.x * MOVE_X - S.vx) * k;
-    S.vy += (a.move.y * MOVE_Y - S.vy) * k;
+    S.vy += (my * MOVE_Y - S.vy) * k;
     S.px += S.vx * dt;
     S.py += S.vy * dt;
   }
@@ -205,14 +229,96 @@ function movePlayer(dt, a) {
   S.vy = (S.py - oy) / dt;
 }
 
+function nextStage() {
+  S.stage++;
+  combat.level = S.stage;
+  world.applyTheme(S.stage - 1);
+  S.baseSpeed = Math.min(60, SPEED.base + (S.stage - 1) * 4);
+  S.phase = 'normal';
+  S.stageT = 0;
+  showMsg(`STAGE ${S.stage}`, THEMES[(S.stage - 1) % THEMES.length].name, 2.5);
+  say(`Stage ${S.stage}`);
+}
+
+// ステージの進行: 通常 → WARNING → ボス → STAGE CLEAR → 次のステージ
+function updateStage(dt) {
+  S.stageT += dt;
+  S.phaseT += dt;
+  if (S.phase === 'normal' && S.stageT > STAGE_LEN) {
+    S.phase = 'warning';
+    S.phaseT = 0;
+    showMsg('WARNING!!', '巨大な敵が接近中', 3.5);
+    sfx.warning();
+  } else if (S.phase === 'warning' && S.phaseT > 3.5) {
+    S.phase = 'boss';
+    S.phaseT = 0;
+    combat.spawnBoss();
+    setBGMMode(true);
+  } else if (S.phase === 'boss' && combat.bossDefeated) {
+    combat.bossDefeated = false;
+    S.phase = 'clear';
+    S.phaseT = 0;
+    showMsg('STAGE CLEAR!', `BOSS BONUS ${10000 * S.stage}`, 4.5);
+    sfx.clear();
+    setBGMMode(false);
+  } else if (S.phase === 'clear' && S.phaseT > 5) {
+    nextStage();
+  }
+  // 点数が一定を超えるごとに残機を増やす
+  if (combat.score >= S.nextExtend) {
+    S.nextExtend += EXTEND_EVERY;
+    if (S.lives < LIVES_MAX) {
+      S.lives++;
+      showMsg('EXTEND!', '残機 +1', 1.5);
+      sfx.clear();
+    }
+  }
+}
+
+function gameOver() {
+  S.mode = 'over';
+  S.overT = 0;
+  S.paused = false;
+  setBGMMode(false);
+  stopBGM();
+  if (combat.score > hiScore) {
+    hiScore = combat.score;
+    try { localStorage.setItem('skyrunner.hi', String(hiScore)); } catch (_) { /* 保存不可 */ }
+  }
+  showMsg('GAME OVER', `SCORE ${combat.score}   HI ${hiScore}`, Infinity);
+  say('Game over');
+}
+
 function onHit() {
   S.hits++;
+  S.lives--;
+  if (S.lives <= 0) {
+    flash.material.opacity = 0.8;
+    sfx.damage();
+    input.rumble(1.0, 500);
+    gameOver();
+    return;
+  }
   S.invuln = 1.5;
   S.factor = Math.min(S.factor, 0.75);
   flash.material.opacity = 0.55;
   sfx.damage();
   input.rumble(1.0, 250);
 }
+
+// バージョンと公開日時 (タイトル画面とポーズ画面に出す)
+let buildInfo = `v${VERSION}`;
+loadBuildInfo().then((text) => {
+  buildInfo = text;
+  document.getElementById('version').textContent = text;
+});
+
+const RETRY_HINT = {
+  xr: 'トリガー: もう一度   A: タイトルへ',
+  pad: 'A / START: もう一度   B: タイトルへ',
+  kb: 'Space / Enter: もう一度   Backspace: タイトルへ',
+  mouse: 'クリック: もう一度   Backspace: タイトルへ',
+};
 
 // ---- 照準と射撃
 const eyeW = new THREE.Vector3();
@@ -269,7 +375,9 @@ function updateCombat(dt, speed, a) {
   const halfHeight = (layer?.framebufferHeight ?? renderer.getDrawingBufferSize(_v2).y) / 2;
 
   combat.update({
-    dt, scroll: speed, active: S.ready >= 1,
+    dt, scroll: speed, world,
+    spawn: S.mode === 'play' && S.ready >= 1 && S.phase === 'normal',
+    active: S.mode === 'play' && S.ready >= 1 && S.phase !== 'clear',
     player: P, playerR: avatar.radius, eye: eyeW,
     aimOrigin, aimDir, guns, firing,
     missile: a.missile, missileOrigin: avatar.center(kind, missileOrigin),
@@ -289,6 +397,14 @@ function update(dt) {
     // パッドの A / START でもデスクトップモードを開始できる
     if (a.confirm && a.source === 'pad' && !renderer.xr.isPresenting) startPlay();
     if (a.leftRight) setPlayer(a.leftRight < 0 ? 'ship' : 'human');
+  } else if (S.mode === 'over') {
+    // ゲームオーバー: 景色だけゆっくり止まっていく。2 秒たったら、もう一度 / タイトルへ
+    S.overT += dt;
+    speed = S.baseSpeed * S.factor * Math.max(0, 1 - S.overT / 2.5);
+    if (S.overT > 2) {
+      if (a.back) toTitle();
+      else if (a.confirm) startPlay();
+    }
   } else {
     if (a.pause) togglePause(!S.paused);
     else if (S.paused && a.back) toTitle();
@@ -314,7 +430,9 @@ function update(dt) {
       S.factor = clamp(S.factor, SPEED.min, SPEED.max);
 
       S.ready = Math.min(1, S.ready + dt / READY_TIME);
-      speed = SPEED.base * S.factor * ease(S.ready);
+      speed = S.baseSpeed * S.factor * ease(S.ready);
+      combat.mult = 1 + Math.max(0, S.factor - 1) * 2; // 1.5 倍速でスコア 2 倍
+      updateStage(dt);
       movePlayer(dt, a);
       S.dist += speed * dt;
       S.invuln -= dt;
@@ -323,15 +441,22 @@ function update(dt) {
 
   rig.position.set(S.px, S.py + S.floorOffset, 0);
   const play = S.mode === 'play';
+  const inGame = play || S.mode === 'over';
   avatar.update(dt, {
-    kind: settings.player, view: play ? settings.view : '3rd',
-    vx: S.vx, vy: S.vy, thrust: play ? speed / SPEED.base : 0.3, presenting: renderer.xr.isPresenting,
+    kind: settings.player, view: inGame ? settings.view : '3rd',
+    vx: S.vx, vy: S.vy, thrust: inGame ? speed / SPEED.base : 0.3, presenting: renderer.xr.isPresenting,
   });
   P.copy(avatar.hitPoint);
   world.update(dt, speed, P, running);
 
   if (play && running && S.invuln <= 0 && world.hitTest(P, avatar.radius)) onHit();
   if (play && running) updateCombat(dt, speed, a);
+  if (combat.announce) {
+    showMsg(combat.announce, '', 2);
+    say(combat.announce.toLowerCase().replace('!', ''));
+    combat.announce = '';
+  }
+  else if (S.mode === 'over') updateCombat(dt, speed, { ...a, fire: false, handFire: [], missile: false }); // 爆発や煙の続きを見せる
 
   flash.material.opacity = Math.max(0, flash.material.opacity - dt * 1.2);
   setEngine(S.mode === 'play' && running ? speed / SPEED.base : 0);
@@ -351,7 +476,7 @@ function update(dt) {
     if (S.msgT <= 0) S.msg = S.sub = '';
   }
 
-  hud.mesh.visible = play;
+  hud.mesh.visible = inGame;
   hud.draw({
     play,
     dist: Math.floor(S.dist),
@@ -365,16 +490,21 @@ function update(dt) {
     locks: combat.locks.length,
     msg: S.paused ? 'PAUSE' : S.msg,
     sub: S.paused ? (a.source === 'pad' ? 'START: 再開   B: タイトルへ' : a.source === 'xr' ? 'X/トリガー: 再開   A: タイトルへ' : 'Esc/クリック: 再開   Backspace: タイトルへ') : S.sub,
-    hint: play ? HINTS[a.source] : '',
+    hint: S.paused ? buildInfo : play ? HINTS[a.source] : S.mode === 'over' && S.overT > 2 ? RETRY_HINT[a.source] : '',
+    lives: S.lives,
+    stage: S.stage,
+    hi: Math.max(hiScore, combat.score),
+    mult: Math.round(combat.mult * 10) / 10,
+    boss: combat.bossRatio === null ? null : Math.round(combat.bossRatio * 100) / 100,
   });
 
   S.fps += (1 / Math.max(dt, 1e-4) - S.fps) * 0.05;
-  debugPanel.draw(dt, { fps: S.fps, xr: renderer.xr.isPresenting, refSpace: S.refSpace, scale: settings.scale }, input);
+  debugPanel.draw(dt, { fps: S.fps, xr: renderer.xr.isPresenting, refSpace: S.refSpace, scale: settings.scale, version: buildInfo }, input);
 }
 
 // 開発用: 自動テストから状態を読む
 window.__debugState = () => ({
-  mode: S.mode, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,
+  mode: S.mode, py: S.py, version: document.getElementById('version').textContent, phase: S.phase, stage: S.stage, lives: S.lives, boss: combat.bossRatio, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,
   shots: combat.shots.length, missiles: combat.missiles.length, stock: combat.missileStock, locks: combat.locks.length, hits: S.hits,
 });
 
@@ -411,7 +541,7 @@ setPlayer(settings.player === 'human' ? 'human' : 'ship');
 playerInputs.forEach((el) => el.addEventListener('change', () => setPlayer(el.value)));
 selScale.value = String(settings.scale);
 chkReturn.checked = settings.autoReturn;
-for (const key of ['bgm', 'engine']) {
+for (const key of ['bgm', 'engine', 'invertY']) {
   const el = document.getElementById(key);
   el.checked = settings[key];
   el.addEventListener('change', () => { settings[key] = el.checked; saveSettings(); applyAudioSettings(); });

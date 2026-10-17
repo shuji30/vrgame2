@@ -264,6 +264,7 @@ export class World {
   // 高速時に1フレームですり抜けないよう、前フレームから z をまたいだかで判定する
   hitTest(p, r) {
     for (const o of this.obstacles) {
+      if (o.dead) continue;
       const z0 = o.prevZ, z1 = o.group.position.z;
       const crossed = (z0 - p.z) * (z1 - p.z) <= 0;
       const dz = crossed ? 0 : z1 - p.z;

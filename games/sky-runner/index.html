@@ -36,6 +36,7 @@
   th { color: #ffe14a; font-weight: normal; }
   .tablewrap { overflow-x: auto; }
   a { color: #9fd0ff; }
+  .version { text-align: right; font-size: 12px; opacity: .6; font-variant-numeric: tabular-nums; }
 </style>
 <script type="importmap">
 { "imports": {
@@ -48,7 +49,7 @@
 <div id="overlay">
   <div class="card">
     <h1>SKY RUNNER XR</h1>
-    <p class="lead">市松模様の大地を駆け抜ける 3D シューティング (開発版: Phase 0〜3)</p>
+    <p class="lead">市松模様の大地を駆け抜ける 3D シューティング (開発版: Phase 0〜4)</p>
     <div class="players" role="radiogroup" aria-label="プレイヤー">
       <label><input type="radio" name="player" value="ship"><span><b>宇宙船</b><small>コックピットから操縦</small></span></label>
       <label><input type="radio" name="player" value="human"><span><b>人間</b><small>ジェットパックで飛ぶ</small></span></label>
@@ -68,10 +69,12 @@
       <label><input type="checkbox" id="autoReturn"> スティックを離すと基準速度に戻る</label>
       <label><input type="checkbox" id="bgm"> BGM</label>
       <label><input type="checkbox" id="engine"> エンジン音</label>
+      <label><input type="checkbox" id="invertY"> 上下反転 (前に倒すと下がる)</label>
     </div>
     <p class="note" id="status">WebXR を確認しています…</p>
     <p class="note" id="pads"></p>
     <p class="note">Pimax など高解像度の PCVR で重い場合は、解像度を 0.5〜0.75 にしてください。入力の確認は I キー / パッドの Back / 左スティック押し込み で表示できます。M キーで音を消せます。</p>
+    <p class="note version" id="version"></p>
     <p class="note" id="back" hidden><a href="../../">◀ ゲーム選択に戻る</a></p>
     <div class="tablewrap">
     <table>
