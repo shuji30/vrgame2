@@ -136,7 +136,7 @@
         <span><b>3D</b><small>奥へ飛び込む</small></span></span></label>
       <label><input type="radio" name="mode" value="side"><span class="card">
         <svg viewBox="0 0 54 44" aria-hidden="true"><rect x="2" y="34" width="50" height="8" fill="#3e9c3c"/><rect x="10" y="34" width="8" height="8" fill="#e9cf6a"/><rect x="34" y="34" width="8" height="8" fill="#e9cf6a"/><path d="M8 18 L26 14 L30 18 L26 22 Z" fill="#e8ecf4"/><path d="M34 18 L48 18" stroke="#3ec0ff" stroke-width="3"/></svg>
-        <span><b>横スクロール</b><small>真横から見る</small></span></span></label>
+        <span><b>横スクロール</b><small>おまけ / 真横から見る</small></span></span></label>
     </div>
 
     <div class="buttons">
@@ -156,6 +156,14 @@
             <option value="1">1.0 (標準)</option>
           </select>
         </label>
+        <label>VR の酔い対策 (視野の周りを暗く)
+          <select id="vignette">
+            <option value="off">オフ</option>
+            <option value="weak">弱</option>
+            <option value="strong">強 (Pimax など広い視野向け)</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="vrGentle"> VR では上下の動きを控えめに</label>
         <label><input type="checkbox" id="autoReturn"> スティックを離すと基準速度に戻る</label>
         <label><input type="checkbox" id="invertY"> 上下反転 (前に倒すと下がる)</label>
         <label><input type="checkbox" id="bgm"> BGM</label>
@@ -188,7 +196,7 @@
     </div>
   </div>
 </div>
-<script type="module" src="./js-9eb5860/main.js"></script>
+<script type="module" src="./js-9fa426a/main.js"></script>
 <script>
   // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
   if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {

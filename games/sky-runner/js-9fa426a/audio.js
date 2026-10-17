@@ -161,6 +161,48 @@ export const sfx = {
     noise(t, 1.5, 0.3, 2500, sfxBus, 'bandpass');
     osc('sawtooth', 70, t, 1.6, 0.25, sfxBus, 45);
   },
+  // やられたときの叫び声「あーっ」: 声帯の音 (のこぎり波) を、母音「あ」の響き (フォルマント) に通す
+  scream() {
+    if (!ctx) return;
+    const t = now(), dur = 1.4;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(330, t);
+    o.frequency.linearRampToValueAtTime(380, t + 0.15);
+    o.frequency.exponentialRampToValueAtTime(140, t + dur); // 落ちながら声が下がる
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 6;
+    const lg = ctx.createGain();
+    lg.gain.value = 9;
+    lfo.connect(lg).connect(o.frequency);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.5, t + 0.06);
+    g.gain.setValueAtTime(0.5, t + dur * 0.6);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    // 「あ」のフォルマント (約 800Hz・1200Hz・2600Hz)
+    for (const [f, q, v] of [[800, 8, 1], [1200, 9, 0.6], [2600, 10, 0.25]]) {
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = f;
+      bp.Q.value = q;
+      const fg = ctx.createGain();
+      fg.gain.value = v * 2.5;
+      o.connect(bp).connect(fg).connect(g);
+    }
+    g.connect(sfxBus);
+    o.start(t);
+    lfo.start(t);
+    o.stop(t + dur + 0.05);
+    lfo.stop(t + dur + 0.05);
+  },
+  // 殻に弾が跳ね返される音 (キンッ)
+  ricochet() {
+    if (!ctx) return;
+    const t = now();
+    osc('triangle', 2600, t, 0.12, 0.12, sfxBus, 1800);
+    osc('sine', 3900, t, 0.08, 0.06, sfxBus);
+  },
   lock() {
     if (!ctx) return;
     osc('square', 1760, now(), 0.05, 0.08, sfxBus);
@@ -803,14 +845,17 @@ export function setBGMEnabled(on) {
   if (!on) stopBGM();
 }
 
-// 曲を切り替える (曲の頭から)。mode: 'rock' (通常) | 'boss' | 'bonus'。true / false はボス戦 / 通常
-export function setBGMMode(mode) {
+// 曲を切り替える (曲の頭から)。mode: 'rock' (通常) | 'boss' | 'bonus'。true / false はボス戦 / 通常。
+// opts: { key, tempo } 通常の曲のキー (半音) とテンポ (ステージごとに上げる)
+export function setBGMMode(mode, opts) {
   const next = mode === true ? 'boss' : mode === false ? 'rock' : mode;
+  if (opts) {
+    transpose = opts.key || 0;
+    tempo = opts.tempo || 152;
+  }
   if (next === song) return;
   song = next;
   step = 0;
-  transpose = 0;
-  tempo = 152;
   // フランジャーを止めておく (前の曲の途中でかかっていた場合)
   if (band) for (const side of [band.gtrL, band.gtrR]) side.fx.flanger.wet.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
 }

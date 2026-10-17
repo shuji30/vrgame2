@@ -23,6 +23,9 @@ export class Avatar {
     this.recenterPending = true;
     this.destroyed = false;  // ゲームオーバーで爆発したら消す
     this.riding = false;     // ボーナスステージで龍に乗っている (一人称では機体を隠す)
+    this.stumbleT = 0;       // 茂みにつまずいてよろけている残り時間
+    this.fallT = -1;         // やられて地面に落ちている時間 (-1 = 落ちていない)
+    this.fallHold = false;   // true なら落ちたまま (ゲームオーバー)
     this.hitPoint = new THREE.Vector3();
     this.radius = RADIUS.ship;
     this.t = 0;
@@ -82,8 +85,17 @@ export class Avatar {
 
   recenter() { this.recenterPending = true; }
 
+  stumble() { this.stumbleT = 0.7; }
+
+  // hold: 落ちたまま起き上がらない (ゲームオーバー)
+  fall(hold = false) {
+    this.fallT = 0;
+    this.fallHold = hold;
+  }
+
   // kind: 'ship' | 'human'、view: '1st' | '3rd'
-  update(dt, { kind, view, vx, vy, thrust, presenting }) {
+  // sidePos: 横スクロールのときのプレイヤーの位置 (ワールド座標)
+  update(dt, { kind, view, vx, vy, thrust, presenting, sidePos }) {
     this.t += dt;
     this.radius = RADIUS[kind];
 
@@ -97,10 +109,17 @@ export class Avatar {
 
     for (const [k, m] of Object.entries(this.models)) {
       const show = k === kind && !(view === '1st' && (kind === 'human' || this.riding)) && !this.destroyed;
+      m.obj.rotation.order = view === 'side' ? 'YXZ' : 'XYZ';
       m.obj.visible = show;
       if (k !== kind) continue;
 
-      if (view === '1st') {
+      if (view === 'side') {
+        // リグは横を向いているので、ワールド座標をリグの中の座標に直して置き、向きは前 (-Z) に戻す
+        m.obj.position.copy(this.rig.worldToLocal(_v.copy(sidePos)));
+        const pitch = THREE.MathUtils.clamp(vy * 0.03, -0.4, 0.4);
+        m.pitch = (m.pitch || 0) + (pitch - (m.pitch || 0)) * Math.min(1, dt * 6);
+        m.obj.rotation.set(m.pitch, -this.rig.rotation.y, 0);
+      } else if (view === '1st') {
         m.obj.position.copy(this.anchor).sub(m.eye);
         m.obj.rotation.set(0, 0, 0); // コックピットは傾けない (VR 酔い防止)
       } else {
@@ -109,7 +128,25 @@ export class Avatar {
         const roll = THREE.MathUtils.clamp(-vx * 0.04, -0.7, 0.7);
         const pitch = THREE.MathUtils.clamp(vy * 0.025, -0.35, 0.35);
         m.obj.rotation.z += (roll - m.obj.rotation.z) * Math.min(1, dt * 6);
-        m.obj.rotation.x += (pitch - m.obj.rotation.x) * Math.min(1, dt * 6);
+        m.pitch = (m.pitch || 0) + (pitch - (m.pitch || 0)) * Math.min(1, dt * 6); // 追いかける傾きは別に持つ (よろけの分は上に足す)
+        m.obj.rotation.x = m.pitch;
+      }
+
+      // よろける: 前のめりになって、少し跳ねる
+      if (this.stumbleT > 0) {
+        this.stumbleT -= dt;
+        const k = Math.sin((1 - this.stumbleT / 0.7) * Math.PI);
+        m.obj.rotation.x -= k * 0.9;
+        m.obj.position.y += k * 0.4;
+      }
+      // やられた: うつ伏せに倒れながら、地面まで落ちる
+      if (this.fallT >= 0) {
+        this.fallT += dt;
+        const worldY = this.rig.position.y + m.obj.position.y;
+        m.obj.position.y -= Math.min(Math.max(0, worldY - 0.5), 4.9 * this.fallT * this.fallT);
+        m.obj.rotation.x = -Math.min(1.45, this.fallT * 3);
+        m.obj.rotation.z = Math.sin(this.fallT * 9) * 0.15 * Math.max(0, 1 - this.fallT);
+        if (!this.fallHold && this.fallT > 1.6) this.fallT = -1; // 起き上がって復帰する
       }
 
       // 炎: 速度に合わせて伸び縮みし、ちらつく
@@ -122,7 +159,8 @@ export class Avatar {
 
     // 当たり判定の中心: 一人称は頭、三人称はモデルの位置
     const m = this.models[kind];
-    if (view === '3rd' && m) m.obj.getWorldPosition(this.hitPoint);
+    if (view === 'side') this.hitPoint.copy(sidePos);
+    else if (view === '3rd' && m) m.obj.getWorldPosition(this.hitPoint);
     else this.camera.getWorldPosition(this.hitPoint);
 
     const h = Math.max(0, this.hitPoint.y);

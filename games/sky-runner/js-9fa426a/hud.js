@@ -171,7 +171,7 @@ export class DebugPanel {
     };
     line('INPUT DEBUG  (I / Back / 右グリップ で閉じる)', '#7fffd4', 26);
     line(`fps ${info.fps.toFixed(0)}  xr ${info.xr}  refSpace ${info.refSpace}  fbScale ${info.scale}`);
-    line(info.version || '');
+    line(`${info.version || ''}   draw calls ${info.calls ?? '-'}   triangles ${info.tris ?? '-'}`);
     const s = input.state;
     line(`source ${s.source}  move ${fmt(s.move.x)},${fmt(s.move.y)}  throttle ${fmt(s.throttle)}  fire ${s.fire || s.handFire.some((h) => h.fire)}`);
     y += 8;
