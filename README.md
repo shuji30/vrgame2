@@ -8,7 +8,8 @@
 | --- | --- | --- |
 | 1 | BEAT BLADE VR | [`games/beat-blade/`](games/beat-blade/) |
 | 2 | TURBO KART VR | [`games/turbo-kart/`](games/turbo-kart/) |
-| 3 | ふたりの休日 〜海の見える丘で〜 | https://shuji30.github.io/vrsample/ （外部リンク） |
+| 3 | SKY RUNNER XR（開発中） | [`games/sky-runner/`](games/sky-runner/) （開発は [vrgame4](../vrgame4) で行い、`node scripts/publish.mjs` でコピー） |
+| 4 | ふたりの休日 〜海の見える丘で〜 | https://shuji30.github.io/vrsample/ （外部リンク） |
 
 ゲームを追加するときは `games/<名前>/` にフォルダを作り、トップの `index.html` の `GAMES` 配列に 1 行足します。
 

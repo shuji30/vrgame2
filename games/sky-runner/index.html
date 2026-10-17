@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SKY RUNNER XR</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: "Segoe UI", "Hiragino Sans", "Meiryo", sans-serif; }
+  canvas { display: block; }
+  [hidden] { display: none !important; }
+  #overlay {
+    position: fixed; inset: 0; display: grid; place-items: center; padding: 16px;
+    background: linear-gradient(180deg, rgba(20,40,110,.55), rgba(0,0,0,.6));
+    color: #fff; z-index: 10;
+  }
+  .card { max-width: 640px; width: 100%; background: rgba(10,16,40,.78); border-radius: 16px; padding: 28px 32px; box-shadow: 0 10px 40px rgba(0,0,0,.4); }
+  h1 { margin: 0 0 4px; font-size: 40px; letter-spacing: .06em; color: #ffe14a; text-shadow: 3px 3px 0 #e2559a; font-style: italic; }
+  .lead { margin: 0 0 20px; opacity: .85; }
+  .buttons { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  button { font: inherit; font-weight: bold; font-size: 18px; padding: 12px 24px; border-radius: 10px; border: 0; cursor: pointer; background: #ffe14a; color: #1a1a40; }
+  button.secondary { background: #3ec0ff; }
+  button:disabled { background: #555; color: #999; cursor: not-allowed; }
+  .settings { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; font-size: 14px; }
+  select { font: inherit; padding: 4px 6px; }
+  .note { font-size: 13px; opacity: .8; margin: 4px 0; }
+  table { border-collapse: collapse; font-size: 13px; margin-top: 12px; width: 100%; }
+  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid rgba(255,255,255,.12); }
+  th { color: #ffe14a; font-weight: normal; }
+  .tablewrap { overflow-x: auto; }
+  a { color: #9fd0ff; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="overlay">
+  <div class="card">
+    <h1>SKY RUNNER XR</h1>
+    <p class="lead">市松模様の大地を駆け抜ける 3D シューティング (開発版: Phase 0〜1)</p>
+    <div class="buttons">
+      <button id="btnVR" disabled>VR で遊ぶ</button>
+      <button id="btnDesk" class="secondary">デスクトップで遊ぶ</button>
+    </div>
+    <div class="settings">
+      <label>VR の解像度
+        <select id="scale">
+          <option value="0.5">0.5 (軽い)</option>
+          <option value="0.75">0.75</option>
+          <option value="1">1.0 (標準)</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="autoReturn"> スティックを離すと基準速度に戻る</label>
+      <label><input type="checkbox" id="bgm"> BGM</label>
+      <label><input type="checkbox" id="engine"> エンジン音</label>
+    </div>
+    <p class="note" id="status">WebXR を確認しています…</p>
+    <p class="note" id="pads"></p>
+    <p class="note">Pimax など高解像度の PCVR で重い場合は、解像度を 0.5〜0.75 にしてください。入力の確認は I キー / パッドの Back / 右グリップ で表示できます。M キーで音を消せます。</p>
+    <p class="note" id="back" hidden><a href="../../">◀ ゲーム選択に戻る</a></p>
+    <div class="tablewrap">
+    <table>
+      <tr><th></th><th>VR</th><th>パッド</th><th>キーボード/マウス</th></tr>
+      <tr><td>移動</td><td>左スティック</td><td>左スティック/十字</td><td>マウス / WASD</td></tr>
+      <tr><td>アクセル/ブレーキ</td><td>右スティック前後</td><td>RT / LT</td><td>E・Shift / Q・Z</td></tr>
+      <tr><td>視点</td><td>B / Y</td><td>Y</td><td>V</td></tr>
+      <tr><td>ポーズ</td><td>X</td><td>START</td><td>Esc</td></tr>
+    </table>
+    </div>
+  </div>
+</div>
+<script type="module" src="./src/main.js"></script>
+<script>
+  // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
+  if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {
+    document.getElementById('back').hidden = false;
+    const v = document.createElement('script');
+    v.src = '../../version.js';
+    document.body.appendChild(v);
+  }
+</script>
+</body>
+</html>
