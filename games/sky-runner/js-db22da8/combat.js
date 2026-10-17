@@ -836,6 +836,14 @@ export class Combat {
   }
 
   // ---- 回復アイテム: 光る緑の結晶。通り抜けると取れる (近づくと吸い寄せられる)
+  // ボスを倒したとき: 残った敵の弾と、体当たりしてくる敵 (破片・ドローンなど) を消す
+  clearHostiles() {
+    for (const b of this.bullets) b.dead = true;
+    for (const e of this.enemies) {
+      if (e.kind !== 'boss' && (EXTRA[e.kind]?.kamikaze || e.kind === 'pillpart')) { e.dead = true; this.explode(e.mesh.position); }
+    }
+  }
+
   spawnItem(pos) {
     const g = new THREE.Group();
     g.add(new THREE.Mesh(GEO.item, MAT.item));
@@ -1535,7 +1543,7 @@ export class Combat {
             this.sparks.emit(s.pos, _b.set(0, 3, 4), WHITE, 0.8, 0.2);
             const host = e.core || e;
             if (host.reflectT <= 0) {
-              host.reflectT = 0.6;
+              host.reflectT = host.reflectEvery ?? 0.6;
               this.fireBullet(s.pos.clone(), ctx.player, 0, 'glint');
               sfx.ricochet();
             }
@@ -1672,7 +1680,7 @@ export class Combat {
   nearestInCone(origin, dir, angle, exclude = []) {
     let best = null, bestA = angle;
     for (const e of this.enemies) {
-      if (e.dead || e.noLock || exclude.includes(e)) continue;
+      if (e.dead || e.noLock || exclude.includes(e) || EXTRA[e.kind]?.shielded?.(e)) continue; // 盾のある敵 (いま倒せない) にはロックしない
       const v = _c.subVectors(e.mesh.position, origin);
       if (v.z > -8 || v.length() > 220) continue;
       const a = v.angleTo(dir);

@@ -16,7 +16,7 @@
 //   ceiling  天井がある面
 //   palette  地面の 2 色 (a, b)、霧と地平線 (fog)、空の上 (sky)、遠景の山 (mount)、柱の帯 (col)、茂みや木の葉 (bush)
 //   bgm      通常の曲のキー (半音) とテンポ
-//   boss     { type: 'serpent' | 'twin' | 'squad' | 'swarm' | 'mirror' (ミラーコア。tier 1〜3) | 'geodering' (晶洞の輪。tier 1〜2) | 'mine' (浮遊鉱山。escape 秒耐えれば撃破) | 'colossus' (磁鉄の巨像), hp, escape (秒。この時間で逃げる。0 = 倒すまで), diff (ボスラッシュで使う強さ) }
+//   boss     { type: 'serpent' | 'twin' | 'squad' | 'swarm' | 'mirror' (ミラーコア。tier 1〜3) | 'geodering' (晶洞の輪。tier 1〜2) | 'mine' (浮遊鉱山。escape 秒耐えれば撃破) | 'colossus' (磁鉄の巨像) | 'sun' (最終ボス), hp, escape (秒。この時間で逃げる。0 = 倒すまで), diff (ボスラッシュで使う強さ) }
 //   rush     ボスラッシュの順番 (18 面)
 
 export const STAGES = [
@@ -134,7 +134,7 @@ export const STAGES = [
     obstacles: { rock: 2, spike: 1.5, column: 1.5, lane: 0.33 },
     palette: { a: 0xd8583a, b: 0x401818, fog: 0x8a5040, sky: 0x300808, mount: 0x501818, col: ['#ffd8c8', '#601010'], bush: 0x6a3a1a },
     bgm: { key: 6, tempo: 166, song: 'grunge' },
-    boss: { type: 'serpent', hp: 900, escape: 0 },
+    boss: { type: 'serpent', hp: 700, escape: 0 },
   },
   {
     name: 'STORM DECK', kind: 'normal', length: 50, speed: 50, diff: 7, density: 1.4,
@@ -163,6 +163,7 @@ export const STAGES = [
       { type: 'mirror', hp: 180, tier: 2, escape: 0, diff: 3 },
       { type: 'squad', hp: 0, escape: 22, diff: 3 }, { type: 'geodering', tier: 1, escape: 22, diff: 4 },
       { type: 'mine', escape: 20, diff: 6 }, { type: 'colossus', hp: 280, escape: 0, diff: 6 },
+      { type: 'sun', hp: 600, escape: 0, diff: 8 }, // 最終ボス
     ],
   },
 ];
