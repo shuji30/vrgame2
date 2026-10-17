@@ -341,11 +341,11 @@ function leadNote(n, t, dur, spb, opts = {}) {
 // スライド (ギュイーン): 音程を一気に駆け上がり、頂点で大きくビブラートをかける。
 // ピッキングハーモニクス風に、1オクターブ+5度上の倍音を重ねてキュイッと鳴かせる
 function slideUp(from, to, t, dur, riseRatio = 0.45) {
+  const rise = dur * riseRatio;
   const f = band.lead.fx.wah.filter.frequency;
   f.cancelScheduledValues(t);
   f.setValueAtTime(900, t);
   f.exponentialRampToValueAtTime(2400, t + rise);
-  const rise = dur * riseRatio;
   for (const [mult, vol] of [[1, 0.75], [3, 0.22]]) {
     const o = ctx.createOscillator();
     o.type = 'sawtooth';
@@ -489,7 +489,8 @@ function playStep(s, t) {
 function schedule() {
   const spb = 60 / tempo / 4;
   while (nextTime < ctx.currentTime + 0.12) {
-    playStep(step, nextTime);
+    // 1ステップの演奏でエラーが出ても、BGM 全体が止まらないように次へ進める
+    try { playStep(step, nextTime); } catch (e) { console.error(e); }
     nextTime += spb;
     step = (step + 1) % STEPS;
   }
