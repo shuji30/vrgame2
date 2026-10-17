@@ -16,7 +16,7 @@ import { VERSION, loadBuildInfo } from './version.js';
 import { BGM_LIST, SE_LIST, captureAudioStream, initAudio, previewBGM, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, toggleMute } from './audio.js';
 
 // ---- 定数
-const X_LIMIT = 32;        // 左右の移動範囲 (m)
+const X_LIMIT = 96;        // 左右の移動範囲 (m)
 const Y_MAX = 20;          // 上昇できる高さ (リグの高さ, m)
 const MOVE_X = 18;         // スティックを倒しきったときの横移動速度 (m/s)
 const WHEEL_X_BOOST = 1.6; // ハンコンは切る角度が小さくなりがちなので、横移動を速くする
@@ -53,7 +53,7 @@ try { progress = Math.max(1, Math.min(18, Number(localStorage.getItem('skyrunner
 try { hiScore = Number(localStorage.getItem('skyrunner.hi')) || 0; } catch (_) { /* 保存なし */ }
 
 // ---- 設定 (localStorage に保存)
-const settings = { scale: 1.0, autoReturn: true, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true };
+const settings = { scale: 1.0, autoReturn: true, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true, autoFire: true };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('skyrunner.settings') || '{}')); } catch (_) { /* 保存なし */ }
 // 開発用: ?player=ship|human&view=1st|3rd で上書きする
 for (const key of ['player', 'view', 'mode']) {
@@ -210,7 +210,9 @@ function applyStage(n, first = false) {
   }
   S.stageT = 0;
   S.phaseT = 0;
-  S.rushIndex = Math.max(0, Number(new URLSearchParams(location.search).get('rush')) || 0); // 開発用: ?rush=7 でボスラッシュの途中から
+  // ボスラッシュの何体目から始めるか (CONTINUE で太陽の前から / 開発用: ?rush=7)
+  S.rushIndex = pendingRush ?? Math.max(0, Number(new URLSearchParams(location.search).get('rush')) || 0);
+  pendingRush = null;
   const st = stageAt(n);
   combat.level = st.diff;
   combat.density = st.density;
@@ -286,11 +288,21 @@ for (const m of BGM_LIST) {
 for (const e of SE_LIST) document.getElementById('seList').append(sndButton(e.name, e.desc, () => { initAudio(); e.play(); }));
 document.getElementById('soundTest').addEventListener('toggle', (ev) => { if (!ev.target.open) stopPreview(); });
 
+// 最終ボス (太陽) の前まで来たら、そこから続けられる
+let pendingRush = null;
+let sunCheckpoint = false;
+try { sunCheckpoint = localStorage.getItem('skyrunner.sun') === '1'; } catch (_) { /* 保存なし */ }
+function saveSunCheckpoint() {
+  sunCheckpoint = true;
+  try { localStorage.setItem('skyrunner.sun', '1'); } catch (_) { /* 保存不可 */ }
+}
+const sunIndex = () => STAGES[STAGE_COUNT - 1].rush.findIndex((r) => r.type === 'sun');
+
 const showHiScore = () => {
   document.getElementById('hiscore').textContent = String(hiScore);
   const btn = document.getElementById('btnContinue');
   btn.hidden = progress <= 1;
-  btn.querySelector('small').textContent = `STAGE ${progress} から`;
+  btn.querySelector('small').textContent = progress === STAGE_COUNT && sunCheckpoint ? '最終ボスの前から' : `STAGE ${progress} から`;
 };
 
 function toTitle() {
@@ -396,7 +408,31 @@ function allClear() {
   showMsg('ALL CLEAR!!', `CONGRATULATIONS!  SCORE ${combat.score}`, 8);
   sfx.clear();
   say('Congratulations');
-  setBGMMode('bonus');
+  setBGMMode('ending', { key: 0, tempo: 152 }); // エンディングの曲 (ステージのテンポの影響を受けない)
+}
+
+// ボスの名前と、倒し方のひとこと (初めて会ったときだけ WARNING の 2 行目に出す)
+const BOSS_INFO = {
+  serpent: ['プリズム連珠', '頭を狙え'],
+  twin: ['双晶', '2 つの頭を狙え'],
+  squad: ['ロボット部隊', '縦一列の突進をよけて撃て'],
+  swarm: ['旋回する群れ', '逃げる前に全部落とせ'],
+  mirror: ['ミラーコア', '鏡は弾を撃ち返す。すき間から核を撃て'],
+  geodering: ['晶洞の輪', '殻が開いて光ったときだけ倒せる'],
+  mine: ['浮遊鉱山', '壊せない。耐えろ、出撃口を壊せ'],
+  colossus: ['磁鉄の巨像', '電極を先に壊せ'],
+  sun: ['プリズムの太陽', '最後の戦い'],
+  crown: ['氷晶の冠', '赤い印につららが落ちる。つららを壊せば雨が減る'],
+};
+let bossSeen = new Set();
+try { bossSeen = new Set(JSON.parse(localStorage.getItem('skyrunner.bossSeen') || '[]')); } catch (_) { /* 保存なし */ }
+function warningText(def) {
+  const info = BOSS_INFO[def?.type];
+  if (!info) return '巨大な敵が接近中';
+  if (bossSeen.has(def.type)) return info[0];
+  bossSeen.add(def.type);
+  try { localStorage.setItem('skyrunner.bossSeen', JSON.stringify([...bossSeen])); } catch (_) { /* 保存不可 */ }
+  return `${info[0]} — ${info[1]}`;
 }
 
 // ステージの進行: 通常 → WARNING → ボス → STAGE CLEAR → 次のステージ
@@ -407,7 +443,7 @@ function updateStage(dt) {
   if (S.phase === 'normal' && S.stageT > S.stageLen) {
     S.phase = 'warning';
     S.phaseT = 0;
-    showMsg('WARNING!!', '巨大な敵が接近中', 3.5);
+    showMsg('WARNING!!', warningText(st.kind === 'rush' ? st.rush[S.rushIndex] : st.boss), 3.5);
     sfx.warning();
   } else if (S.phase === 'warning' && S.phaseT > 3.5) {
     S.phase = 'boss';
@@ -415,7 +451,7 @@ function updateStage(dt) {
     const def = st.kind === 'rush' ? st.rush[S.rushIndex] : st.boss;
     combat.level = def.diff ?? st.diff;
     combat.spawnBoss(def);
-    setBGMMode('boss');
+    setBGMMode(def.type === 'sun' ? 'finale' : 'boss'); // 最終ボスは専用の曲
   } else if (S.phase === 'boss' && (combat.bossDefeated || combat.bossEscaped)) {
     const escaped = combat.bossEscaped;
     combat.bossDefeated = combat.bossEscaped = false;
@@ -426,7 +462,9 @@ function updateStage(dt) {
       S.rushIndex++;
       S.phase = 'warning';
       S.phaseT = -1.5; // WARNING の 3.5 秒と合わせて、ボスの間は 5 秒
-      showMsg(`BOSS ${S.rushIndex + 1} / ${st.rush.length}`, '回復アイテムを取って、次のボスへ', 3);
+      const next = st.rush[S.rushIndex];
+      showMsg(`BOSS ${S.rushIndex + 1} / ${st.rush.length}`, next.type === 'sun' ? warningText(next) : '回復アイテムを取って、次のボスへ', 3);
+      if (next.type === 'sun') saveSunCheckpoint(); // 最終ボスの前まで来たら、CONTINUE で太陽の前から始められる
       combat.spawnItem(new THREE.Vector3(P.x, Math.max(3, P.y), -60));
       sfx.warning();
     } else {
@@ -682,11 +720,13 @@ function updateCombat(dt, speed, a) {
   }
 
   // 機関砲: 人間の一人称 VR は手のコントローラーから、それ以外は機体の銃口から
-  let guns = [], firing = a.fire;
+  // 自動で撃つ (設定): プレイ中は撃ちっぱなし (ボーナスステージ・ポーズ中は撃たない)
+  const auto = settings.autoFire && S.mode === 'play' && !S.paused && !['bonus', 'bonusEnd'].includes(S.phase);
+  let guns = [], firing = a.fire || auto;
   if (humanVR) {
     a.handFire.forEach((h, i) => { if (h.fire) guns.push(controllerRay(h.controller, handAims[i % 2])); });
     firing = firing || guns.length > 0;
-    if (!guns.length && a.fire) guns = [{ origin: eyeW, aimOrigin, aimDir }];
+    if (!guns.length && firing) guns = [{ origin: eyeW, aimOrigin, aimDir }];
   } else {
     firing = firing || a.handFire.some((h) => h.fire);
     guns = avatar.muzzles(kind).map((p) => ({ origin: p, aimOrigin, aimDir }));
@@ -885,7 +925,9 @@ function update(dt) {
     life: Math.max(0, Math.round(S.life)),
     lifeMax: LIFE_MAX,
     blink: S.life < LIFE_MAX * 0.3 && Math.floor(performance.now() / 250) % 2 === 0,
-    stage: `${S.stage}/${STAGE_COUNT} ${stageAt(S.stage).name}`,
+    stageNo: S.stage, stageCount: STAGE_COUNT,
+    // ボスラッシュの間は、何体目かも出す
+    stageName: stageAt(S.stage).kind === 'rush' && ['warning', 'boss'].includes(S.phase) ? `${stageAt(S.stage).name}  BOSS ${S.rushIndex + 1}/${stageAt(S.stage).rush.length}` : stageAt(S.stage).name,
     hi: Math.max(hiScore, combat.score),
     mult: Math.round(combat.mult * 10) / 10,
     boss: combat.bossRatio === null ? null : Math.round(combat.bossRatio * 100) / 100,
@@ -955,7 +997,7 @@ chkReturn.checked = settings.autoReturn;
 const selVignette = document.getElementById('vignette');
 selVignette.value = settings.vignette;
 selVignette.addEventListener('change', () => { settings.vignette = selVignette.value; saveSettings(); });
-for (const key of ['bgm', 'engine', 'invertY', 'vrGentle']) {
+for (const key of ['bgm', 'engine', 'invertY', 'vrGentle', 'autoFire']) {
   const el = document.getElementById(key);
   el.checked = settings[key];
   el.addEventListener('change', () => { settings[key] = el.checked; saveSettings(); applyAudioSettings(); });
@@ -966,7 +1008,10 @@ addEventListener('keydown', (e) => {
 selScale.addEventListener('change', () => { settings.scale = Number(selScale.value); saveSettings(); });
 chkReturn.addEventListener('change', () => { settings.autoReturn = chkReturn.checked; saveSettings(); });
 btnDesk.addEventListener('click', () => startPlay(selectedStage)); // クリックの情報をステージ番号と取り違えないように
-document.getElementById('btnContinue').addEventListener('click', () => startPlay(progress));
+document.getElementById('btnContinue').addEventListener('click', () => {
+  if (progress === STAGE_COUNT && sunCheckpoint) pendingRush = sunIndex(); // 最終ボスの前から
+  startPlay(progress);
+});
 btnVR.addEventListener('click', enterVR);
 if (new URLSearchParams(location.search).has('play')) startPlay(); // 開発用: ?play ですぐ開始
 if (new URLSearchParams(location.search).has('bonus')) { // 開発用: ?play&bonus でボーナスステージ (5 面) から始める

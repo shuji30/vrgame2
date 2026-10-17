@@ -4,11 +4,13 @@ import { GEODERING_KINDS, spawnGeodeRing } from './geodering.js';
 import { MINE_KINDS, spawnMine } from './mine.js';
 import { COLOSSUS_KINDS, spawnColossus } from './colossus.js';
 import { SUN_KINDS, spawnSun } from './sun.js';
+import { CROWN_KINDS, spawnCrown } from './crown.js';
 
 export const BOSSES = {
   mirror: { spawn: spawnMirror, kinds: MIRROR_KINDS },       // ミラーコア: 鏡が弾を撃ち返す
   geodering: { spawn: spawnGeodeRing, kinds: GEODERING_KINDS }, // 晶洞の輪: 殻を開いたときだけ倒せる群れ
   mine: { spawn: spawnMine, kinds: MINE_KINDS },               // 浮遊鉱山: 壊せない母艦。耐えれば去る
   colossus: { spawn: spawnColossus, kinds: COLOSSUS_KINDS },   // 磁鉄の巨像: 電極のバリア、地面の破片を投げる
-  sun: { spawn: spawnSun, kinds: SUN_KINDS },                  // 最終ボス プリズムの太陽: 鏡 → 投げる → 開いたときだけ
+  sun: { spawn: spawnSun, kinds: SUN_KINDS },
+  crown: { spawn: spawnCrown, kinds: CROWN_KINDS },            // 氷晶の冠: つららの雨 (地面に予告の印)                  // 最終ボス プリズムの太陽: 鏡 → 投げる → 開いたときだけ
 };

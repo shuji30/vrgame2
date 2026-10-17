@@ -16,7 +16,7 @@
 //   ceiling  天井がある面
 //   palette  地面の 2 色 (a, b)、霧と地平線 (fog)、空の上 (sky)、遠景の山 (mount)、柱の帯 (col)、茂みや木の葉 (bush)
 //   bgm      通常の曲のキー (半音) とテンポ
-//   boss     { type: 'serpent' | 'twin' | 'squad' | 'swarm' | 'mirror' (ミラーコア。tier 1〜3) | 'geodering' (晶洞の輪。tier 1〜2) | 'mine' (浮遊鉱山。escape 秒耐えれば撃破) | 'colossus' (磁鉄の巨像) | 'sun' (最終ボス), hp, escape (秒。この時間で逃げる。0 = 倒すまで), diff (ボスラッシュで使う強さ) }
+//   boss     { type: 'serpent' | 'twin' | 'squad' | 'swarm' | 'mirror' (ミラーコア。tier 1〜3) | 'geodering' (晶洞の輪。tier 1〜2) | 'mine' (浮遊鉱山。escape 秒耐えれば撃破) | 'colossus' (磁鉄の巨像) | 'sun' (最終ボス) | 'crown' (氷晶の冠), hp, escape (秒。この時間で逃げる。0 = 倒すまで), diff (ボスラッシュで使う強さ) }
 //   rush     ボスラッシュの順番 (18 面)
 
 export const STAGES = [
@@ -72,7 +72,7 @@ export const STAGES = [
     obstacles: { crystal: 2.5, rock: 1, tree: 1, lane: 0.3 },
     palette: { a: 0xdce8f2, b: 0x6aa8d8, fog: 0xf0f8ff, sky: 0x4a78c0, mount: 0x8aa8d0, col: ['#ffffff', '#5a8ac8'], bush: 0x4a8a8a },
     bgm: { key: 2, tempo: 158, song: 'classical' },
-    boss: { type: 'serpent', hp: 520, escape: 0 },
+    boss: { type: 'crown', hp: 300, escape: 0 },
   },
   {
     name: 'STONE VALLEY', kind: 'normal', length: 50, speed: 45, diff: 5, density: 1.2,
