@@ -94,7 +94,7 @@ const ride = new SledRide(scene);
 combat.forceWave = new URLSearchParams(location.search).get('wave'); // 開発用: ?wave=moai などで出す敵を固定する
 loadEnemyModels('./assets/enemies.glb').catch((e) => console.error('敵のモデルを読み込めませんでした', e));
 debugPanel.visible = new URLSearchParams(location.search).has('debug');
-if (debugPanel.visible) window.__combat = combat; // 開発用: ?debug のときだけ、戦闘の中身を触れるようにする
+if (debugPanel.visible) Object.assign(window, { __combat: combat, __input: input }); // 開発用: ?debug のときだけ、戦闘と入力の中身を見られるようにする
 
 // VR の酔い対策: 速く飛んでいるときや大きく動いているときに、視野の周りを暗くする
 const vignette = new Vignette(camera);
@@ -210,7 +210,7 @@ function applyStage(n, first = false) {
   }
   S.stageT = 0;
   S.phaseT = 0;
-  S.rushIndex = 0;
+  S.rushIndex = Math.max(0, Number(new URLSearchParams(location.search).get('rush')) || 0); // 開発用: ?rush=7 でボスラッシュの途中から
   const st = stageAt(n);
   combat.level = st.diff;
   combat.density = st.density;
@@ -419,6 +419,7 @@ function updateStage(dt) {
   } else if (S.phase === 'boss' && (combat.bossDefeated || combat.bossEscaped)) {
     const escaped = combat.bossEscaped;
     combat.bossDefeated = combat.bossEscaped = false;
+    combat.clearHostiles(); // 残った敵の弾や破片を消す
     S.phaseT = 0;
     if (st.kind === 'rush' && S.rushIndex < st.rush.length - 1) {
       // ボスラッシュ: 次のボスへ
@@ -555,7 +556,7 @@ function moveSide(dt, a) {
 }
 
 function onHit(damage) {
-  if (S.invuln > 0 || S.mode !== 'play' || S.phase === 'bonus' || S.phase === 'bonusEnd') return;
+  if (S.invuln > 0 || S.mode !== 'play' || ['bonus', 'bonusEnd', 'clear', 'ending'].includes(S.phase)) return; // クリアのあとは当たらない
   S.hits++;
   vignette.hit(0.4 + damage / 60);
   S.life -= damage;

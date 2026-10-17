@@ -28,7 +28,8 @@ const hatchOffset = (i, side) => (side ? new THREE.Vector3(0, -5 + i * 5, 13) : 
 export function spawnMine(c, def) {
   const side = c.sideMode;
   const escape = def.escape || 35;
-  const grp = { type: 'mine', t: 0, escape, total: 1, kills: 0, leaving: false, bonus: 8000, endure: true };
+  // 耐えきったときのボーナスは、壊した出撃口の数で増える (3000 + 1 つ 1000、最大 12000)
+  const grp = { type: 'mine', t: 0, escape, total: 1, kills: 0, leaving: false, bonus: 3000, endure: true };
   grp.ratio = () => Math.max(0, 1 - grp.t / grp.escape); // 去るまでの残り時間
   c.bossGroup = grp;
   const rockM = mat(0x4a3a4a, 0x000000, { roughness: 0.9 });
@@ -95,7 +96,11 @@ export const MINE_KINDS = {
       // 出撃口: 壊れていたら 8 秒で直す。直っている口から、順にドローンを送り出す
       for (let i = 0; i < 3; i++) {
         const h = e.hatches[i];
-        if (h && h.dead) { e.hatches[i] = null; e.down[i] = 6; }
+        if (h && h.dead) {
+          e.hatches[i] = null;
+          e.down[i] = 6;
+          if (h.hp <= 0) grp.bonus = Math.min(12000, grp.bonus + 1000); // 撃って壊した口
+        }
         if (!e.hatches[i] && !grp.leaving && (e.down[i] -= dt) <= 0) makeHatch(c, e, i);
       }
       e.launchT -= dt;
@@ -130,7 +135,7 @@ export const MINE_KINDS = {
     kamikaze: true,
     sideAbs: true,
     update(c, e, dt, scroll, ctx, p) {
-      if (e.t < 1.6) {
+      if (e.t < 0.8) { // 追うのは最初の 0.8 秒だけ (そのあとは横へよければ外れる)
         const want = _a.subVectors(ctx.player, p).normalize().multiplyScalar(e.speed);
         e.vel.lerp(want, Math.min(1, dt * 2.2));
       }
