@@ -408,7 +408,7 @@ function allClear() {
   showMsg('ALL CLEAR!!', `CONGRATULATIONS!  SCORE ${combat.score}`, 8);
   sfx.clear();
   say('Congratulations');
-  setBGMMode('bonus');
+  setBGMMode('ending', { key: 0, tempo: 152 }); // エンディングの曲 (ステージのテンポの影響を受けない)
 }
 
 // ボスの名前と、倒し方のひとこと (初めて会ったときだけ WARNING の 2 行目に出す)
@@ -422,6 +422,8 @@ const BOSS_INFO = {
   mine: ['浮遊鉱山', '壊せない。耐えろ、出撃口を壊せ'],
   colossus: ['磁鉄の巨像', '電極を先に壊せ'],
   sun: ['プリズムの太陽', '最後の戦い'],
+  crown: ['氷晶の冠', '赤い印につららが落ちる。つららを壊せば雨が減る'],
+  worm: ['砂岩の大蛇', '茶色い印から飛び出す。頭だけを狙え'],
 };
 let bossSeen = new Set();
 try { bossSeen = new Set(JSON.parse(localStorage.getItem('skyrunner.bossSeen') || '[]')); } catch (_) { /* 保存なし */ }
@@ -450,7 +452,7 @@ function updateStage(dt) {
     const def = st.kind === 'rush' ? st.rush[S.rushIndex] : st.boss;
     combat.level = def.diff ?? st.diff;
     combat.spawnBoss(def);
-    setBGMMode('boss');
+    setBGMMode(def.type === 'sun' ? 'finale' : 'boss'); // 最終ボスは専用の曲
   } else if (S.phase === 'boss' && (combat.bossDefeated || combat.bossEscaped)) {
     const escaped = combat.bossEscaped;
     combat.bossDefeated = combat.bossEscaped = false;
@@ -924,7 +926,9 @@ function update(dt) {
     life: Math.max(0, Math.round(S.life)),
     lifeMax: LIFE_MAX,
     blink: S.life < LIFE_MAX * 0.3 && Math.floor(performance.now() / 250) % 2 === 0,
-    stage: `${S.stage}/${STAGE_COUNT} ${stageAt(S.stage).name}`,
+    stageNo: S.stage, stageCount: STAGE_COUNT,
+    // ボスラッシュの間は、何体目かも出す
+    stageName: stageAt(S.stage).kind === 'rush' && ['warning', 'boss'].includes(S.phase) ? `${stageAt(S.stage).name}  BOSS ${S.rushIndex + 1}/${stageAt(S.stage).rush.length}` : stageAt(S.stage).name,
     hi: Math.max(hiScore, combat.score),
     mult: Math.round(combat.mult * 10) / 10,
     boss: combat.bossRatio === null ? null : Math.round(combat.bossRatio * 100) / 100,
