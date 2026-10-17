@@ -1,9 +1,9 @@
 // 戦闘: 敵、敵弾、自機の機関砲、ロックオン、追尾ミサイル、爆発と煙
 import * as THREE from 'three';
 import { EXTRA } from './enemies.js';
-import { MIRROR_KINDS, spawnMirror } from './bosses/mirror.js';
+import { BOSSES } from './bosses/index.js';
 
-Object.assign(EXTRA, MIRROR_KINDS); // 新しいボスの部品も、追加の敵と同じ形で動かす
+for (const b of Object.values(BOSSES)) Object.assign(EXTRA, b.kinds); // 新しいボスの部品も、追加の敵と同じ形で動かす
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { sfx } from './audio.js';
@@ -896,7 +896,7 @@ export class Combat {
     this.bossDefeated = false;
     this.bossEscaped = false;
     if (def.type === 'squad' || def.type === 'swarm') return this.spawnBossGroup(def);
-    if (def.type === 'mirror') return spawnMirror(this, def); // ミラーコア (src/bosses/mirror.js)
+    if (BOSSES[def.type]) return BOSSES[def.type].spawn(this, def); // 新しいボス (src/bosses/)
     const lv = this.level;
     const twin = def.type === 'twin';
     const hp = def.hp || Math.round((300 + lv * 100) * (twin ? 1.4 : 1));
@@ -986,7 +986,7 @@ export class Combat {
     }
     if (alive.length === 0 && g.t > 1) {
       this.bossGroup = null;
-      if (g.kills >= g.total) {
+      if (g.kills >= g.total || g.endure) { // endure: 耐えきれば撃破扱い (壊せない母艦)
         this.bossDefeated = true;
         this.lastBossBonus = Math.round((g.bonus ?? 5000) * this.level * this.mult);
         this.score += this.lastBossBonus;
