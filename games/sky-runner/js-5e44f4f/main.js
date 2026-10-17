@@ -8,6 +8,7 @@ import { Combat, MISSILE_MAX, loadEnemyModels } from './combat.js';
 import { STAGES, STAGE_COUNT, stageAt } from './stages.js';
 import { Vignette, VIGNETTE_LEVELS } from './comfort.js';
 import { CEIL_Y } from './world.js';
+import { TouchControls, isTouchDevice } from './touch.js';
 import { THEMES } from './world.js';
 import { VERSION, loadBuildInfo } from './version.js';
 import { initAudio, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, toggleMute } from './audio.js';
@@ -32,7 +33,7 @@ const READY_TIME = 2.5;    // 開始時に 0 から基準速度までゆっく�
 const DEV_STAGE_LEN = Number(new URLSearchParams(location.search).get('stageLen')) || 0; // 開発用: ?stageLen=10 でボスまでを短くする
 const DEV_START_STAGE = Number(new URLSearchParams(location.search).get('stage')) || 1; // 開発用: ?stage=7 で途中のステージから
 const LIVES = 3;
-const EXTEND_EVERY = 50000; // この点数ごとに残機が 1 増える
+const EXTENDS = [100000, 300000, 600000, 1000000]; // この点数で残機が 1 増える
 const LIVES_MAX = 5;
 const BONUS_LEN = 20;      // ボーナスステージの長さ (s)
 const BONUS_TREE = 500;    // 木 1 本の点数
@@ -41,6 +42,8 @@ const HEAL = 35;           // 回復アイテム 1 個で戻るライフ
 const OBSTACLE_DAMAGE = 20;
 
 let hiScore = 0;
+let progress = 1; // 到達した面 (タイトルの CONTINUE で、そこから始められる)
+try { progress = Math.max(1, Math.min(18, Number(localStorage.getItem('skyrunner.progress')) || 1)); } catch (_) { /* 保存なし */ }
 try { hiScore = Number(localStorage.getItem('skyrunner.hi')) || 0; } catch (_) { /* 保存なし */ }
 
 // ---- 設定 (localStorage に保存)
@@ -71,6 +74,8 @@ camera.position.set(0, 1.6, 0);
 const world = new World(scene);
 const input = new Input(renderer.domElement);
 const hud = new Hud(camera);
+const touch = new TouchControls(document.getElementById('touch'));
+input.touch = touch;
 const debugPanel = new DebugPanel(rig);
 const avatar = new Avatar(scene, rig, camera);
 avatar.load('./assets/').catch((e) => console.error('モデルを読み込めませんでした', e));
@@ -134,7 +139,7 @@ const S = {
   lives: LIVES,
   life: LIFE_MAX,
   lowLifeT: 0,
-  nextExtend: EXTEND_EVERY,
+  extendIdx: 0,
   overT: 0,
   paused: false,
   factor: 1,            // アクセル/ブレーキの倍率
@@ -160,10 +165,11 @@ const overlay = document.getElementById('overlay');
 
 function startPlay(stageNo) {
   if (!Number.isInteger(stageNo)) stageNo = DEV_START_STAGE;
+  S.fromStart = stageNo === 1;
   initAudio();
   Object.assign(S, {
     mode: 'play', paused: false, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0, pz: SIDE_Z_START, vz: 0,
-    stage: 1, phase: 'normal', phaseT: 0, stageT: 0, baseSpeed: SPEED.base, lives: LIVES, life: LIFE_MAX, lowLifeT: 0, nextExtend: EXTEND_EVERY, overT: 0,
+    stage: 1, phase: 'normal', phaseT: 0, stageT: 0, baseSpeed: SPEED.base, lives: LIVES, life: LIFE_MAX, lowLifeT: 0, extendIdx: 0, overT: 0, slowT: 0,
   });
   if (isSide()) S.py = 8; // 横スクロールは画面の中ほどの高さから
   world.clear();
@@ -184,6 +190,10 @@ function startPlay(stageNo) {
 // ステージ表の内容を反映する
 function applyStage(n, first = false) {
   S.stage = n;
+  if (n > progress && n <= STAGE_COUNT) {
+    progress = n;
+    try { localStorage.setItem('skyrunner.progress', String(n)); } catch (_) { /* 保存不可 */ }
+  }
   S.stageT = 0;
   S.phaseT = 0;
   S.rushIndex = 0;
@@ -194,7 +204,9 @@ function applyStage(n, first = false) {
   world.applyTheme(st.palette);
   world.setObstacles(st.obstacles);
   world.setCeiling(st.ceiling);
-  S.baseSpeed = st.speed;
+  S.baseTarget = st.speed;
+  if (first) S.baseSpeed = st.speed;
+  combat.ceilingY = st.ceiling ? CEIL_Y - 8 : Infinity;
   S.stageLen = DEV_STAGE_LEN || st.length;
   setBGMMode('rock', st.bgm);
   const title = `STAGE ${n}`;
@@ -216,7 +228,12 @@ function togglePause(p) {
   setPaused(p);
 }
 
-const showHiScore = () => { document.getElementById('hiscore').textContent = String(hiScore); };
+const showHiScore = () => {
+  document.getElementById('hiscore').textContent = String(hiScore);
+  const btn = document.getElementById('btnContinue');
+  btn.hidden = progress <= 1;
+  btn.querySelector('small').textContent = `STAGE ${progress} から`;
+};
 
 function toTitle() {
   S.mode = 'title';
@@ -324,7 +341,9 @@ function updateStage(dt) {
   } else if (S.phase === 'warning' && S.phaseT > 3.5) {
     S.phase = 'boss';
     S.phaseT = 0;
-    combat.spawnBoss(st.kind === 'rush' ? st.rush[S.rushIndex] : st.boss);
+    const def = st.kind === 'rush' ? st.rush[S.rushIndex] : st.boss;
+    combat.level = def.diff ?? st.diff;
+    combat.spawnBoss(def);
     setBGMMode('boss');
   } else if (S.phase === 'boss' && (combat.bossDefeated || combat.bossEscaped)) {
     const escaped = combat.bossEscaped;
@@ -334,13 +353,13 @@ function updateStage(dt) {
       // ボスラッシュ: 次のボスへ
       S.rushIndex++;
       S.phase = 'warning';
-      S.phaseT = 1.5;
-      showMsg(`BOSS ${S.rushIndex + 1} / ${st.rush.length}`, '', 2);
+      S.phaseT = -1.5; // WARNING の 3.5 秒と合わせて、ボスの間は 5 秒
+      showMsg(`BOSS ${S.rushIndex + 1} / ${st.rush.length}`, '回復アイテムを取って、次のボスへ', 3);
+      combat.spawnItem(new THREE.Vector3(P.x, Math.max(3, P.y), -60));
       sfx.warning();
     } else {
       S.phase = 'clear';
-      showMsg('STAGE CLEAR!', escaped ? '敵は逃げ去った' : `BOSS BONUS ${10000 * st.diff}`, 4.5);
-      if (!escaped) combat.score += 10000 * st.diff;
+      showMsg('STAGE CLEAR!', escaped ? '敵は逃げ去った' : `BOSS BONUS ${combat.lastBossBonus}`, 4.5);
       sfx.clear();
       setBGMMode('rock', st.bgm);
     }
@@ -361,8 +380,8 @@ function updateStage(dt) {
     nextStage();
   }
   // 点数が一定を超えるごとに残機を増やす
-  if (combat.score >= S.nextExtend) {
-    S.nextExtend += EXTEND_EVERY;
+  if (S.extendIdx < EXTENDS.length && combat.score >= EXTENDS[S.extendIdx]) {
+    S.extendIdx++;
     if (S.lives < LIVES_MAX) {
       S.lives++;
       showMsg('EXTEND!', '残機 +1', 1.5);
@@ -389,7 +408,7 @@ function startBonus(title = 'BONUS STAGE', name = '') {
   ride.start();
   avatar.riding = true;
   setBGMMode('bonus');
-  showMsg(title, `${name ? name + ' - ' : ''}BONUS STAGE: 龍に乗って木をなぎ倒せ!`, 3);
+  showMsg(title, `${name ? name + ' - ' : ''}BONUS STAGE: 水晶のそりで木をなぎ倒せ!`, 3);
   say('Bonus stage');
 }
 
@@ -433,7 +452,7 @@ function gameOver(cleared = false) {
   S.paused = false;
   setBGMMode(false);
   stopBGM();
-  if (combat.score > hiScore) {
+  if (S.fromStart && combat.score > hiScore) { // ハイスコアは 1 面から通したときだけ
     hiScore = combat.score;
     try { localStorage.setItem('skyrunner.hi', String(hiScore)); } catch (_) { /* 保存不可 */ }
   }
@@ -492,7 +511,7 @@ function onHit(damage) {
   }
   S.life = LIFE_MAX;
   S.invuln = 3;
-  S.factor = Math.min(S.factor, 0.75);
+  slowDown(0.75, 1.5);
   flash.material.opacity = 0.8;
   sfx.damage();
   sfx.explode(true);
@@ -501,11 +520,17 @@ function onHit(damage) {
   showMsg('MISS!', `残機 ${S.lives}`, 2);
 }
 
+// 減速: 速さの倍率を to まで、なめらかに落とす
+function slowDown(to, time) {
+  S.slowTo = to;
+  S.slowT = time;
+}
+
 // 人間が茂みに足を引っかけた: ダメージは受けず、よろけて減速する
 function stumble() {
   if (S.invuln > 0) return;
   S.invuln = 0.8;
-  S.factor = Math.min(S.factor, 0.6);
+  slowDown(0.6, 1);
   avatar.stumble();
   sfx.hit();
   input.rumble(0.5, 150);
@@ -633,7 +658,7 @@ function update(dt) {
     }
     if (S.overT > 2) {
       if (a.back) toTitle();
-      else if (a.confirm) startPlay();
+      else if (a.confirm || (a.fire && a.source === 'touch')) startPlay(); // タッチは射撃ボタンでもう一度
     }
   } else {
     if (a.pause) togglePause(!S.paused);
@@ -662,8 +687,14 @@ function update(dt) {
       S.factor = clamp(S.factor, SPEED.min, SPEED.max);
 
       S.ready = Math.min(1, S.ready + dt / READY_TIME);
+      // 基準速度は、面が変わっても 3 秒ほどかけて移る。MISS やつまずきの減速も、急には落とさない
+      S.baseSpeed = approach(S.baseSpeed, S.baseTarget ?? S.baseSpeed, 4 * dt);
+      if (S.slowT > 0) {
+        S.slowT -= dt;
+        S.factor = approach(S.factor, Math.min(S.factor, S.slowTo), 1.2 * dt);
+      }
       speed = S.baseSpeed * S.factor * ease(S.ready);
-      combat.mult = 1 + Math.max(0, S.factor - 1) * 2; // 1.5 倍速でスコア 2 倍
+      combat.mult = 1 + Math.max(0, S.factor - 1) * 0.6; // 1.5 倍速でスコア 1.3 倍
       updateStage(dt);
       movePlayer(dt, a);
       S.dist += speed * dt;
@@ -716,7 +747,7 @@ function update(dt) {
   {
     const lvl = renderer.xr.isPresenting ? VIGNETTE_LEVELS[settings.vignette] ?? 0 : 0;
     const motion = play && running
-      ? THREE.MathUtils.clamp(Math.max(0, speed / S.baseSpeed - 0.85) * 1.6 + Math.abs(S.vy) / MOVE_Y * 0.7 + Math.abs(S.vx) / MOVE_X * 0.5 + Math.abs(S.vz) / MOVE_X * 0.3, 0, 1)
+      ? THREE.MathUtils.clamp(Math.max(0, speed / SPEED.base - 0.85) * 1.6 + Math.abs(S.vy) / MOVE_Y * 0.7 + Math.abs(S.vx) / MOVE_X * 0.5 + Math.abs(S.vz) / MOVE_X * 0.3, 0, 1)
       : 0;
     vignette.update(dt, lvl * (0.25 + 0.75 * motion));
   }
@@ -743,8 +774,13 @@ function update(dt) {
   }
 
   hud.mesh.visible = inGame;
-  // デスクトップでは HUD を画面いっぱいに広げる (VR では視野の中央に収める)
-  hud.mesh.scale.setScalar(renderer.xr.isPresenting ? 1 : 1.7);
+  // デスクトップでは HUD を画面いっぱいに広げる (VR では視野の中央に収める)。縦長の画面 (スマートフォン) では幅に合わせて縮める
+  {
+    const visW = 2 * 1.5 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect;
+    hud.mesh.scale.setScalar(renderer.xr.isPresenting ? 1 : Math.min(1.7, (visW / 1.6) * 0.98));
+  }
+  // スマートフォン: プレイ中だけタッチ操作のボタンを出す
+  touch.show(isTouchDevice() && inGame && !renderer.xr.isPresenting);
   hud.draw({
     play,
     dist: Math.floor(S.dist),
@@ -840,7 +876,8 @@ addEventListener('keydown', (e) => {
 });
 selScale.addEventListener('change', () => { settings.scale = Number(selScale.value); saveSettings(); });
 chkReturn.addEventListener('change', () => { settings.autoReturn = chkReturn.checked; saveSettings(); });
-btnDesk.addEventListener('click', () => startPlay()); // クリックの情報をステージ番号と取り違えないように
+btnDesk.addEventListener('click', () => startPlay(1)); // クリックの情報をステージ番号と取り違えないように
+document.getElementById('btnContinue').addEventListener('click', () => startPlay(progress));
 btnVR.addEventListener('click', enterVR);
 if (new URLSearchParams(location.search).has('play')) startPlay(); // 開発用: ?play ですぐ開始
 if (new URLSearchParams(location.search).has('bonus')) { // 開発用: ?play&bonus でボーナスステージ (5 面) から始める
