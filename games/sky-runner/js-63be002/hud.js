@@ -62,6 +62,12 @@ export class Hud {
         g.fill();
       }
 
+      // ボーナスステージ: なぎ倒した木の本数と残り時間
+      if (d.bonus) {
+        text(g, `TREES ${d.bonus.count}`, 512, 108, 40, '#8dff9a', 'center');
+        text(g, `${d.bonus.left}`, 512, 146, 30, '#fff', 'center');
+      }
+
       // ボスの体力
       if (d.boss !== null) {
         const bx0 = 312, bx1 = 712, by = 150;

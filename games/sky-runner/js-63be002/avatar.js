@@ -22,6 +22,7 @@ export class Avatar {
     this.anchor = new THREE.Vector3(0, 1.6, 0); // 一人称で目を合わせる頭の位置 (rig の中)
     this.recenterPending = true;
     this.destroyed = false;  // ゲームオーバーで爆発したら消す
+    this.riding = false;     // ボーナスステージで龍に乗っている (一人称では機体を隠す)
     this.hitPoint = new THREE.Vector3();
     this.radius = RADIUS.ship;
     this.t = 0;
@@ -95,7 +96,7 @@ export class Avatar {
     }
 
     for (const [k, m] of Object.entries(this.models)) {
-      const show = k === kind && !(view === '1st' && kind === 'human') && !this.destroyed;
+      const show = k === kind && !(view === '1st' && (kind === 'human' || this.riding)) && !this.destroyed;
       m.obj.visible = show;
       if (k !== kind) continue;
 

@@ -3,6 +3,7 @@ import { World } from './world.js';
 import { Input, HINTS } from './input.js';
 import { Hud, DebugPanel } from './hud.js';
 import { Avatar } from './avatar.js';
+import { DragonRide } from './ride.js';
 import { Combat, MISSILE_MAX, loadEnemyModels } from './combat.js';
 import { THEMES } from './world.js';
 import { VERSION, loadBuildInfo } from './version.js';
@@ -10,9 +11,9 @@ import { initAudio, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBG
 
 // ---- 定数
 const X_LIMIT = 32;        // 左右の移動範囲 (m)
-const Y_MAX = 8;           // 上昇できる高さ (リグの高さ, m)
+const Y_MAX = 20;          // 上昇できる高さ (リグの高さ, m)
 const MOVE_X = 18;         // スティックを倒しきったときの横移動速度 (m/s)
-const MOVE_Y = 9;
+const MOVE_Y = 12;
 const SPEED = {
   base: 40,                // 基準速度 (m/s)
   min: 0.5, max: 1.5,      // アクセル/ブレーキの範囲 (基準に対する倍率)
@@ -24,6 +25,8 @@ const STAGE_LEN = Number(new URLSearchParams(location.search).get('stageLen')) |
 const LIVES = 3;
 const EXTEND_EVERY = 50000; // この点数ごとに残機が 1 増える
 const LIVES_MAX = 5;
+const BONUS_LEN = 20;      // ボーナスステージの長さ (s)
+const BONUS_TREE = 500;    // 木 1 本の点数
 const LIFE_MAX = 100;      // ライフ。0 になると残機が 1 減り、満タンに戻る
 const HEAL = 35;           // 回復アイテム 1 個で戻るライフ
 const OBSTACLE_DAMAGE = 20;
@@ -63,6 +66,7 @@ const debugPanel = new DebugPanel(rig);
 const avatar = new Avatar(scene, rig, camera);
 avatar.load('./assets/').catch((e) => console.error('モデルを読み込めませんでした', e));
 const combat = new Combat(scene);
+const ride = new DragonRide(scene);
 combat.forceWave = new URLSearchParams(location.search).get('wave'); // 開発用: ?wave=moai などで出す敵を固定する
 loadEnemyModels('./assets/enemies.glb').catch((e) => console.error('敵のモデルを読み込めませんでした', e));
 debugPanel.visible = new URLSearchParams(location.search).has('debug');
@@ -110,7 +114,8 @@ for (let i = 0; i < 2; i++) {
 const S = {
   mode: 'title',        // 'title' | 'play' | 'over'
   stage: 1,
-  phase: 'normal',      // 'normal' → 'warning' → 'boss' → 'clear' → 次のステージ
+  phase: 'normal',      // 'normal' → 'warning' → 'boss' → 'clear' → (奇数ステージは 'bonus' → 'bonusEnd') → 次のステージ
+  bonusCount: 0,
   phaseT: 0,
   stageT: 0,
   baseSpeed: SPEED.base,
@@ -152,6 +157,7 @@ function startPlay() {
   combat.reset();
   avatar.recenter();
   avatar.destroyed = false;
+  endBonus();
   overlay.hidden = true;
   applyAudioSettings();
   setPaused(false);
@@ -171,6 +177,7 @@ const showHiScore = () => { document.getElementById('hiscore').textContent = Str
 function toTitle() {
   S.mode = 'title';
   showHiScore();
+  endBonus();
   combat.reset();
   S.paused = false;
   S.msg = '';
@@ -271,6 +278,18 @@ function updateStage(dt) {
     sfx.clear();
     setBGMMode(false);
   } else if (S.phase === 'clear' && S.phaseT > 5) {
+    if (S.stage % 2 === 1) startBonus();
+    else nextStage();
+  } else if (S.phase === 'bonus' && S.phaseT > BONUS_LEN) {
+    S.phase = 'bonusEnd';
+    S.phaseT = 0;
+    const pts = S.bonusCount * BONUS_TREE;
+    combat.score += pts;
+    world.mode = 'normal';
+    showMsg(`BONUS ${pts}`, `なぎ倒した木 ${S.bonusCount} 本 × ${BONUS_TREE}`, 3.5);
+    sfx.clear();
+  } else if (S.phase === 'bonusEnd' && S.phaseT > 3.5) {
+    endBonus();
     nextStage();
   }
   // 点数が一定を超えるごとに残機を増やす
@@ -293,6 +312,45 @@ function playerExplosion(big) {
   combat.explode(boomPos, big);
 }
 
+// ボーナスステージ: 龍の頭に乗って、木をなぎ倒す (敵は出ず、ダメージも受けない)
+function startBonus() {
+  S.phase = 'bonus';
+  S.phaseT = 0;
+  S.bonusCount = 0;
+  world.mode = 'bonus';
+  ride.start();
+  avatar.riding = true;
+  setBGMMode('bonus');
+  showMsg('BONUS STAGE', '龍に乗って木をなぎ倒せ!', 3);
+  say('Bonus stage');
+}
+
+function endBonus() {
+  if (ride.active) setBGMMode('rock');
+  ride.stop();
+  avatar.riding = false;
+  world.mode = 'normal';
+}
+
+// 龍の頭を置く位置: 一人称は自分の真下 (頭にまたがる)、三人称は機体の真下
+const rideAnchor = new THREE.Vector3();
+function updateRide(dt) {
+  if (!ride.active) return;
+  if (settings.view === '1st') camera.getWorldPosition(rideAnchor).add(new THREE.Vector3(0, -1.7, -2.6));
+  else avatar.center(settings.player, rideAnchor).add(new THREE.Vector3(0, -1.5, 0.3));
+  ride.update(dt, rideAnchor);
+  if (S.phase !== 'bonus') return;
+  // 龍の頭で体当たりした木を、なぎ倒す
+  for (let i = 0; i < 6; i++) {
+    const o = world.hitTest(ride.headPos, 3);
+    if (!o) break;
+    world.knockDown(o);
+    S.bonusCount++;
+    combat.explode(o.group.position.clone().setY(2), false);
+    input.rumble(0.4, 80);
+  }
+}
+
 function gameOver() {
   S.mode = 'over';
   S.overT = 0;
@@ -312,7 +370,7 @@ function gameOver() {
 
 // damage: 減らすライフの量
 function onHit(damage) {
-  if (S.invuln > 0 || S.mode !== 'play') return;
+  if (S.invuln > 0 || S.mode !== 'play' || S.phase === 'bonus' || S.phase === 'bonusEnd') return;
   S.hits++;
   S.life -= damage;
   if (S.life > 0) {
@@ -427,11 +485,12 @@ function updateCombat(dt, speed, a) {
   combat.update({
     dt, scroll: speed, world,
     spawn: S.mode === 'play' && S.ready >= 1 && S.phase === 'normal',
-    active: S.mode === 'play' && S.ready >= 1 && S.phase !== 'clear',
+    active: S.mode === 'play' && S.ready >= 1 && !['clear', 'bonus', 'bonusEnd'].includes(S.phase),
     player: P, playerR: avatar.radius, eye: eyeW,
     aimOrigin, aimDir, guns, firing,
     missile: a.missile, missileOrigin: avatar.center(kind, missileOrigin),
     showAim: !humanVR, halfHeight,
+    gunStyle: kind === 'human' ? 'fireball' : 'beam',
     onPlayerHit: (damage) => onHit(damage),
     onPickup,
   });
@@ -506,7 +565,8 @@ function update(dt) {
   // ボス戦 (WARNING から撃破まで) は障害物を出さない
   world.update(dt, speed, P, running && !(play && (S.phase === 'warning' || S.phase === 'boss')));
 
-  if (play && running && S.invuln <= 0 && world.hitTest(P, avatar.radius)) onHit(OBSTACLE_DAMAGE);
+  if (play && running) updateRide(dt);
+  if (play && running && !ride.active && S.invuln <= 0 && world.hitTest(P, avatar.radius)) onHit(OBSTACLE_DAMAGE);
   // ライフが少ないときは警告音
   if (play && running && S.life < LIFE_MAX * 0.3 && (S.lowLifeT -= dt) <= 0) {
     S.lowLifeT = 1.2;
@@ -568,6 +628,7 @@ function update(dt) {
     hi: Math.max(hiScore, combat.score),
     mult: Math.round(combat.mult * 10) / 10,
     boss: combat.bossRatio === null ? null : Math.round(combat.bossRatio * 100) / 100,
+    bonus: S.phase === 'bonus' ? { count: S.bonusCount, left: Math.max(0, Math.ceil(BONUS_LEN - S.phaseT)) } : null,
   });
 
   S.fps += (1 / Math.max(dt, 1e-4) - S.fps) * 0.05;
@@ -579,7 +640,7 @@ window.__debugPx = () => S.px;
 window.__debugKill = () => { S.lives = 1; S.invuln = 0; onHit(999); };
 // 開発用: 自動テストから状態を読む
 window.__debugState = () => ({
-  destroyed: avatar.destroyed, shipVisible: avatar.models.ship?.obj.visible, overT: S.overT, frame: renderer.info.render.frame, mode: S.mode, py: S.py, version: document.getElementById('version').textContent, phase: S.phase, stage: S.stage, lives: S.lives, boss: combat.bossRatio, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,
+  bonusCount: S.bonusCount, destroyed: avatar.destroyed, shipVisible: avatar.models.ship?.obj.visible, overT: S.overT, frame: renderer.info.render.frame, mode: S.mode, py: S.py, version: document.getElementById('version').textContent, phase: S.phase, stage: S.stage, lives: S.lives, boss: combat.bossRatio, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,
   shots: combat.shots.length, missiles: combat.missiles.length, stock: combat.missileStock, locks: combat.locks.length, hits: S.hits,
 });
 
@@ -630,6 +691,10 @@ chkReturn.addEventListener('change', () => { settings.autoReturn = chkReturn.che
 btnDesk.addEventListener('click', startPlay);
 btnVR.addEventListener('click', enterVR);
 if (new URLSearchParams(location.search).has('play')) startPlay(); // 開発用: ?play ですぐ開始
+if (new URLSearchParams(location.search).has('bonus')) { // 開発用: ?play&bonus でボーナスステージから始める
+  S.ready = 1;
+  startBonus();
+}
 
 if (!window.isSecureContext) {
   status.textContent = 'HTTPS か localhost で開かないと VR は使えません。';

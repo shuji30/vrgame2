@@ -191,6 +191,8 @@ const GEO = {
   shot: new THREE.CylinderGeometry(0.06, 0.06, 3, 6).rotateX(Math.PI / 2),
   bullet: new THREE.SphereGeometry(0.4, 10, 8),
   ring: new THREE.TorusGeometry(0.75, 0.2, 8, 20),
+  fireball: new THREE.SphereGeometry(0.35, 10, 8),
+  fireballHalo: new THREE.SphereGeometry(0.75, 12, 8),
   item: new THREE.OctahedronGeometry(1.1),
   itemHalo: new THREE.SphereGeometry(1.8, 16, 10),
   shell: new THREE.SphereGeometry(0.55, 10, 8),
@@ -206,6 +208,8 @@ const MAT = {
   ring: new THREE.MeshBasicMaterial({ color: 0xd060ff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }),
   shell: new THREE.MeshBasicMaterial({ color: 0xff8030 }),
   fire: new THREE.MeshBasicMaterial({ color: 0xff6010, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }),
+  fireballCore: new THREE.MeshBasicMaterial({ color: 0xffe9a0 }),
+  fireballHalo: new THREE.MeshBasicMaterial({ color: 0xff5a10, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false }),
   item: new THREE.MeshStandardMaterial({ color: 0x30ff80, emissive: 0x10a040, roughness: 0.2, metalness: 0.3, flatShading: true }),
   itemCross: new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }),
   itemHalo: new THREE.MeshBasicMaterial({ color: 0x40ff90, transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, depthWrite: false }),
@@ -261,6 +265,29 @@ function fallback(color, r) {
 const TPL = {};
 const WHITE = new THREE.Color(0xffffff), BLACK = new THREE.Color(0x000000), DUST = new THREE.Color(0.55, 0.5, 0.42);
 const ITEM_COL = new THREE.Color(0.3, 1, 0.5);
+const BOSS_GREEN = 0x2e9a3c, BOSS_DARK_GREEN = 0x1d4a26;
+const FIRE_COL = new THREE.Color(1, 0.55, 0.15);
+
+// ボーナスステージで乗る、白と金の龍 (頭と胴体の節)。敵ではないので当たり判定はない
+export function makeFriendlyDragon(nSegs = 10, scale = 0.6) {
+  const part = (tpl, fallbackR, scale) => {
+    let made;
+    if (tpl) made = instance(tpl);
+    else {
+      const mat = new THREE.MeshStandardMaterial({ color: 0xf4f1e8, roughness: 0.5, flatShading: true });
+      made = { mesh: new THREE.Mesh(new THREE.IcosahedronGeometry(fallbackR, 1), mat), mats: [mat] };
+    }
+    for (const m of made.mats) {
+      if (m.name === 'EN_Red') m.color.setHex(0xf4f1e8);
+      if (m.name === 'EN_Gunmetal') m.color.setHex(0xd8b860);
+    }
+    made.mesh.scale.setScalar(scale);
+    return { mesh: made.mesh, mats: made.mats, r: fallbackR * scale, spine: new THREE.Vector3() };
+  };
+  const head = part(TPL.head, 2.6, scale);
+  const segs = Array.from({ length: nSegs }, (_, i) => part(i === nSegs - 1 ? TPL.tail : TPL.segment, i === nSegs - 1 ? 1.3 : 1.6, scale));
+  return { head, segs };
+}
 
 // 部品を同じマテリアルごとに1つのメッシュへまとめる (描画回数を減らして VR でも軽くする)。
 // parts に名前を渡した部品 (あご・耳・羽など動かすもの) は別にまとめ、同じ名前の子として元の位置に置く
@@ -560,7 +587,7 @@ export class Combat {
     for (let k = 0; k < n; k++) {
       const made = TPL.ptero ? instance(TPL.ptero) : fallback(0x73331f, 1.2);
       const e = {
-        kind: 'ptero', ...made, r: 2.2 * PTERO_SCALE, hp: 4 + this.level, score: 600, t: rand(0, 6), flash: 0, fireT: Infinity,
+        kind: 'ptero', ...made, r: 2.2 * PTERO_SCALE, hp: 4 + this.level, score: 600, t: rand(0, 6), flash: 0, fireT: rand(1, 2.5) + k * 0.7,
         state: 'glide', z: SPAWN_Z - k * 18, alt: rand(16, 26), phase: k * 1.3, vel: new THREE.Vector3(),
       };
       e.mesh.scale.setScalar(PTERO_SCALE);
@@ -738,39 +765,75 @@ export class Combat {
     this.enemies.push(e);
   }
 
-  // ---- ボス: 機械の大蛇。頭のうしろに胴体の節がつながり、頭を追ってうねる
+  // ---- ボス: 緑の龍。頭のうしろに胴体の節がつながり、うねりながら頭を追う。
+  // 偶数ステージは二首: 胴体の先が二股に分かれ、首ごとに頭が付く (2 つの頭は別々に動いて交互に攻撃する)
   spawnBoss() {
     const lv = this.level;
-    const n = 10 + lv * 2;
-    const b = { parts: [], hp: 300 + lv * 100, maxHp: 300 + lv * 100, t: 0, fireT: 3, segFireT: 2, dying: -1, exploded: 0, lungeT: 9, lunge: 0, breathT: 8, breath: 0, flameT: 0 };
-    const add = (tpl, fallbackR, r, isHead) => {
+    const twin = lv % 2 === 0;
+    const hp = Math.round((300 + lv * 100) * (twin ? 1.4 : 1));
+    const b = { parts: [], heads: [], body: [], twin, hp, maxHp: hp, t: 0, segFireT: 2, dying: -1, exploded: 0, lunging: null };
+    const make = (tpl, fallbackR, r, isHead, scale = 1) => {
       let made;
       if (tpl) made = instance(tpl);
       else {
-        const mat = new THREE.MeshStandardMaterial({ color: isHead ? 0x9a1c1c : 0x40444c, metalness: 0.5, roughness: 0.4, flatShading: true });
+        const mat = new THREE.MeshStandardMaterial({ color: isHead ? 0x2e9a3c : 0x1d4a26, metalness: 0.5, roughness: 0.4, flatShading: true });
         made = { mesh: new THREE.Mesh(new THREE.IcosahedronGeometry(fallbackR, 1), mat), mats: [mat] };
       }
-      made.mesh.scale.setScalar(BOSS_SCALE);
-      r *= BOSS_SCALE;
+      // 龍は緑色にする (赤と鉄色の材質は他の敵と共通なので、ここで龍の分だけ色を変える)
+      for (const m of made.mats) {
+        if (m.name === 'EN_Red') m.color.setHex(BOSS_GREEN);
+        if (m.name === 'EN_Gunmetal') m.color.setHex(BOSS_DARK_GREEN);
+      }
+      made.mesh.scale.setScalar(BOSS_SCALE * scale);
+      r *= BOSS_SCALE * scale;
       const e = { kind: 'boss', boss: b, isHead, mesh: made.mesh, mats: made.mats, r, hp: Infinity, score: 0, flash: 0, fireT: Infinity };
       e.mesh.position.set(0, 8, SPAWN_Z - b.parts.length * 3);
+      e.spine = e.mesh.position.clone(); // うねりを足す前の「背骨」の位置
       this.addEnemy(e, r * 1.2);
       b.parts.push(e);
+      return e;
     };
-    add(TPL.head, 2.2, 2.6, true);
-    for (let i = 0; i < n; i++) add(TPL.segment, 1.4, 1.6, false);
-    add(TPL.tail, 1.1, 1.3, false);
+    const nHeads = twin ? 2 : 1;
+    for (let h = 0; h < nHeads; h++) {
+      const head = make(TPL.head, 2.2, 2.6, true);
+      const neck = twin ? Array.from({ length: 4 }, () => make(TPL.segment, 1.4, 1.6, false, 0.8)) : [];
+      b.heads.push({
+        head, neck, side: twin ? (h ? 1 : -1) : 0, phase: h * 2.1,
+        fireT: 3 + h * 0.8, breathT: 8 + h * 3, breath: 0, flameT: 0, lungeT: 9 + h * 4, lunge: 0,
+      });
+    }
+    for (let i = 0; i < 9 + lv * 2; i++) b.body.push(make(TPL.segment, 1.4, 1.6, false));
+    b.body.push(make(TPL.tail, 1.1, 1.3, false));
     this.boss = b;
     this.bossDefeated = false;
   }
 
   get bossRatio() { return this.boss ? Math.max(0, this.boss.hp / this.boss.maxHp) : null; }
 
+  // 節を「背骨」に沿って前の節から一定の距離でついていかせ、そこにうねり (しっぽへ伝わる波) を足して表示する
+  followChain(chain, from, startIdx, dt, t) {
+    let prevSpine = from.spine, prevR = from.r, prevMesh = from.mesh;
+    const amp = 3.2 * (BOSS_SCALE / 2.2);
+    chain.forEach((part, k) => {
+      const idx = startIdx + k;
+      part.spine.z -= 16 * dt; // 少し後ろへ流す
+      const d = _a.subVectors(part.spine, prevSpine);
+      const len = d.length() || 1;
+      part.spine.copy(prevSpine).addScaledVector(d, ((prevR + part.r) * 0.72) / len);
+      const a = Math.min(1, idx / 5) * amp; // 頭から離れるほど大きくくねる
+      part.mesh.position.copy(part.spine).add(_b.set(Math.sin(t * 3 - idx * 0.55) * a, Math.cos(t * 2.4 - idx * 0.5) * a * 0.6, 0));
+      part.mesh.lookAt(prevMesh.position);
+      prevSpine = part.spine;
+      prevR = part.r;
+      prevMesh = part.mesh;
+    });
+  }
+
   updateBoss(dt, ctx) {
     const b = this.boss;
     if (!b) return;
     b.t += dt;
-    const t = b.t;
+    const t = b.t, P = ctx.player;
     // 倒したら、頭からしっぽへ順に爆発させる
     if (b.dying >= 0) {
       b.dying += dt;
@@ -785,84 +848,98 @@ export class Combat {
       }
       return;
     }
-    const head = b.parts[0];
-    const target = _d.set(
-      ctx.player.x * 0.4 + 22 * Math.sin(t * 0.62),
-      THREE.MathUtils.clamp(ctx.player.y + 3 + 6 * Math.sin(t * 1.3), 6, 20),
-      -38 + 8 * Math.sin(t * 0.41),
-    );
-    if (t < 5) target.z = THREE.MathUtils.lerp(-200, target.z, t / 5); // 遠くから迫ってくる
-    // 噛みつき: ときどき目の前まで突っ込んでくる
-    b.lungeT -= dt;
-    if (b.lungeT <= 0 && t > 6) {
-      b.lungeT = rand(6, 9);
-      b.lunge = 1.2;
-      sfx.whoosh();
-    }
-    if (b.lunge > 0) {
-      b.lunge -= dt;
-      target.set(ctx.player.x + 7, ctx.player.y + 3, -14); // 巨大なので少し離れた位置で噛みつく
-    }
-    head.mesh.position.lerp(target, 1 - Math.exp(-dt * (b.lunge > 0 ? 3.5 : 2.6)));
-    head.mesh.lookAt(ctx.player);
-    // 胴体: 前の節から一定の距離を保ってついていく。少し後ろへ流してうねりを出す
-    let prev = head;
-    for (let i = 1; i < b.parts.length; i++) {
-      const part = b.parts[i];
-      const pos = part.mesh.position;
-      pos.z -= 16 * dt;
-      const d = _a.subVectors(pos, prev.mesh.position);
-      const len = d.length() || 1;
-      pos.copy(prev.mesh.position).addScaledVector(d, ((prev.r + part.r) * 0.75) / len);
-      part.mesh.lookAt(prev.mesh.position);
-      prev = part;
-    }
-    if (!ctx.active || t < 5) return;
-    // 火炎放射: ときどき口から炎を噴き出す (首を振るので、炎が左右に流れる)
-    b.breathT -= dt;
-    if (b.breathT <= 0 && b.lunge <= 0) {
-      b.breathT = rand(4.5, 6.5) / (1 + (this.level - 1) * 0.1);
-      b.breath = 1.6;
-      sfx.fireBreath();
-    }
-    if (b.breath > 0) {
-      b.breath -= dt;
-      b.flameT -= dt;
-      const mouth = _c.set(0, -0.6, 2.8).multiplyScalar(BOSS_SCALE).applyQuaternion(head.mesh.quaternion).add(head.mesh.position);
-      while (b.flameT <= 0) {
-        b.flameT += 0.04;
-        const sway = Math.sin(t * 2.2) * 0.25;
-        this.fireBullet(mouth.clone(), _b.copy(ctx.player).add(_a.set(rand(-1.5, 1.5), rand(-1, 1), 0)), sway, 'fire');
+
+    // 頭: それぞれの目標へ向かう。二首は左右に分かれ、動きの位相もずらす
+    for (const H of b.heads) {
+      const target = _d.set(
+        P.x * 0.4 + H.side * 11 + 18 * Math.sin(t * 0.62 + H.phase) + 5 * Math.sin(t * 1.9 + H.phase),
+        THREE.MathUtils.clamp(P.y + 3 + 6 * Math.sin(t * 1.3 + H.phase) + 2 * Math.sin(t * 2.7 + H.phase), 6, 22),
+        -38 + 8 * Math.sin(t * 0.41 + H.phase),
+      );
+      if (t < 5) target.z = THREE.MathUtils.lerp(-200, target.z, t / 5); // 遠くから迫ってくる
+      // 噛みつき: ときどき目の前まで突っ込んでくる (同時に噛みつくのは 1 つの頭だけ)
+      H.lungeT -= dt;
+      if (H.lungeT <= 0 && t > 6 && !b.lunging && H.breath <= 0) {
+        H.lungeT = rand(6, 9) * (b.twin ? 1.4 : 1);
+        H.lunge = 1.2;
+        b.lunging = H;
+        sfx.whoosh();
       }
-      return; // 炎を吐いている間はほかの攻撃をしない
+      if (H.lunge > 0) {
+        H.lunge -= dt;
+        target.set(P.x + (H.side || 1) * 7, P.y + 3, -14); // 巨大なので少し離れた位置で噛みつく
+        if (H.lunge <= 0) b.lunging = null;
+      }
+      H.head.spine.lerp(target, 1 - Math.exp(-dt * (H.lunge > 0 ? 3.5 : 2.6)));
+      H.head.mesh.position.copy(H.head.spine);
+      H.head.mesh.lookAt(P);
+      this.followChain(H.neck, H.head, 1, dt, t + H.phase);
     }
-    // 攻撃: 頭から扇形に撃つ。体力が半分を切ると、胴体からも撃ってくる
-    const hp = head.mesh.position;
-    b.fireT -= dt;
-    if (b.fireT <= 0) {
-      b.fireT = Math.max(0.7, 1.6 - this.level * 0.12);
-      const n = b.hp < b.maxHp * 0.5 ? 5 : 3;
-      const from = _c.copy(hp).add(_b.set(0, -0.5, 2.5).multiplyScalar(BOSS_SCALE));
-      for (let k = 0; k < n; k++) this.fireBullet(from, ctx.player, (k - (n - 1) / 2) * 0.13);
+    // 胴体の先 (二首なら 2 本の首の付け根の真ん中) から胴体をつなげる
+    let root = b.heads[0].neck.length ? b.heads[0].neck.at(-1) : b.heads[0].head;
+    if (b.twin) {
+      const a = b.heads[0].neck.at(-1), c = b.heads[1].neck.at(-1);
+      root = { spine: _c.addVectors(a.spine, c.spine).multiplyScalar(0.5).clone(), r: a.r, mesh: { position: _c.addVectors(a.mesh.position, c.mesh.position).multiplyScalar(0.5).clone() } };
     }
+    this.followChain(b.body, root, b.twin ? 5 : 1, dt, t);
+
+    if (!ctx.active || t < 5) return;
+    for (const H of b.heads) {
+      const head = H.head;
+      // 火炎放射: ときどき口から炎を噴き出す (首を振るので、炎が左右に流れる)
+      H.breathT -= dt;
+      if (H.breathT <= 0 && H.lunge <= 0 && !b.heads.some((o) => o !== H && o.breath > 0)) {
+        H.breathT = rand(4.5, 6.5) / (1 + (this.level - 1) * 0.1) * (b.twin ? 1.3 : 1);
+        H.breath = 1.6;
+        sfx.fireBreath();
+      }
+      if (H.breath > 0) {
+        H.breath -= dt;
+        H.flameT -= dt;
+        const mouth = _c.set(0, -0.6, 2.8).multiplyScalar(BOSS_SCALE).applyQuaternion(head.mesh.quaternion).add(head.mesh.position);
+        while (H.flameT <= 0) {
+          H.flameT += 0.04;
+          const sway = Math.sin(t * 2.2 + H.phase) * 0.25;
+          this.fireBullet(mouth.clone(), _b.copy(P).add(_a.set(rand(-1.5, 1.5), rand(-1, 1), 0)), sway, 'fire');
+        }
+        continue; // 炎を吐いている頭は、ほかの攻撃をしない
+      }
+      // 頭から扇形に撃つ
+      H.fireT -= dt;
+      if (H.fireT <= 0) {
+        H.fireT = Math.max(0.7, 1.6 - this.level * 0.12) * (b.twin ? 1.5 : 1);
+        const n = b.hp < b.maxHp * 0.5 ? 5 : 3;
+        const from = _c.copy(head.mesh.position).add(_b.set(0, -0.5, 2.5).multiplyScalar(BOSS_SCALE).applyQuaternion(head.mesh.quaternion));
+        for (let k = 0; k < n; k++) this.fireBullet(from.clone(), P, (k - (n - 1) / 2) * 0.13);
+      }
+    }
+    // 体力が半分を切ると、胴体からも撃ってくる
     if (b.hp < b.maxHp * 0.5) {
       b.segFireT -= dt;
       if (b.segFireT <= 0) {
         b.segFireT = Math.max(0.35, 0.9 - this.level * 0.08);
-        const part = b.parts[1 + Math.floor(Math.random() * (b.parts.length - 1))];
-        this.fireBullet(part.mesh.position, ctx.player);
+        const part = b.body[Math.floor(Math.random() * b.body.length)];
+        this.fireBullet(part.mesh.position.clone(), P);
       }
     }
   }
 
   // ---- 発射
-  fireGun(origin, target) {
+  // style: 'beam' (宇宙船の光線)、'fireball' (ハリアーの火の玉。龍の吐く玉のように火の粉を散らして飛ぶ)
+  fireGun(origin, target, style = 'beam') {
     const dir = _d.subVectors(target, origin).normalize();
-    const m = new THREE.Mesh(GEO.shot, MAT.shot);
+    let m, speed = GUN_SPEED;
+    if (style === 'fireball') {
+      m = new THREE.Mesh(GEO.fireball, MAT.fireballCore);
+      m.add(new THREE.Mesh(GEO.fireballHalo, MAT.fireballHalo));
+      speed = 170;
+    } else {
+      m = new THREE.Mesh(GEO.shot, MAT.shot);
+    }
     m.position.copy(origin);
     m.lookAt(_a.copy(origin).add(dir));
     this.scene.add(m);
-    this.shots.push({ mesh: m, pos: origin.clone(), prev: origin.clone(), vel: dir.clone().multiplyScalar(GUN_SPEED), life: 1.1 });
+    this.shots.push({ mesh: m, pos: origin.clone(), prev: origin.clone(), vel: dir.clone().multiplyScalar(speed), life: 1.3, fireball: style === 'fireball' });
   }
 
   fireMissiles(origin, forward) {
@@ -903,7 +980,13 @@ export class Combat {
     if (spread) dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), spread);
     let m, speed = 34, r = 0.45;
     let mats = null;
-    if (type === 'fire') {
+    if (type === 'fireball') {
+      m = new THREE.Mesh(GEO.fireball, MAT.fireballCore);
+      m.add(new THREE.Mesh(GEO.fireballHalo, MAT.fireballHalo));
+      m.scale.setScalar(1.6);
+      speed = 30;
+      r = 0.8;
+    } else if (type === 'fire') {
       // 炎: 進むにつれて大きく膨らみ、薄れていく
       const mat = MAT.fire.clone();
       mat.color.setHSL(rand(0.02, 0.1), 1, rand(0.5, 0.65));
@@ -1089,6 +1172,13 @@ export class Combat {
           e.mouth = 1;
           const mouth = _b.set(0, -0.9, 1.6).multiplyScalar(MOAI_SCALE).applyQuaternion(e.mesh.quaternion).add(p);
           this.fireBullet(mouth.clone(), ctx.player, 0, 'ring');
+        } else if (e.kind === 'ptero') {
+          // 上空を横切りながら、口から火の玉を吐く
+          e.fireT = rand(1.8, 3) / lv;
+          if (e.state === 'glide') {
+            const mouth = _b.set(0, 0.5, 3.2).multiplyScalar(PTERO_SCALE).applyQuaternion(e.mesh.quaternion).add(p);
+            this.fireBullet(mouth.clone(), ctx.player, 0, 'fireball');
+          }
         } else if (e.kind === 'gunship') {
           e.fireT = 1.6;
           for (const sp of [-0.12, 0, 0.12]) this.fireBullet(_b.copy(p).add(_c.set(0, -0.2, 3)), ctx.player, sp);
@@ -1126,6 +1216,10 @@ export class Combat {
       } else {
         b.mesh.scale.setScalar(1 + Math.sin(this.time * 30) * 0.15);
       }
+      if (b.type === 'fireball') {
+        b.mesh.scale.setScalar(1.6 + Math.sin(this.time * 35) * 0.2);
+        this.sparks.emit(b.mesh.position, _c.set(rand(-2, 2), rand(-1, 3), rand(-2, 2)), FIRE_COL, 1.0, 0.25);
+      }
       if (b.type === 'shell' && (b.puffT -= dt) <= 0) {
         b.puffT = 0.03;
         this.smoke.emit(b.mesh.position, _c.set(0, 0, 0), DUST, 0.8, 0.7, 2, 0.98);
@@ -1133,7 +1227,7 @@ export class Combat {
       if (b.life <= 0 || b.mesh.position.z > REMOVE_Z) b.dead = true;
       else if (b.mesh.position.distanceTo(ctx.player) < b.r + ctx.playerR) {
         b.dead = true;
-        ctx.onPlayerHit(b.type === 'shell' ? 20 : b.type === 'ring' ? 18 : b.type === 'fire' ? 10 : 12);
+        ctx.onPlayerHit(b.type === 'shell' ? 20 : b.type === 'ring' ? 18 : b.type === 'fire' ? 10 : b.type === 'fireball' ? 15 : 12);
       }
     }
 
@@ -1146,7 +1240,7 @@ export class Combat {
       // 照準の近くに敵がいれば、その敵へ向ける (エイムアシスト)
       const near = this.nearestInCone(g.aimOrigin, g.aimDir, 0.08);
       const aimAt = near ? near.mesh.position.clone() : g.aimOrigin.clone().addScaledVector(g.aimDir, 90);
-      this.fireGun(g.origin, aimAt);
+      this.fireGun(g.origin, aimAt, ctx.gunStyle);
       sfx.shot();
     }
     for (const s of this.shots) {
@@ -1154,6 +1248,11 @@ export class Combat {
       s.pos.addScaledVector(s.vel, dt);
       s.mesh.position.copy(s.pos);
       s.life -= dt;
+      if (s.fireball) {
+        // 火の玉: ゆらめきながら火の粉を散らす
+        s.mesh.scale.setScalar(1 + Math.sin(this.time * 40 + s.life * 20) * 0.15);
+        this.sparks.emit(s.pos, _c.set(rand(-2, 2), rand(-2, 2), rand(-2, 2)), FIRE_COL, 0.7, 0.15);
+      }
       if (s.life <= 0) { s.dead = true; continue; }
       for (const b of this.bullets) {
         if (!b.dead && b.type !== 'fire' && segHit(s.prev, s.pos, b.mesh.position, b.r + 0.3)) { // 炎は撃ち落とせない

@@ -154,6 +154,7 @@ export class World {
     this.obstacles = [];
     this.spawnAcc = 0;
     this.offset = 0;
+    this.mode = 'normal'; // 'bonus' のときは木だけを密に出す
     this.applyTheme(0);
   }
 
@@ -183,9 +184,9 @@ export class World {
     o.shadow = s;
   }
 
-  spawnOne(x, z) {
+  spawnOne(x, z, force) {
     const g = new THREE.Group();
-    const roll = Math.random();
+    const roll = force === 'tree' ? 0.9 : Math.random();
     let o;
     if (roll < 0.4) {
       const r = rand(0.9, 1.5), h = rand(5, 16);
@@ -232,9 +233,17 @@ export class World {
 
     if (spawn) {
       this.spawnAcc += d;
-      while (this.spawnAcc > SPAWN_SPACING) {
-        this.spawnAcc -= SPAWN_SPACING;
+      const bonus = this.mode === 'bonus';
+      const spacing = bonus ? 5 : SPAWN_SPACING;
+      while (this.spawnAcc > spacing) {
+        this.spawnAcc -= spacing;
         const z = SPAWN_Z + this.spawnAcc;
+        if (bonus) {
+          // ボーナスステージ: 木だけを、プレイヤーの進路のまわりに密に並べる
+          this.spawnOne(camPos.x + rand(-16, 16), z, 'tree');
+          if (Math.random() < 0.6) this.spawnOne(camPos.x + rand(-5, 5), z - rand(0, 3), 'tree');
+          continue;
+        }
         this.spawnOne(camPos.x + rand(-38, 38), z); // プレイヤーのまわりに出す (端へ行っても障害物がある)
         // ときどきプレイヤーの進路上にも置いて、避ける必要を作る
         if (Math.random() < 0.25) this.spawnOne(camPos.x + rand(-4, 4), z - rand(0, 5));
@@ -244,6 +253,14 @@ export class World {
     for (const o of this.obstacles) {
       o.prevZ = o.group.position.z;
       o.group.position.z += d;
+      if (o.knocked) {
+        // なぎ倒された木: 前へ倒れながら跳ね上がる
+        o.fallT += dt;
+        const k = Math.min(1, o.fallT * 2.5);
+        o.group.rotation.x = -k * 1.45;
+        o.group.rotation.z = o.fallSide * k * 0.5;
+        o.group.position.y = Math.sin(Math.min(1, o.fallT * 1.6) * Math.PI) * 3;
+      }
       o.shadow.position.z = o.group.position.z;
       if (o.group.position.z > REMOVE_Z) o.dead = true;
     }
@@ -264,7 +281,7 @@ export class World {
   // 高速時に1フレームですり抜けないよう、前フレームから z をまたいだかで判定する
   hitTest(p, r) {
     for (const o of this.obstacles) {
-      if (o.dead) continue;
+      if (o.dead || o.knocked) continue;
       const z0 = o.prevZ, z1 = o.group.position.z;
       const crossed = (z0 - p.z) * (z1 - p.z) <= 0;
       const dz = crossed ? 0 : z1 - p.z;
@@ -278,6 +295,12 @@ export class World {
       }
     }
     return null;
+  }
+
+  knockDown(o) {
+    o.knocked = true;
+    o.fallT = 0;
+    o.fallSide = Math.random() < 0.5 ? -1 : 1;
   }
 
   clear() {
