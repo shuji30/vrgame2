@@ -97,6 +97,16 @@ export const sfx = {
     if (!ctx) return;
     osc('triangle', 700, now(), 0.18, 0.12, sfxBus, 180);
   },
+  lock() {
+    if (!ctx) return;
+    osc('square', 1760, now(), 0.05, 0.08, sfxBus);
+  },
+  missile() {
+    if (!ctx) return;
+    const t = now();
+    noise(t, 0.6, 0.6, 1200, sfxBus, 'bandpass');
+    osc('sawtooth', 300, t, 0.5, 0.15, sfxBus, 900);
+  },
   warning() {
     if (!ctx) return;
     const t = now();

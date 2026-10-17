@@ -62,6 +62,22 @@ export class Avatar {
 
   get ready() { return Object.keys(this.models).length > 0; }
 
+  // 銃口のワールド座標 (宇宙船は左右の機関砲、人間は腕のキャノン)
+  muzzles(kind) {
+    const m = this.models[kind];
+    if (!m) return [];
+    m.obj.updateMatrixWorld(true);
+    m.muzzleWorld ||= m.muzzles.map(() => new THREE.Vector3());
+    m.muzzles.forEach((o, i) => o.getWorldPosition(m.muzzleWorld[i]));
+    return m.muzzleWorld;
+  }
+
+  // モデルの中心 (ミサイルを落とす位置)
+  center(kind, out) {
+    const m = this.models[kind];
+    return m ? m.obj.getWorldPosition(out) : this.camera.getWorldPosition(out);
+  }
+
   recenter() { this.recenterPending = true; }
 
   // kind: 'ship' | 'human'、view: '1st' | '3rd'

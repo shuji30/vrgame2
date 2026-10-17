@@ -24,10 +24,10 @@ function readXRStick(gp) {
 }
 
 export const HINTS = {
-  xr: '左スティック: 移動   右スティック前後: 加速/減速   B/Y: 視点   右スティック押し込み: 位置合わせ   X: ポーズ',
-  pad: '左スティック/十字: 移動   RT/LT: 加速/減速   Y: 視点   START: ポーズ',
-  kb: 'WASD/矢印: 移動   E/Shift: 加速   Q/Z: 減速   V: 視点   Esc: ポーズ',
-  mouse: 'マウス: 移動   E/Shift: 加速   Q/Z: 減速   V: 視点   Esc: ポーズ',
+  xr: 'トリガー: 機関砲   右グリップ/A: ミサイル (見た敵をロック)   左スティック: 移動   右スティック前後: 加速/減速   B/Y: 視点',
+  pad: 'A/RB: 機関砲   X/LB: ミサイル   左スティック: 移動   RT/LT: 加速/減速   Y: 視点   START: ポーズ',
+  kb: 'Space: 機関砲   F: ミサイル   WASD: 移動   E/Shift: 加速   Q/Z: 減速   V: 視点   Esc: ポーズ',
+  mouse: '左クリック: 機関砲   右クリック/F: ミサイル   マウス: 移動   E: 加速   Q: 減速   V: 視点',
 };
 
 export class Input {
@@ -56,7 +56,9 @@ export class Input {
       this.mouse.active = true;
       this.lastSource = 'mouse';
     });
+    dom.addEventListener('contextmenu', (e) => e.preventDefault());
     dom.addEventListener('mousedown', (e) => {
+      if (e.button === 2) this.rightClicked = true;
       if (e.button !== 0) return;
       this.mouse.down = true;
       this.clicked = true;
@@ -70,6 +72,7 @@ export class Input {
       abs: null,            // マウスの絶対位置 {x, y} (-1..1)。マウス操作中のみ
       throttle: 0,          // -1 (ブレーキ) .. +1 (アクセル)
       fire: false,          // パッド / キーボード / マウスの射撃
+      missile: false,       // ミサイル (押した瞬間だけ true)
       handFire: [],         // [{controller, fire}] VR コントローラーごとの射撃
       view: false, pause: false, confirm: false, back: false, debug: false, recenter: false, // 押した瞬間だけ true
       leftRight: 0,         // パッドの左右を倒した瞬間 (-1 / +1)。タイトル画面の選択用
@@ -105,6 +108,7 @@ export class Input {
     if (e('Enter', 'Space')) s.confirm = true;
     if (e('Backspace')) s.back = true;
     if (e('KeyI')) s.debug = true;
+    if (e('KeyF')) s.missile = true;
     if (e('KeyC')) s.recenter = true;
     this.keyEdges.clear();
 
@@ -112,7 +116,9 @@ export class Input {
     if (this.mouse.active) s.abs = { x: this.mouse.x, y: this.mouse.y };
     if (this.mouse.down) s.fire = true;
     if (this.clicked) s.confirm = true;
+    if (this.rightClicked) s.missile = true;
     this.clicked = false;
+    this.rightClicked = false;
 
     // ---- コントロールパッド (Gamepad API)。WebXR のコントローラーはここには出てこない
     this.debug.pads = [];
@@ -135,6 +141,7 @@ export class Input {
       }
       if (Math.abs(th) > 0.05) s.throttle += th;
       if (pressed(gp, PAD.A) || pressed(gp, PAD.RB)) s.fire = true;
+      if (ed(PAD.X) || ed(PAD.LB)) s.missile = true;
       if (ed(PAD.Y)) s.view = true;
       if (ed(PAD.START)) s.pause = true;
       if (ed(PAD.A) || ed(PAD.START)) s.confirm = true;
@@ -174,9 +181,10 @@ export class Input {
       if (ed(XR.TRIGGER)) s.confirm = true;
       if (ed(XR.BTN_2)) s.view = true;                         // B / Y
       if (hand === 'left' && ed(XR.SQUEEZE)) s.view = true;     // Vive ワンド用 (左グリップ)
-      if (hand === 'right' && ed(XR.SQUEEZE)) s.debug = true;   // 右グリップ
+      if (hand === 'right' && ed(XR.SQUEEZE)) s.missile = true; // 右グリップ: ミサイル
+      if (hand === 'left' && ed(XR.STICK)) s.debug = true;      // 左スティック押し込み: 入力の確認表示
       if (hand === 'left' && ed(XR.BTN_1)) s.pause = true;      // X
-      if (hand === 'right' && ed(XR.BTN_1)) s.back = true;      // A
+      if (hand === 'right' && ed(XR.BTN_1)) { s.back = true; s.missile = true; } // A (ポーズ中はタイトルへ、プレイ中はミサイル)
       if (hand === 'right' && ed(XR.STICK)) s.recenter = true;  // 右スティック押し込み: 位置を合わせ直す
       if (trig || st.x || st.y) this.lastSource = 'xr';
       this.debug.xr.push({

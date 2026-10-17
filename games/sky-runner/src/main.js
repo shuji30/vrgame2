@@ -3,6 +3,7 @@ import { World } from './world.js';
 import { Input, HINTS } from './input.js';
 import { Hud, DebugPanel } from './hud.js';
 import { Avatar } from './avatar.js';
+import { Combat, MISSILE_MAX } from './combat.js';
 import { initAudio, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setEngineEnabled, setPaused, toggleMute } from './audio.js';
 
 // ---- 定数
@@ -49,6 +50,7 @@ const hud = new Hud(camera);
 const debugPanel = new DebugPanel(rig);
 const avatar = new Avatar(scene, rig, camera);
 avatar.load('./assets/').catch((e) => console.error('モデルを読み込めませんでした', e));
+const combat = new Combat(scene);
 debugPanel.visible = new URLSearchParams(location.search).has('debug');
 
 // 被弾したときに視界を赤くする
@@ -119,6 +121,7 @@ function startPlay() {
   Object.assign(S, { mode: 'play', paused: false, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0 });
   world.clear();
   world.applyTheme(0);
+  combat.reset();
   avatar.recenter();
   overlay.hidden = true;
   applyAudioSettings();
@@ -136,6 +139,7 @@ function togglePause(p) {
 
 function toTitle() {
   S.mode = 'title';
+  combat.reset();
   S.paused = false;
   S.msg = '';
   overlay.hidden = false;
@@ -210,6 +214,70 @@ function onHit() {
   input.rumble(1.0, 250);
 }
 
+// ---- 照準と射撃
+const eyeW = new THREE.Vector3();
+const aimOrigin = new THREE.Vector3();
+const aimDir = new THREE.Vector3();
+const missileOrigin = new THREE.Vector3();
+const _q = new THREE.Quaternion();
+const _v2 = new THREE.Vector2();
+const handAims = [0, 1].map(() => ({ origin: new THREE.Vector3(), aimOrigin: new THREE.Vector3(), aimDir: new THREE.Vector3() }));
+
+function controllerRay(c, out) {
+  c.getWorldPosition(out.origin);
+  out.aimOrigin.copy(out.origin);
+  out.aimDir.set(0, 0, -1).applyQuaternion(c.getWorldQuaternion(_q));
+  return out;
+}
+
+function updateCombat(dt, speed, a) {
+  const presenting = renderer.xr.isPresenting;
+  const kind = settings.player, view = settings.view;
+  const humanVR = presenting && kind === 'human' && view === '1st';
+  camera.getWorldPosition(eyeW);
+
+  // ロックオンの向き: VR は視線 (人間の一人称は右手のコントローラー)、デスクトップは正面
+  if (presenting) {
+    aimOrigin.copy(eyeW);
+    camera.getWorldDirection(aimDir);
+    if (humanVR) {
+      const right = input.controllers.find((c) => c.visible && c.userData.src?.handedness === 'right');
+      if (right) {
+        const r = controllerRay(right, handAims[0]);
+        aimOrigin.copy(r.aimOrigin);
+        aimDir.copy(r.aimDir);
+      }
+    }
+  } else {
+    aimOrigin.copy(view === '3rd' ? avatar.hitPoint : eyeW);
+    aimDir.set(0, 0, -1);
+  }
+
+  // 機関砲: 人間の一人称 VR は手のコントローラーから、それ以外は機体の銃口から
+  let guns = [], firing = a.fire;
+  if (humanVR) {
+    a.handFire.forEach((h, i) => { if (h.fire) guns.push(controllerRay(h.controller, handAims[i % 2])); });
+    firing = firing || guns.length > 0;
+    if (!guns.length && a.fire) guns = [{ origin: eyeW, aimOrigin, aimDir }];
+  } else {
+    firing = firing || a.handFire.some((h) => h.fire);
+    guns = avatar.muzzles(kind).map((p) => ({ origin: p, aimOrigin, aimDir }));
+    if (!guns.length) guns = [{ origin: eyeW, aimOrigin, aimDir }];
+  }
+
+  const layer = presenting ? renderer.xr.getBaseLayer?.() : null;
+  const halfHeight = (layer?.framebufferHeight ?? renderer.getDrawingBufferSize(_v2).y) / 2;
+
+  combat.update({
+    dt, scroll: speed, active: S.ready >= 1,
+    player: P, playerR: avatar.radius, eye: eyeW,
+    aimOrigin, aimDir, guns, firing,
+    missile: a.missile, missileOrigin: avatar.center(kind, missileOrigin),
+    showAim: !humanVR, halfHeight,
+    onPlayerHit: () => { if (S.invuln <= 0) onHit(); },
+  });
+}
+
 function update(dt) {
   const a = input.state;
   if (a.debug) debugPanel.toggle();
@@ -263,6 +331,7 @@ function update(dt) {
   world.update(dt, speed, P, running);
 
   if (play && running && S.invuln <= 0 && world.hitTest(P, avatar.radius)) onHit();
+  if (play && running) updateCombat(dt, speed, a);
 
   flash.material.opacity = Math.max(0, flash.material.opacity - dt * 1.2);
   setEngine(S.mode === 'play' && running ? speed / SPEED.base : 0);
@@ -290,6 +359,10 @@ function update(dt) {
     factor: Math.round(S.factor * 100) / 100,
     kmh: Math.round(speed * 3.6),
     view: `${settings.player === 'ship' ? 'SHIP' : 'HUMAN'} ${settings.view.toUpperCase()}`,
+    score: combat.score,
+    missiles: combat.missileStock,
+    missileMax: MISSILE_MAX,
+    locks: combat.locks.length,
     msg: S.paused ? 'PAUSE' : S.msg,
     sub: S.paused ? (a.source === 'pad' ? 'START: 再開   B: タイトルへ' : a.source === 'xr' ? 'X/トリガー: 再開   A: タイトルへ' : 'Esc/クリック: 再開   Backspace: タイトルへ') : S.sub,
     hint: play ? HINTS[a.source] : '',
@@ -298,6 +371,12 @@ function update(dt) {
   S.fps += (1 / Math.max(dt, 1e-4) - S.fps) * 0.05;
   debugPanel.draw(dt, { fps: S.fps, xr: renderer.xr.isPresenting, refSpace: S.refSpace, scale: settings.scale }, input);
 }
+
+// 開発用: 自動テストから状態を読む
+window.__debugState = () => ({
+  mode: S.mode, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,
+  shots: combat.shots.length, missiles: combat.missiles.length, stock: combat.missileStock, locks: combat.locks.length, hits: S.hits,
+});
 
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {

@@ -45,9 +45,17 @@ export class Hud {
     g.clearRect(0, 0, 1024, 512);
 
     if (d.play) {
-      text(g, `DIST ${d.dist} m`, 24, 52, 34);
-      text(g, `HIT ${d.hits}`, 24, 94, 28, '#ffd0d0');
-      text(g, `VIEW ${d.view}`, 24, 130, 22, '#cfe8ff');
+      text(g, `SCORE ${d.score}`, 24, 52, 38);
+      text(g, `DIST ${d.dist} m   HIT ${d.hits}`, 24, 92, 24, '#ffd0d0');
+      text(g, `VIEW ${d.view}`, 24, 124, 20, '#cfe8ff');
+
+      // ミサイルの残り (四角) とロック数
+      for (let i = 0; i < d.missileMax; i++) {
+        g.fillStyle = i < d.missiles ? '#ffffff' : 'rgba(255,255,255,0.2)';
+        g.fillRect(24 + i * 22, 420, 16, 34);
+      }
+      text(g, 'MISSILE', 24, 408, 22, '#fff');
+      if (d.locks) text(g, `LOCK ${d.locks}`, 24 + d.missileMax * 22 + 16, 452, 34, '#ff4040');
 
       // 速度計: 0.5倍〜1.5倍。白い目盛りが基準速度 (1.0倍)
       const x0 = 640, x1 = 1000, y = 28, h = 26;
