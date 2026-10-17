@@ -158,7 +158,7 @@ export const EXTRA = {
         const made = build([[GEO.batBody, body], [GEO.batWing, wing, (m) => { m.name = 'wL'; m.scale.x = -1; }], [GEO.batWing, wing, (m) => { m.name = 'wR'; }]]);
         const slot = k - 2.5;
         const e = { kind: 'bat', ...made, r: 1.4 * K, hp: 1, score: 250, t: 0, flapPh: k * 0.3, flash: 0, fireT: Infinity,
-          state: 'cruise', x: cx + slot * 6.5, y: top - Math.abs(slot) * 1.2, z: SPAWN_Z - Math.abs(slot) * 6, diveT: 2.4 + k * 0.4, u: 0, dmg: 20 };
+          state: 'cruise', x: cx + slot * 6.5, y: top - Math.abs(slot) * 1.2, z: SPAWN_Z - Math.abs(slot) * 6, diveT: 2.4 + k * 0.4, u: 0 };
         e.wL = e.mesh.getObjectByName('wL');
         e.wR = e.mesh.getObjectByName('wR');
         e.mesh.scale.setScalar(K);
@@ -200,7 +200,7 @@ export const EXTRA = {
     make(c, x, z, size, vx, hp) {
       const m = mat(0xffd36a, 0x7a4a10);
       const e = { kind: 'bouncer', ...build([[GEO.gem, m]]), r: size, size, hp, score: size > 3 ? 600 : 150, t: 0, flash: 0, fireT: Infinity,
-        vx, vy: rand(4, 10), z, x };
+        vx, vy: rand(4, 10), z, x, dmg: size > 3 ? 25 : 15 };
       e.mesh.scale.setScalar(size);
       e.mesh.position.set(x, size + 6, z);
       c.addEnemy(e, size);
