@@ -97,6 +97,37 @@ export const sfx = {
     if (!ctx) return;
     osc('triangle', 700, now(), 0.18, 0.12, sfxBus, 180);
   },
+  // 近くを通り過ぎる風切り音 (ゴォッ)
+  whoosh() {
+    if (!ctx) return;
+    const t = now();
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuf;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.Q.value = 1.2;
+    f.frequency.setValueAtTime(300, t);
+    f.frequency.exponentialRampToValueAtTime(1800, t + 0.25);
+    f.frequency.exponentialRampToValueAtTime(250, t + 0.7);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.9, t + 0.22);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.75);
+    src.connect(f).connect(g).connect(sfxBus);
+    src.start(t);
+    src.stop(t + 0.8);
+  },
+  heal() {
+    if (!ctx) return;
+    const t = now();
+    [72, 79, 84, 91].forEach((m, i) => osc('triangle', mtof(m), t + i * 0.06, 0.25, 0.2, sfxBus));
+  },
+  lowLife() {
+    if (!ctx) return;
+    const t = now();
+    osc('square', 520, t, 0.08, 0.1, sfxBus);
+    osc('square', 520, t + 0.14, 0.08, 0.1, sfxBus);
+  },
   lock() {
     if (!ctx) return;
     osc('square', 1760, now(), 0.05, 0.08, sfxBus);

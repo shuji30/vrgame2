@@ -6,6 +6,8 @@ import { sfx } from './audio.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
+// 敵の大きさ (Blender のモデルに対する倍率)。近くまで迫ったとき画面いっぱいに見えるよう大きめにする
+const FIGHTER_SCALE = 1.6, GUNSHIP_SCALE = 1.4, MOAI_SCALE = 1.7, GREMLIN_SCALE = 2.6, MECH_SCALE = 1.4, PILL_SCALE = 1.6, BOSS_SCALE = 1.3;
 const REMOVE_Z = 40;
 
 const GUN_SPEED = 230;      // 機関砲の弾速 (m/s)
@@ -189,6 +191,8 @@ const GEO = {
   shot: new THREE.CylinderGeometry(0.06, 0.06, 3, 6).rotateX(Math.PI / 2),
   bullet: new THREE.SphereGeometry(0.4, 10, 8),
   ring: new THREE.TorusGeometry(0.75, 0.2, 8, 20),
+  item: new THREE.OctahedronGeometry(1.1),
+  itemHalo: new THREE.SphereGeometry(1.8, 16, 10),
   shell: new THREE.SphereGeometry(0.55, 10, 8),
   bulletHalo: new THREE.SphereGeometry(0.75, 10, 8),
   mBody: new THREE.CylinderGeometry(0.08, 0.08, 1.1, 8).rotateX(Math.PI / 2),
@@ -201,6 +205,9 @@ const MAT = {
   bullet: new THREE.MeshBasicMaterial({ color: 0xffd040 }),
   ring: new THREE.MeshBasicMaterial({ color: 0xd060ff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }),
   shell: new THREE.MeshBasicMaterial({ color: 0xff8030 }),
+  item: new THREE.MeshStandardMaterial({ color: 0x30ff80, emissive: 0x10a040, roughness: 0.2, metalness: 0.3, flatShading: true }),
+  itemCross: new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }),
+  itemHalo: new THREE.MeshBasicMaterial({ color: 0x40ff90, transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, depthWrite: false }),
   bulletHalo: new THREE.MeshBasicMaterial({ color: 0xff5010, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }),
   missile: new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.4 }),
   missileTip: new THREE.MeshStandardMaterial({ color: 0xd02020, roughness: 0.4 }),
@@ -252,6 +259,7 @@ function fallback(color, r) {
 // ---- Blender で作った敵のモデル (assets/enemies.glb)。読み込むまでは上の簡易モデルを使う
 const TPL = {};
 const WHITE = new THREE.Color(0xffffff), BLACK = new THREE.Color(0x000000), DUST = new THREE.Color(0.55, 0.5, 0.42);
+const ITEM_COL = new THREE.Color(0.3, 1, 0.5);
 
 // 部品を同じマテリアルごとに1つのメッシュへまとめる (描画回数を減らして VR でも軽くする)。
 // parts に名前を渡した部品 (あご・耳・羽など動かすもの) は別にまとめ、同じ名前の子として元の位置に置く
@@ -358,6 +366,8 @@ export class Combat {
     this.boss = null;
     this.bossDefeated = false;
     this.announce = '';      // 画面に出したい知らせ (main.js が読んで消す)
+    this.items = [];         // 回復アイテム
+    this.itemT = 15;
     this.sparks = new Particles(scene, 1500, true);
     this.smoke = new Particles(scene, 2500, false);
     this.lockTex = LOCK_TEX();
@@ -373,10 +383,11 @@ export class Combat {
   }
 
   reset() {
-    for (const list of [this.enemies, this.bullets, this.shots, this.missiles]) {
+    for (const list of [this.enemies, this.bullets, this.shots, this.missiles, this.items]) {
       list.forEach((o) => this.remove(o));
       list.length = 0;
     }
+    this.itemT = 15;
     this.locks = [];
     this.missileStock = MISSILE_MAX;
     this.spawn = { wave: 3 };
@@ -399,27 +410,82 @@ export class Combat {
   // ---- 出現
   spawnFighterWave(px, py) {
     const n = 4 + Math.floor(Math.random() * 3);
-    const cx = px + rand(-10, 10), cy = THREE.MathUtils.clamp(py + rand(-1, 5), 3, 12);
-    const amp = rand(4, 10), w = rand(0.8, 1.5), pattern = Math.random() < 0.5 ? 'weave' : 'spiral';
+    const behind = Math.random() < 0.35; // 後ろから追い越してくる
+    const w = rand(1.6, 2.8);
     for (let k = 0; k < n; k++) {
       const { mesh, mats } = makeFighter();
+      mesh.scale.setScalar(FIGHTER_SCALE);
       const e = {
-        kind: 'fighter', mesh, mats, r: 2.0, hp: 1, score: 100,
-        t: -k * 0.35, cx, cy, amp, w, pattern, phase: k * 0.5, z: SPAWN_Z - k * 9,
-        fireT: rand(1.5, 4), flash: 0,
+        kind: 'fighter', mesh, mats, r: 3.0, hp: 1, score: 100,
+        t: k * 0.3, w, phase: k * 0.45, fireT: rand(1.5, 4), flash: 0,
+        state: behind ? 'behind' : 'approach', z: behind ? 40 + k * 9 : SPAWN_Z - k * 9,
+        ox: rand(-7, 7), oy: rand(3, 6), yaw: behind ? Math.PI : 0, jink: 0, jinkTo: 0, jinkT: rand(0.3, 1), lastX: px,
       };
-      this.addEnemy(e, 1.8);
+      mesh.position.set(px + e.ox, py + e.oy, e.z);
+      this.addEnemy(e, 1.8 * FIGHTER_SCALE);
     }
+  }
+
+  updateFighter(e, dt, scroll, ctx) {
+    const p = e.mesh.position, P = ctx.player;
+    if (e.state === 'behind') {
+      // 後ろから頭の上を追い越して前へ抜け、遠くで U ターンする
+      e.z -= 62 * dt;
+      p.set(P.x + e.ox + Math.sin(e.t * 2.5) * 2, P.y + e.oy, e.z);
+      if (e.z < -95) {
+        e.state = 'turn';
+        e.turnT = 0;
+      }
+    } else if (e.state === 'turn') {
+      e.turnT += dt;
+      const k = Math.min(1, e.turnT / 0.8);
+      e.yaw = Math.PI * (1 - k);
+      e.z -= 30 * (1 - k) * dt;
+      p.z = e.z;
+      p.y += 5 * (1 - k) * dt;
+      if (k >= 1) e.state = 'approach';
+    } else if (e.state === 'approach') {
+      // 距離に関係なく画面の左右 30 度くらいまで振れるよう、角度で位置を決める
+      e.z += (scroll * 0.6 + 38) * dt;
+      const dist = Math.max(10, -e.z);
+      e.jinkT -= dt;
+      if (e.jinkT <= 0) {
+        e.jinkT = rand(0.5, 1.3);
+        e.jinkTo = rand(-0.35, 0.35); // 急な切り返し
+      }
+      e.jink += (e.jinkTo - e.jink) * Math.min(1, dt * 7);
+      const ax = 0.5 * Math.sin(e.t * e.w + e.phase) + e.jink;
+      const ay = 0.2 * Math.sin(e.t * e.w * 1.7 + e.phase);
+      p.set(P.x + Math.tan(ax) * dist, Math.max(2, P.y + 1 + Math.tan(ay) * dist * 0.7), e.z);
+      if (e.z > -16) {
+        // 自機のすぐ横をかすめて後ろへ抜ける
+        e.state = 'flyby';
+        const side = Math.sign(p.x - P.x) || 1;
+        e.passX = P.x + side * (e.r + 2.6);
+        e.passY = P.y + rand(0.5, 2.5);
+      }
+    } else {
+      e.z += (scroll * 0.6 + 48) * dt;
+      p.x += (e.passX - p.x) * Math.min(1, dt * 6);
+      p.y += (e.passY - p.y) * Math.min(1, dt * 6);
+      p.z = e.z;
+    }
+    // 横に動いた分だけ機体を傾ける
+    const vx = (p.x - e.lastX) / Math.max(dt, 1e-4);
+    e.lastX = p.x;
+    e.bank = (e.bank || 0) + (THREE.MathUtils.clamp(-vx * 0.03, -1.2, 1.2) - (e.bank || 0)) * Math.min(1, dt * 8);
+    e.mesh.rotation.set(0, e.yaw, e.bank);
   }
 
   spawnGunship(px, py) {
     const { mesh, mats } = makeGunship();
+    mesh.scale.setScalar(GUNSHIP_SCALE);
     const e = {
-      kind: 'gunship', mesh, mats, r: 3.6, hp: 6 + this.level * 2, score: 1000,
+      kind: 'gunship', mesh, mats, r: 3.6 * GUNSHIP_SCALE, hp: 6 + this.level * 2, score: 1000,
       t: 0, x: px + rand(-6, 6), y: THREE.MathUtils.clamp(py + rand(1, 5), 4, 12), z: SPAWN_Z,
       hover: 0, fireT: 2, flash: 0,
     };
-    this.addEnemy(e, 3.5);
+    this.addEnemy(e, 3.5 * GUNSHIP_SCALE);
   }
 
   // 出す敵の群れを重み付きで選ぶ。重いもの (ガンシップ・重モビルスーツ) は同時に出しすぎない
@@ -443,13 +509,14 @@ export class Combat {
 
   // モアイ風の石像: 地面に立ち、口を開けてリングを吐く (左右に2体並ぶことが多い)
   spawnMoai(px) {
-    const xs = Math.random() < 0.6 ? [px - rand(8, 14), px + rand(8, 14)] : [px + rand(-12, 12)];
+    const xs = Math.random() < 0.6 ? [px - rand(7, 11), px + rand(7, 11)] : [px + rand(-9, 9)];
     for (const [i, x] of xs.entries()) {
       const made = TPL.moai ? instance(TPL.moai, 3) : fallback(0x6b625a, 2.6);
-      const e = { kind: 'moai', ...made, r: 3, hp: 10 + this.level * 2, score: 800, t: 0, fireT: rand(1, 2.5) + i * 0.6, mouth: 0, flash: 0 };
-      e.mesh.position.set(x, 3, SPAWN_Z - i * 10);
+      const e = { kind: 'moai', ...made, r: 3 * MOAI_SCALE, hp: 10 + this.level * 2, score: 800, t: 0, fireT: rand(1, 2.5) + i * 0.6, mouth: 0, flash: 0 };
+      e.mesh.scale.setScalar(MOAI_SCALE);
+      e.mesh.position.set(x, 3 * MOAI_SCALE, SPAWN_Z - i * 10);
       e.jaw = e.mesh.getObjectByName('MoaiJaw');
-      this.addEnemy(e, 2.4);
+      this.addEnemy(e, 2.4 * MOAI_SCALE);
     }
   }
 
@@ -459,12 +526,12 @@ export class Combat {
     for (let k = 0; k < n; k++) {
       const made = TPL.gremlin ? instance(TPL.gremlin) : fallback(0x337a28, 0.8);
       const e = {
-        kind: 'gremlin', ...made, r: 1.1, hp: 2, score: 300, t: rand(0, 3), flash: 0, fireT: Infinity,
+        kind: 'gremlin', ...made, r: 1.1 * GREMLIN_SCALE * 0.75, hp: 2, score: 300, t: rand(0, 3), flash: 0, fireT: Infinity,
         cx: px + rand(-12, 12), cy: THREE.MathUtils.clamp(py + rand(-1, 4), 1.5, 10), z: SPAWN_Z - k * 6, dash: null,
       };
       e.parts = ['GremEarL', 'GremEarR', 'GremWingL', 'GremWingR'].map((n2) => e.mesh.getObjectByName(n2)).filter(Boolean);
-      e.mesh.scale.setScalar(1.3);
-      this.addEnemy(e, 0.9);
+      e.mesh.scale.setScalar(GREMLIN_SCALE);
+      this.addEnemy(e, 0.9 * GREMLIN_SCALE * 0.6);
     }
   }
 
@@ -474,12 +541,13 @@ export class Combat {
     for (let role = 0; role < 3; role++) {
       const made = TPL.mech ? instance(TPL.mech, 3) : fallback(0x4a2a6a, 2.8);
       const e = {
-        kind: 'mech', ...made, r: 3.2, hp: 10 + this.level * 3, score: 1500, t: role * 0.4, flash: 0, fireT: Infinity,
+        kind: 'mech', ...made, r: 3.2 * MECH_SCALE, hp: 10 + this.level * 3, score: 1500, t: role * 0.4, flash: 0, fireT: Infinity,
         role, group, z: SPAWN_Z - role * 9, off: new THREE.Vector2(), offTo: new THREE.Vector2(), fired: 0, dustT: 0,
       };
-      e.mesh.position.set(px, 3.3, e.z);
+      e.mesh.scale.setScalar(MECH_SCALE);
+      e.mesh.position.set(px, 3.3 * MECH_SCALE, e.z);
       e.eye = e.mesh.getObjectByName('MechEye');
-      this.addEnemy(e, 2.6);
+      this.addEnemy(e, 2.6 * MECH_SCALE);
     }
   }
 
@@ -488,9 +556,10 @@ export class Combat {
     const n = 2 + Math.floor(Math.random() * 2);
     for (let k = 0; k < n; k++) {
       const made = TPL.pill ? instance(TPL.pill) : fallback(0x40485a, 1.5);
-      const e = { kind: 'pill', ...made, r: 1.8, hp: 4 + this.level, score: 400, t: 0, flash: 0, fireT: Infinity, x: px + rand(-10, 10) };
-      e.mesh.position.set(e.x, 1.5, SPAWN_Z - k * 14);
-      this.addEnemy(e, 1.6);
+      const e = { kind: 'pill', ...made, r: 1.8 * PILL_SCALE, hp: 4 + this.level, score: 400, t: rand(0, 3), flash: 0, fireT: Infinity, x: px + rand(-10, 10) };
+      e.mesh.scale.setScalar(PILL_SCALE);
+      e.mesh.position.set(e.x, 1.5 * PILL_SCALE, SPAWN_Z - k * 14);
+      this.addEnemy(e, 1.6 * PILL_SCALE);
     }
   }
 
@@ -498,7 +567,8 @@ export class Combat {
     const segs = [0, 1, 2].map((i) => e.mesh.getObjectByName(`PillSeg${i}`));
     for (let i = 0; i < 3; i++) {
       const made = TPL.pillSeg?.[i] ? instance(TPL.pillSeg[i]) : fallback(0x40485a, 0.9);
-      const part = { kind: 'pillpart', ...made, r: 1.1, hp: 2, score: 200, t: 0, flash: 0, fireT: Infinity };
+      const part = { kind: 'pillpart', ...made, r: 1.1 * PILL_SCALE, hp: 2, score: 200, t: 0, flash: 0, fireT: Infinity };
+      part.mesh.scale.setScalar(PILL_SCALE);
       if (segs[i]) segs[i].getWorldPosition(part.mesh.position);
       else part.mesh.position.copy(e.mesh.position);
       part.mesh.quaternion.copy(e.mesh.quaternion);
@@ -517,22 +587,22 @@ export class Combat {
     if (G.phase === 'approach') {
       if (leader) {
         G.lane += THREE.MathUtils.clamp(ctx.player.x - G.lane, -7 * dt, 7 * dt);
-        if (p.z > -60) {
+        if (p.z > -55) {
           G.phase = 'attack';
           G.at = 0;
           this.announce = 'JET STREAM ATTACK!';
         }
       }
-      e.z += (scroll * 0.5 + 34) * dt;
+      e.z += (scroll * 0.5 + 46) * dt;
     } else if (G.phase === 'attack') {
       if (leader) G.at += dt;
-      e.z = Math.min(e.z + (scroll * 0.5 + 20) * dt, -32 - e.role * 9);
+      e.z = Math.min(e.z + (scroll * 0.5 + 30) * dt, -20 - e.role * 7);
       const local = G.at - e.role * 0.7;
       if (local >= 0 && e.fired === 0) {
         e.fired = 1;
         this.fireMechShell(e, ctx);
         // 1機目は上、2機目は右、3機目は左へ散る
-        e.offTo.set([0, 10, -10][e.role], [7, 1, 1][e.role]);
+        e.offTo.set([0, 14, -14][e.role], [9, 1, 1][e.role]);
       }
       if (local >= 1.3 && e.fired === 1) {
         e.fired = 2;
@@ -544,14 +614,14 @@ export class Combat {
       e.offTo.y = 4;
       if (e.z < SPAWN_Z) e.dead = true;
     }
-    e.off.lerp(e.offTo, Math.min(1, dt * 3));
-    p.set(G.lane + e.off.x, 3.3 + e.off.y + Math.sin(e.t * 2) * 0.15, e.z);
+    e.off.lerp(e.offTo, Math.min(1, dt * 6));
+    p.set(G.lane + e.off.x, 3.3 * MECH_SCALE + e.off.y + Math.sin(e.t * 2) * 0.15, e.z);
     e.mesh.rotation.y = Math.atan2(ctx.player.x - p.x, ctx.player.z - p.z) * 0.7;
     e.mesh.rotation.z = THREE.MathUtils.clamp((e.offTo.x - e.off.x) * -0.04, -0.3, 0.3);
     if (e.eye) e.eye.position.x = e.eye.userData.base.x + Math.sin(e.t * 2.5) * 0.4;
     // スカートの下から砂ぼこり (地面の近くにいるときだけ)
     e.dustT -= dt;
-    if (e.dustT <= 0 && p.y < 6) {
+    if (e.dustT <= 0 && p.y < 8) {
       e.dustT = 0.06;
       this.smoke.emit(_b.set(p.x + rand(-1.5, 1.5), 0.3, p.z + rand(-1.5, 1.5)), _c.set(rand(-3, 3), 1, rand(-3, 3)), DUST, 1.4, 0.8, 2.5, 0.95);
     }
@@ -561,9 +631,50 @@ export class Combat {
     if (!ctx.active) return;
     const p = e.mesh.position;
     const muzzle = TPL.mechMuzzle
-      ? _b.set(-TPL.mechMuzzle.x, TPL.mechMuzzle.y - 3, -TPL.mechMuzzle.z).applyQuaternion(e.mesh.quaternion).add(p)
+      ? _b.set(-TPL.mechMuzzle.x, TPL.mechMuzzle.y - 3, -TPL.mechMuzzle.z).multiplyScalar(MECH_SCALE).applyQuaternion(e.mesh.quaternion).add(p)
       : _b.copy(p).add(_c.set(2, 1, 2));
     this.fireBullet(muzzle.clone(), ctx.player, 0, 'shell');
+  }
+
+  // ---- 回復アイテム: 光る緑の結晶。通り抜けると取れる (近づくと吸い寄せられる)
+  spawnItem(pos) {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(GEO.item, MAT.item));
+    const cross = new THREE.Group();
+    for (const [w, h] of [[0.9, 0.28], [0.28, 0.9]]) cross.add(new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.12), MAT.itemCross));
+    g.add(cross);
+    g.add(new THREE.Mesh(GEO.itemHalo, MAT.itemHalo));
+    g.position.copy(pos);
+    g.position.y = Math.max(2, pos.y);
+    this.scene.add(g);
+    this.items.push({ mesh: g, cross, t: 0, y: g.position.y });
+  }
+
+  updateItems(dt, scroll, ctx) {
+    if (ctx.spawn) {
+      this.itemT -= dt;
+      if (this.itemT <= 0) {
+        this.itemT = rand(18, 26);
+        this.spawnItem(_a.set(ctx.player.x + rand(-8, 8), THREE.MathUtils.clamp(ctx.player.y + rand(-2, 3), 2, 9), SPAWN_Z * 0.8));
+      }
+    }
+    for (const it of this.items) {
+      it.t += dt;
+      const p = it.mesh.position;
+      p.z += scroll * dt;
+      const d = p.distanceTo(ctx.player);
+      if (d < 7) p.lerp(ctx.player, Math.min(1, dt * 4)); // 近づくと吸い寄せられる
+      else p.y = it.y + Math.sin(it.t * 3) * 0.4;
+      it.mesh.rotation.y += dt * 2.5;
+      it.cross.lookAt(ctx.eye);
+      it.mesh.scale.setScalar(1 + Math.sin(it.t * 8) * 0.08);
+      if (d < 2.2 + ctx.playerR) {
+        it.dead = true;
+        ctx.onPickup?.('heal');
+        const v = new THREE.Vector3();
+        for (let i = 0; i < 30; i++) this.sparks.emit(p, v.randomDirection().multiplyScalar(rand(4, 10)), ITEM_COL, 0.8, 0.5);
+      } else if (p.z > REMOVE_Z) it.dead = true;
+    }
   }
 
   addEnemy(e, shadowR) {
@@ -577,7 +688,7 @@ export class Combat {
   spawnBoss() {
     const lv = this.level;
     const n = 10 + lv * 2;
-    const b = { parts: [], hp: 300 + lv * 100, maxHp: 300 + lv * 100, t: 0, fireT: 3, segFireT: 2, dying: -1, exploded: 0 };
+    const b = { parts: [], hp: 300 + lv * 100, maxHp: 300 + lv * 100, t: 0, fireT: 3, segFireT: 2, dying: -1, exploded: 0, lungeT: 9, lunge: 0 };
     const add = (tpl, fallbackR, r, isHead) => {
       let made;
       if (tpl) made = instance(tpl);
@@ -585,6 +696,8 @@ export class Combat {
         const mat = new THREE.MeshStandardMaterial({ color: isHead ? 0x9a1c1c : 0x40444c, metalness: 0.5, roughness: 0.4, flatShading: true });
         made = { mesh: new THREE.Mesh(new THREE.IcosahedronGeometry(fallbackR, 1), mat), mats: [mat] };
       }
+      made.mesh.scale.setScalar(BOSS_SCALE);
+      r *= BOSS_SCALE;
       const e = { kind: 'boss', boss: b, isHead, mesh: made.mesh, mats: made.mats, r, hp: Infinity, score: 0, flash: 0, fireT: Infinity };
       e.mesh.position.set(0, 8, SPAWN_Z - b.parts.length * 3);
       this.addEnemy(e, r * 1.2);
@@ -620,12 +733,23 @@ export class Combat {
     }
     const head = b.parts[0];
     const target = _d.set(
-      ctx.player.x * 0.4 + 13 * Math.sin(t * 0.47),
-      THREE.MathUtils.clamp(ctx.player.y + 2 + 4 * Math.sin(t * 1.07), 2.5, 15),
-      -44 + 12 * Math.sin(t * 0.31),
+      ctx.player.x * 0.4 + 18 * Math.sin(t * 0.62),
+      THREE.MathUtils.clamp(ctx.player.y + 2 + 5 * Math.sin(t * 1.3), 3, 16),
+      -30 + 8 * Math.sin(t * 0.41),
     );
     if (t < 5) target.z = THREE.MathUtils.lerp(-200, target.z, t / 5); // 遠くから迫ってくる
-    head.mesh.position.lerp(target, 1 - Math.exp(-dt * 1.8));
+    // 噛みつき: ときどき目の前まで突っ込んでくる
+    b.lungeT -= dt;
+    if (b.lungeT <= 0 && t > 6) {
+      b.lungeT = rand(6, 9);
+      b.lunge = 1.2;
+      sfx.whoosh();
+    }
+    if (b.lunge > 0) {
+      b.lunge -= dt;
+      target.set(ctx.player.x + 4, ctx.player.y + 1.5, -10);
+    }
+    head.mesh.position.lerp(target, 1 - Math.exp(-dt * (b.lunge > 0 ? 3.5 : 2.6)));
     head.mesh.lookAt(ctx.player);
     // 胴体: 前の節から一定の距離を保ってついていく。少し後ろへ流してうねりを出す
     let prev = head;
@@ -769,6 +893,7 @@ export class Combat {
     this.kills++;
     this.explode(e.mesh.position, e.kind === 'gunship' || e.kind === 'mech' || e.kind === 'moai');
     if (e.kind === 'pill') this.splitPill(e);
+    if (['gunship', 'mech', 'moai'].includes(e.kind) && Math.random() < 0.35) this.spawnItem(e.mesh.position);
   }
 
   // ---- 毎フレーム
@@ -788,6 +913,7 @@ export class Combat {
       }
     }
     this.updateBoss(dt, ctx);
+    this.updateItems(dt, scroll, ctx);
 
     // 敵の動き
     for (const e of this.enemies) {
@@ -804,12 +930,14 @@ export class Combat {
         if (e.dash) {
           p.addScaledVector(e.dash, dt);
         } else {
-          e.z += (scroll * 0.5 + 24) * dt;
-          // ジグザグ (三角波) に跳ねる
-          const tri = (2 / Math.PI) * Math.asin(Math.sin(e.t * 2.6));
-          p.set(e.cx + tri * 6, Math.max(1.2, e.cy + Math.abs(Math.sin(e.t * 4)) * 2.5), e.z);
-          if (p.z > -45 && Math.random() < dt * 0.8) {
-            e.dash = _a.subVectors(ctx.player, p).normalize().multiplyScalar(48).clone();
+          e.z += (scroll * 0.5 + 34) * dt;
+          // ジグザグ (三角波) に、画面の左右いっぱいまで跳ねる
+          const dist = Math.max(10, -e.z);
+          const tri = (2 / Math.PI) * Math.asin(Math.sin(e.t * 4.4));
+          const hop = Math.abs(Math.sin(e.t * 6.5)) * 4;
+          p.set(ctx.player.x + (e.cx - ctx.player.x) * 0.3 + tri * dist * 0.5, Math.max(2, e.cy + hop), e.z);
+          if (p.z > -38 && Math.random() < dt * 1.2) {
+            e.dash = _a.subVectors(ctx.player, p).normalize().multiplyScalar(62).clone();
             sfx.hit();
           }
         }
@@ -822,14 +950,16 @@ export class Combat {
       } else if (e.kind === 'mech') {
         this.updateMech(e, dt, scroll, ctx);
       } else if (e.kind === 'pill') {
-        p.z += (scroll + 14) * dt; // 地面より速く転がってくる
-        e.x += THREE.MathUtils.clamp(ctx.player.x - e.x, -3 * dt, 3 * dt);
-        p.set(e.x, 1.5, p.z);
-        e.mesh.rotation.x -= ((scroll + 14) / 1.5) * dt;
+        p.z += (scroll + 24) * dt; // 地面より速く転がってくる
+        // ジグザグに転がりながら、プレイヤーの列へ寄ってくる
+        const want = ctx.player.x + Math.sin(e.t * 2.2) * Math.max(4, -p.z * 0.35);
+        e.x += THREE.MathUtils.clamp(want - e.x, -16 * dt, 16 * dt);
+        p.set(e.x, 1.5 * PILL_SCALE, p.z);
+        e.mesh.rotation.x -= ((scroll + 24) / (1.5 * PILL_SCALE)) * dt;
       } else if (e.kind === 'pillpart') {
         // 割れた節: はじけ飛んだあと、プレイヤーへ向かってくる
-        const want = _a.subVectors(ctx.player, p).normalize().multiplyScalar(32);
-        e.vel.lerp(want, Math.min(1, dt * (e.t > 0.6 ? 1.6 : 0.2)));
+        const want = _a.subVectors(ctx.player, p).normalize().multiplyScalar(40);
+        e.vel.lerp(want, Math.min(1, dt * (e.t > 0.5 ? 2.4 : 0.2)));
         e.vel.y -= (e.t < 0.6 ? 14 : 0) * dt;
         p.addScaledVector(e.vel, dt);
         p.z += scroll * 0.3 * dt;
@@ -838,17 +968,12 @@ export class Combat {
         e.mesh.rotation.y += e.spin.y * dt;
         e.mesh.rotation.z += e.spin.z * dt;
       } else if (e.kind === 'fighter') {
-        e.z += (scroll * 0.55 + 20) * dt;
-        const s = Math.sin(e.t * e.w + e.phase), c = Math.cos(e.t * e.w + e.phase);
-        const x = e.pattern === 'weave' ? e.cx + e.amp * s : e.cx + e.amp * 0.6 * c;
-        const y = e.pattern === 'weave' ? e.cy + 1.5 * Math.sin(e.t * e.w * 1.7) : e.cy + e.amp * 0.4 * s;
-        p.set(x, Math.max(1.5, y), e.z);
-        e.mesh.rotation.z = -c * 0.7;
+        this.updateFighter(e, dt, scroll, ctx);
       } else if (e.kind === 'gunship') {
         if (e.hover < 7) {
-          e.z = Math.min(-75, e.z + (scroll * 0.5 + 18) * dt);
-          if (e.z >= -75) e.hover += dt;
-          p.set(e.x + Math.sin(e.t * 0.7) * 5, e.y + Math.sin(e.t * 1.3) * 1.2, e.z);
+          e.z = Math.min(-40, e.z + (scroll * 0.5 + 26) * dt);
+          if (e.z >= -40) e.hover += dt;
+          p.set(ctx.player.x * 0.3 + e.x * 0.7 + Math.sin(e.t * 0.9) * 14, e.y + Math.sin(e.t * 1.6) * 3, e.z);
         } else {
           // 去っていく (上昇しながら遠ざかる)
           p.y += 9 * dt;
@@ -859,6 +984,10 @@ export class Combat {
       }
       if (p.z > REMOVE_Z) e.dead = true;
       e.shadow.position.set(p.x, 0.05, p.z);
+      if (!e.whooshed && e.kind !== 'boss' && p.distanceTo(ctx.eye) < e.r + 9) {
+        e.whooshed = true;
+        sfx.whoosh();
+      }
 
       // 被弾したら一瞬白く光らせる
       e.flash -= dt;
@@ -875,7 +1004,7 @@ export class Combat {
           // 口を開けてリングを吐く
           e.fireT = rand(2.2, 3.2) / lv;
           e.mouth = 1;
-          const mouth = _b.set(0, -0.9, 1.6).applyQuaternion(e.mesh.quaternion).add(p);
+          const mouth = _b.set(0, -0.9, 1.6).multiplyScalar(MOAI_SCALE).applyQuaternion(e.mesh.quaternion).add(p);
           this.fireBullet(mouth.clone(), ctx.player, 0, 'ring');
         } else if (e.kind === 'gunship') {
           e.fireT = 1.6;
@@ -883,9 +1012,9 @@ export class Combat {
         }
       }
       if (!e.dead && p.distanceTo(ctx.player) < e.r + ctx.playerR) {
-        ctx.onPlayerHit();
+        ctx.onPlayerHit(e.kind === 'boss' ? 30 : 25);
         // 体当たりしてくる敵は、ぶつかったら自分も爆発する
-        if (e.kind === 'gremlin' || e.kind === 'pillpart') {
+        if (e.kind === 'gremlin' || e.kind === 'pillpart' || e.kind === 'pill') {
           e.dead = true;
           this.explode(p);
         }
@@ -909,7 +1038,7 @@ export class Combat {
       if (b.life <= 0 || b.mesh.position.z > REMOVE_Z) b.dead = true;
       else if (b.mesh.position.distanceTo(ctx.player) < b.r + ctx.playerR) {
         b.dead = true;
-        ctx.onPlayerHit();
+        ctx.onPlayerHit(b.type === 'shell' ? 20 : b.type === 'ring' ? 18 : 12);
       }
     }
 
@@ -1025,7 +1154,7 @@ export class Combat {
     }
 
     // 片付け
-    for (const key of ['enemies', 'bullets', 'shots', 'missiles']) {
+    for (const key of ['enemies', 'bullets', 'shots', 'missiles', 'items']) {
       const list = this[key];
       if (list.some((o) => o.dead)) {
         this[key] = list.filter((o) => {

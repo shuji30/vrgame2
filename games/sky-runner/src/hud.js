@@ -72,6 +72,27 @@ export class Hud {
         g.fillRect(bx0, by, (bx1 - bx0) * d.boss, 20);
       }
 
+      // ライフゲージ (少ないと赤く点滅する)
+      {
+        const lx0 = 24, lx1 = 420, ly = 352, lh = 28;
+        const r = d.life / d.lifeMax;
+        text(g, 'LIFE', lx0, ly - 8, 24, '#fff');
+        g.fillStyle = 'rgba(0,0,0,0.55)';
+        g.fillRect(lx0 - 3, ly - 3, lx1 - lx0 + 6, lh + 6);
+        g.fillStyle = r < 0.3 ? (d.blink ? '#ff2020' : '#901010') : r < 0.6 ? '#ffd030' : '#30e060';
+        g.fillRect(lx0, ly, (lx1 - lx0) * r, lh);
+        g.strokeStyle = 'rgba(255,255,255,0.8)';
+        g.lineWidth = 2;
+        for (let i = 1; i < 4; i++) {
+          const x = lx0 + ((lx1 - lx0) * i) / 4;
+          g.beginPath();
+          g.moveTo(x, ly);
+          g.lineTo(x, ly + lh);
+          g.stroke();
+        }
+        text(g, `${d.life}`, lx1 + 12, ly + lh - 3, 26, '#fff');
+      }
+
       // ミサイルの残り (四角) とロック数
       for (let i = 0; i < d.missileMax; i++) {
         g.fillStyle = i < d.missiles ? '#ffffff' : 'rgba(255,255,255,0.2)';

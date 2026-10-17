@@ -24,6 +24,9 @@ const STAGE_LEN = Number(new URLSearchParams(location.search).get('stageLen')) |
 const LIVES = 3;
 const EXTEND_EVERY = 50000; // この点数ごとに残機が 1 増える
 const LIVES_MAX = 5;
+const LIFE_MAX = 100;      // ライフ。0 になると残機が 1 減り、満タンに戻る
+const HEAL = 35;           // 回復アイテム 1 個で戻るライフ
+const OBSTACLE_DAMAGE = 20;
 
 let hiScore = 0;
 try { hiScore = Number(localStorage.getItem('skyrunner.hi')) || 0; } catch (_) { /* 保存なし */ }
@@ -112,6 +115,8 @@ const S = {
   stageT: 0,
   baseSpeed: SPEED.base,
   lives: LIVES,
+  life: LIFE_MAX,
+  lowLifeT: 0,
   nextExtend: EXTEND_EVERY,
   overT: 0,
   paused: false,
@@ -139,13 +144,14 @@ function startPlay() {
   initAudio();
   Object.assign(S, {
     mode: 'play', paused: false, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0,
-    stage: 1, phase: 'normal', phaseT: 0, stageT: 0, baseSpeed: SPEED.base, lives: LIVES, nextExtend: EXTEND_EVERY, overT: 0,
+    stage: 1, phase: 'normal', phaseT: 0, stageT: 0, baseSpeed: SPEED.base, lives: LIVES, life: LIFE_MAX, lowLifeT: 0, nextExtend: EXTEND_EVERY, overT: 0,
   });
   setBGMMode(false);
   world.clear();
   world.applyTheme(0);
   combat.reset();
   avatar.recenter();
+  avatar.destroyed = false;
   overlay.hidden = true;
   applyAudioSettings();
   setPaused(false);
@@ -275,9 +281,21 @@ function updateStage(dt) {
   }
 }
 
+// 機体の爆発: 一人称のときは目の前で見えるよう、少し前方で爆発させる
+const boomPos = new THREE.Vector3();
+function playerExplosion(big) {
+  boomPos.copy(P);
+  if (settings.view === '1st') boomPos.add(new THREE.Vector3(THREE.MathUtils.randFloatSpread(5), THREE.MathUtils.randFloatSpread(3), -THREE.MathUtils.randFloat(4, 8)));
+  else boomPos.add(new THREE.Vector3(THREE.MathUtils.randFloatSpread(3), THREE.MathUtils.randFloatSpread(2), THREE.MathUtils.randFloatSpread(3)));
+  combat.explode(boomPos, big);
+}
+
 function gameOver() {
   S.mode = 'over';
   S.overT = 0;
+  S.boomT = 0;
+  avatar.destroyed = true;
+  playerExplosion(true);
   S.paused = false;
   setBGMMode(false);
   stopBGM();
@@ -289,21 +307,50 @@ function gameOver() {
   say('Game over');
 }
 
-function onHit() {
+// damage: 減らすライフの量
+function onHit(damage) {
+  if (S.invuln > 0 || S.mode !== 'play') return;
   S.hits++;
+  S.life -= damage;
+  if (S.life > 0) {
+    S.invuln = 0.8;
+    flash.material.opacity = 0.25 + damage / 80;
+    sfx.damage();
+    input.rumble(0.6 + damage / 100, 200);
+    return;
+  }
+  // ライフが尽きた: 残機を 1 減らしてライフを満タンに戻す
   S.lives--;
   if (S.lives <= 0) {
+    S.life = 0;
     flash.material.opacity = 0.8;
     sfx.damage();
     input.rumble(1.0, 500);
     gameOver();
     return;
   }
-  S.invuln = 1.5;
+  S.life = LIFE_MAX;
+  S.invuln = 3;
   S.factor = Math.min(S.factor, 0.75);
-  flash.material.opacity = 0.55;
+  flash.material.opacity = 0.8;
   sfx.damage();
-  input.rumble(1.0, 250);
+  sfx.explode(true);
+  input.rumble(1.0, 500);
+  playerExplosion(true);
+  showMsg('MISS!', `残機 ${S.lives}`, 2);
+}
+
+function onPickup(type) {
+  if (type !== 'heal') return;
+  if (S.life >= LIFE_MAX) {
+    combat.score += 2000;
+    showMsg('LIFE FULL', 'BONUS 2000', 1.2);
+  } else {
+    S.life = Math.min(LIFE_MAX, S.life + HEAL);
+    showMsg('RECOVER!', `LIFE +${HEAL}`, 1.2);
+  }
+  sfx.heal();
+  input.rumble(0.3, 100);
 }
 
 // バージョンと公開日時 (タイトル画面とポーズ画面に出す)
@@ -382,7 +429,8 @@ function updateCombat(dt, speed, a) {
     aimOrigin, aimDir, guns, firing,
     missile: a.missile, missileOrigin: avatar.center(kind, missileOrigin),
     showAim: !humanVR, halfHeight,
-    onPlayerHit: () => { if (S.invuln <= 0) onHit(); },
+    onPlayerHit: (damage) => onHit(damage),
+    onPickup,
   });
 }
 
@@ -401,6 +449,11 @@ function update(dt) {
     // ゲームオーバー: 景色だけゆっくり止まっていく。2 秒たったら、もう一度 / タイトルへ
     S.overT += dt;
     speed = S.baseSpeed * S.factor * Math.max(0, 1 - S.overT / 2.5);
+    // 最初の 1.5 秒は爆発が続く
+    if (S.overT < 1.5 && (S.boomT -= dt) <= 0) {
+      S.boomT = 0.12;
+      playerExplosion(Math.random() < 0.5);
+    }
     if (S.overT > 2) {
       if (a.back) toTitle();
       else if (a.confirm) startPlay();
@@ -449,7 +502,12 @@ function update(dt) {
   P.copy(avatar.hitPoint);
   world.update(dt, speed, P, running);
 
-  if (play && running && S.invuln <= 0 && world.hitTest(P, avatar.radius)) onHit();
+  if (play && running && S.invuln <= 0 && world.hitTest(P, avatar.radius)) onHit(OBSTACLE_DAMAGE);
+  // ライフが少ないときは警告音
+  if (play && running && S.life < LIFE_MAX * 0.3 && (S.lowLifeT -= dt) <= 0) {
+    S.lowLifeT = 1.2;
+    sfx.lowLife();
+  }
   if (play && running) updateCombat(dt, speed, a);
   if (combat.announce) {
     showMsg(combat.announce, '', 2);
@@ -463,6 +521,9 @@ function update(dt) {
 
   // デスクトップのみ: 機体の傾きと速度による画角の変化 (VR ではカメラを動かさない)
   if (!renderer.xr.isPresenting) {
+    // 爆発で画面を揺らす (デスクトップのみ)
+    const shake = S.mode === 'over' ? Math.max(0, 1 - S.overT / 1.8) * 0.25 : 0;
+    camera.position.set(THREE.MathUtils.randFloatSpread(shake), 1.6 + THREE.MathUtils.randFloatSpread(shake), 0);
     camera.rotation.z += (-S.vx * 0.012 - camera.rotation.z) * Math.min(1, dt * 6);
     const fov = 75 + (S.mode === 'play' ? (speed / SPEED.base - 1) * 14 : 0);
     if (Math.abs(fov - camera.fov) > 0.01) {
@@ -492,6 +553,9 @@ function update(dt) {
     sub: S.paused ? (a.source === 'pad' ? 'START: 再開   B: タイトルへ' : a.source === 'xr' ? 'X/トリガー: 再開   A: タイトルへ' : 'Esc/クリック: 再開   Backspace: タイトルへ') : S.sub,
     hint: S.paused ? buildInfo : play ? HINTS[a.source] : S.mode === 'over' && S.overT > 2 ? RETRY_HINT[a.source] : '',
     lives: S.lives,
+    life: Math.max(0, Math.round(S.life)),
+    lifeMax: LIFE_MAX,
+    blink: S.life < LIFE_MAX * 0.3 && Math.floor(performance.now() / 250) % 2 === 0,
     stage: S.stage,
     hi: Math.max(hiScore, combat.score),
     mult: Math.round(combat.mult * 10) / 10,
@@ -502,9 +566,11 @@ function update(dt) {
   debugPanel.draw(dt, { fps: S.fps, xr: renderer.xr.isPresenting, refSpace: S.refSpace, scale: settings.scale, version: buildInfo }, input);
 }
 
+// 開発用: 自動テストからすぐ撃墜させる
+window.__debugKill = () => { S.lives = 1; S.invuln = 0; onHit(999); };
 // 開発用: 自動テストから状態を読む
 window.__debugState = () => ({
-  mode: S.mode, py: S.py, version: document.getElementById('version').textContent, phase: S.phase, stage: S.stage, lives: S.lives, boss: combat.bossRatio, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,
+  destroyed: avatar.destroyed, shipVisible: avatar.models.ship?.obj.visible, overT: S.overT, frame: renderer.info.render.frame, mode: S.mode, py: S.py, version: document.getElementById('version').textContent, phase: S.phase, stage: S.stage, lives: S.lives, boss: combat.bossRatio, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,
   shots: combat.shots.length, missiles: combat.missiles.length, stock: combat.missileStock, locks: combat.locks.length, hits: S.hits,
 });
 
