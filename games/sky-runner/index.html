@@ -129,6 +129,16 @@
         <span><b>人間</b><small>ジェットパックで飛ぶ</small></span></span></label>
     </div>
 
+    <p class="section-label">MODE</p>
+    <div class="players modes" role="radiogroup" aria-label="モード">
+      <label><input type="radio" name="mode" value="3d"><span class="card">
+        <svg viewBox="0 0 54 44" aria-hidden="true"><path d="M4 42 L24 14 L30 14 L50 42 Z" fill="#3e9c3c"/><path d="M14 42 L25 18 L29 18 L40 42 Z" fill="#e9cf6a"/><path d="M27 4 L31 12 L23 12 Z" fill="#e8ecf4"/></svg>
+        <span><b>3D</b><small>奥へ飛び込む</small></span></span></label>
+      <label><input type="radio" name="mode" value="side"><span class="card">
+        <svg viewBox="0 0 54 44" aria-hidden="true"><rect x="2" y="34" width="50" height="8" fill="#3e9c3c"/><rect x="10" y="34" width="8" height="8" fill="#e9cf6a"/><rect x="34" y="34" width="8" height="8" fill="#e9cf6a"/><path d="M8 18 L26 14 L30 18 L26 22 Z" fill="#e8ecf4"/><path d="M34 18 L48 18" stroke="#3ec0ff" stroke-width="3"/></svg>
+        <span><b>横スクロール</b><small>真横から見る</small></span></span></label>
+    </div>
+
     <div class="buttons">
       <button id="btnVR" class="launch" disabled>VR で出撃 <small>ヘッドセット</small></button>
       <button id="btnDesk" class="launch secondary">デスクトップで出撃 <small>マウス / パッド</small></button>
@@ -178,7 +188,7 @@
     </div>
   </div>
 </div>
-<script type="module" src="./js-9d6a7c1/main.js"></script>
+<script type="module" src="./js-9d6c83f/main.js"></script>
 <script>
   // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
   if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {
