@@ -173,7 +173,7 @@ export class DebugPanel {
     line(`fps ${info.fps.toFixed(0)}  xr ${info.xr}  refSpace ${info.refSpace}  fbScale ${info.scale}`);
     line(`${info.version || ''}   draw calls ${info.calls ?? '-'}   triangles ${info.tris ?? '-'}`);
     const s = input.state;
-    line(`source ${s.source}  move ${fmt(s.move.x)},${fmt(s.move.y)}  throttle ${fmt(s.throttle)}  fire ${s.fire || s.handFire.some((h) => h.fire)}`);
+    line(`source ${s.source}  move ${fmt(s.move.x)},${fmt(s.move.y)}  throttle ${fmt(s.throttle)}  alt ${s.altitude == null ? '-' : fmt(s.altitude)}  fire ${s.fire || s.handFire.some((h) => h.fire)}`);
     y += 8;
 
     line(`GAMEPADS (${input.debug.pads.length})`, '#ffd27f', 24);

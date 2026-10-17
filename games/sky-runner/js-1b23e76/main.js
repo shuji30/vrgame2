@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { World } from './world.js';
-import { Input, HINTS } from './input.js';
+import { Input } from './input.js';
 import { Hud, DebugPanel } from './hud.js';
 import { Avatar } from './avatar.js';
 import { SledRide } from './ride.js';
@@ -9,6 +9,8 @@ import { STAGES, STAGE_COUNT, stageAt } from './stages.js';
 import { Vignette, VIGNETTE_LEVELS } from './comfort.js';
 import { CEIL_Y } from './world.js';
 import { TouchControls, isTouchDevice } from './touch.js';
+import { WheelInput } from './wheel/devices.js';
+import { WheelPanel } from './wheel/calibration.js';
 import { THEMES } from './world.js';
 import { VERSION, loadBuildInfo } from './version.js';
 import { BGM_LIST, SE_LIST, captureAudioStream, initAudio, previewBGM, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, toggleMute } from './audio.js';
@@ -17,6 +19,8 @@ import { BGM_LIST, SE_LIST, captureAudioStream, initAudio, previewBGM, sfx, setE
 const X_LIMIT = 32;        // 左右の移動範囲 (m)
 const Y_MAX = 20;          // 上昇できる高さ (リグの高さ, m)
 const MOVE_X = 18;         // スティックを倒しきったときの横移動速度 (m/s)
+const WHEEL_X_BOOST = 1.6; // ハンコンは切る角度が小さくなりがちなので、横移動を速くする
+const moveX = (a) => MOVE_X * (a.source === 'wheel' ? WHEEL_X_BOOST : 1);
 const MOVE_Y = 12;
 const SPEED = {
   base: 40,                // 基準速度 (m/s)
@@ -41,6 +45,7 @@ const BONUS_TREE = 500;    // 木 1 本の点数
 const LIFE_MAX = 100;      // ライフ。0 になると残機が 1 減り、満タンに戻る
 const HEAL = 35;           // 回復アイテム 1 個で戻るライフ
 const OBSTACLE_DAMAGE = 20;
+const RING_BONUS = 500; // 浮遊リングをくぐったときの点
 
 let hiScore = 0;
 let progress = 1; // 到達した面 (タイトルの CONTINUE で、そこから始められる)
@@ -77,6 +82,10 @@ const input = new Input(renderer.domElement);
 const hud = new Hud(camera);
 const touch = new TouchControls(document.getElementById('touch'));
 input.touch = touch;
+// ハンコン (ハンドル + ペダル)。設定はタイトル画面の「ハンコン設定」で行う
+input.wheel = new WheelInput();
+const wheelPanel = document.getElementById('wheelPanel');
+new WheelPanel(wheelPanel, input.wheel);
 const debugPanel = new DebugPanel(rig);
 const avatar = new Avatar(scene, rig, camera);
 avatar.load('./assets/').catch((e) => console.error('モデルを読み込めませんでした', e));
@@ -167,6 +176,8 @@ const overlay = document.getElementById('overlay');
 function startPlay(stageNo) {
   if (!Number.isInteger(stageNo)) stageNo = selectedStage; // タイトルで選んだ面 (もう一度のときも同じ面から)
   stopPreview();
+  wheelPanel.open = false; // ハンコン設定を閉じる (開いている間は、ハンコンをゲームの操作として読まないため)
+  input.wheel.panelOpen = false;
   S.fromStart = stageNo === 1;
   initAudio();
   Object.assign(S, {
@@ -301,6 +312,7 @@ async function enterVR() {
   initAudio();
   try {
     renderer.xr.setFramebufferScaleFactor(settings.scale);
+    if (input.wheel.hasBindings()) input.wheel.bridge.connect(); // VR の最中はブリッジ経由でハンコンを読む
     const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] });
     let type = 'local-floor';
     try { await session.requestReferenceSpace('local-floor'); } catch (_) { type = 'local'; }
@@ -336,6 +348,17 @@ const vrGentle = () => renderer.xr.isPresenting && settings.vrGentle;
 const yMax = () => Math.min(stageAt(S.stage).ceiling ? CEIL_Y - 8 : Y_MAX, vrGentle() ? 12 : Y_MAX);
 const moveY = () => MOVE_Y * (vrGentle() ? 0.6 : 1);
 
+// ハンコンのクラッチ: 踏み込み量 = 高さ (a.altitude 0..1)。目標の高さへ、上下の速さを抑えてなめらかに近づける
+// (急に動くと VR で酔いやすい)。返り値は新しい上下の速さ
+function altitudeVy(dt, altitude) {
+  const target = clamp(altitude, 0, 1) * yMax();
+  const vmax = moveY() * 1.5;
+  const want = clamp((target - S.py) * 2.5, -vmax, vmax);
+  return S.vy + (want - S.vy) * (1 - Math.exp(-dt * 6));
+}
+// 上下の入力 (スティックなど。上下反転の設定を効かせる) + ハンコンのパドル (反転しない)
+const liftInput = (a) => clamp((settings.invertY ? -a.move.y : a.move.y) + (a.lift || 0), -1, 1);
+
 function movePlayer(dt, a) {
   if (isSide()) return moveSide(dt, a);
   const ox = S.px, oy = S.py;
@@ -347,9 +370,10 @@ function movePlayer(dt, a) {
   } else {
     // スティック: 速度を滑らかに変える (急に動き出すと VR で酔いやすい)
     const k = 1 - Math.exp(-dt * 8);
-    const my = settings.invertY ? -a.move.y : a.move.y; // 上下反転 (操縦桿のように、前に倒すと下がる)
-    S.vx += (a.move.x * MOVE_X - S.vx) * k;
-    S.vy += (my * moveY() - S.vy) * k;
+    const my = liftInput(a); // 上下反転 (操縦桿のように、前に倒すと下がる)
+    S.vx += (a.move.x * moveX(a) - S.vx) * k;
+    if (a.altitude != null) S.vy = altitudeVy(dt, a.altitude); // ハンコンのクラッチ: 高さを位置で決める
+    else S.vy += (my * moveY() - S.vy) * k;
     S.px += S.vx * dt;
     S.py += S.vy * dt;
   }
@@ -515,9 +539,10 @@ function moveSide(dt, a) {
     S.py += ((a.abs.y * 0.5 + 0.5) * yMax() - S.py) * k;
   } else {
     const k = 1 - Math.exp(-dt * 8);
-    const my = settings.invertY ? -a.move.y : a.move.y;
-    S.vz += (-a.move.x * MOVE_X - S.vz) * k; // 右へ倒すと前 (-Z) へ
-    S.vy += (my * moveY() - S.vy) * k;
+    const my = liftInput(a);
+    S.vz += (-a.move.x * moveX(a) - S.vz) * k; // 右へ倒すと前 (-Z) へ
+    if (a.altitude != null) S.vy = altitudeVy(dt, a.altitude);
+    else S.vy += (my * moveY() - S.vy) * k;
     S.pz += S.vz * dt;
     S.py += S.vy * dt;
   }
@@ -607,6 +632,7 @@ const RETRY_HINT = {
   pad: 'A / START: もう一度   B: タイトルへ',
   kb: 'Space / Enter: もう一度   Backspace: タイトルへ',
   mouse: 'クリック: もう一度   Backspace: タイトルへ',
+  wheel: '機関砲のボタン: もう一度   タイトルへのボタン / Backspace: タイトルへ',
 };
 
 // ---- 照準と射撃
@@ -691,7 +717,7 @@ function update(dt) {
 
   if (S.mode === 'title') {
     // パッドの A / START でもデスクトップモードを開始できる
-    if (a.confirm && a.source === 'pad' && !renderer.xr.isPresenting) startPlay();
+    if (a.confirm && (a.source === 'pad' || a.source === 'wheel') && !renderer.xr.isPresenting) startPlay();
     if (a.leftRight) setPlayer(a.leftRight < 0 ? 'ship' : 'human');
   } else if (S.mode === 'over') {
     // ゲームオーバー: 景色だけゆっくり止まっていく。2 秒たったら、もう一度 / タイトルへ
@@ -769,8 +795,19 @@ function update(dt) {
   world.update(dt, side ? speed * SIDE_SCROLL : speed, P, running && !(play && (S.phase === 'warning' || S.phase === 'boss')));
 
   if (play && running) updateRide(dt);
+  world.reach = yMax() + 1.6; // 今飛べる高さ (これより低い柱は飛び越えられる高さで出す)
+  if (play && running && !ride.active) {
+    // 浮遊リングの真ん中をくぐったらボーナス
+    const ringO = world.ringPass(P);
+    if (ringO) {
+      combat.score += Math.round(RING_BONUS * combat.mult);
+      showMsg(`RING +${Math.round(RING_BONUS * combat.mult)}`, '', 0.8);
+      sfx.lock();
+      input.rumble(0.2, 40);
+    }
+  }
   if (play && running && !ride.active && S.invuln <= 0) {
-    const o = world.hitTest(P, avatar.radius);
+    const o = world.hitTest(P, avatar.radius * 0.7); // 障害物には少し小さめの当たりで (かすっただけでは当たらない)
     if (o && o.kind === 'bush' && settings.player === 'human') stumble();
     else if (o) onHit(OBSTACLE_DAMAGE);
   }
@@ -779,7 +816,8 @@ function update(dt) {
     S.lowLifeT = 1.2;
     sfx.lowLife();
   }
-  if (play && running) updateCombat(dt, speed, a);
+  const riding = ['bonus', 'bonusEnd'].includes(S.phase); // ボーナスステージはそりを操るだけ (撃たない)
+  if (play && running) updateCombat(dt, speed, riding ? { ...a, fire: false, handFire: [], missile: false } : a);
   if (combat.announce) {
     showMsg(combat.announce, '', 2);
     say(combat.announce.toLowerCase().replace('!', ''));
@@ -839,8 +877,8 @@ function update(dt) {
     missileMax: MISSILE_MAX,
     locks: combat.locks.length,
     msg: S.paused ? 'PAUSE' : S.msg,
-    sub: S.paused ? (a.source === 'pad' ? 'START: 再開   B: タイトルへ' : a.source === 'xr' ? 'X/トリガー: 再開   A: タイトルへ' : 'Esc/クリック: 再開   Backspace: タイトルへ') : S.sub,
-    hint: S.paused ? buildInfo : play ? HINTS[a.source] : S.mode === 'over' && S.overT > 2 ? RETRY_HINT[a.source] : '',
+    sub: S.paused ? (a.source === 'pad' ? 'START: 再開   B: タイトルへ' : a.source === 'xr' ? 'X/トリガー: 再開   A: タイトルへ' : a.source === 'wheel' ? 'ポーズ / 機関砲のボタン: 再開   タイトルへのボタン: タイトルへ' : 'Esc/クリック: 再開   Backspace: タイトルへ') : S.sub,
+    hint: S.paused ? buildInfo : S.mode === 'over' && S.overT > 2 ? RETRY_HINT[a.source] : '', // プレイ中は操作方法を出さない
     lives: S.lives,
     life: Math.max(0, Math.round(S.life)),
     lifeMax: LIFE_MAX,
@@ -861,6 +899,7 @@ window.__audioStream = () => captureAudioStream();
 // 開発用: 自動テストからすぐ撃墜させる
 window.__debugPx = () => S.px;
 window.__debugKill = () => { S.lives = 1; S.invuln = 0; onHit(999); };
+window.__enemies = () => combat.enemies.map((e) => [e.kind, ...e.mesh.position.toArray().map((v) => Math.round(v * 10) / 10)]); // 開発用: 敵の位置
 // 開発用: 自動テストから状態を読む
 window.__debugState = () => ({
   gameMode: settings.mode, bonusCount: S.bonusCount, destroyed: avatar.destroyed, shipVisible: avatar.models.ship?.obj.visible, overT: S.overT, frame: renderer.info.render.frame, mode: S.mode, py: S.py, version: document.getElementById('version').textContent, phase: S.phase, stage: S.stage, lives: S.lives, boss: combat.bossRatio, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,

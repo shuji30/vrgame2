@@ -13,6 +13,32 @@ const RADIUS = { ship: 0.8, human: 0.4 };
 
 const _v = new THREE.Vector3();
 const _m = new THREE.Matrix4();
+const LEG_DOWN = 0.84; // 飛ぶ姿勢で後ろへ流れている脚を、真下へ向ける角度
+const _box = new THREE.Box3();
+
+// 人間のモデルの脚と左腕を、股関節・肩を支点にした組にまとめる (地面を走るときに振る)。
+// モデルの部品はばらばらなので、支点の Group に付け替える
+function makeLimbs(obj) {
+  const thigh = obj.getObjectByName('ThighL');
+  if (!thigh) return null;
+  const parent = thigh.parent;
+  const limb = (x, y, z, names) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(x, y, z);
+    parent.add(pivot);
+    for (const n of names) {
+      const o = obj.getObjectByName(n);
+      if (o) pivot.attach(o);
+    }
+    return pivot;
+  };
+  return {
+    L: limb(-0.115, -0.3, 0.02, ['ThighL', 'KneeL', 'ShinL', 'BootL']),
+    R: limb(0.115, -0.3, 0.02, ['ThighR', 'KneeR', 'ShinR', 'BootR']),
+    arm: limb(-0.28, 0.46, 0, ['UpperArmL', 'ForeArmL', 'HandL']), // 右腕はキャノンを構えているので振らない
+    feet: ['BootL', 'BootR'].map((n) => obj.getObjectByName(n)).filter(Boolean),
+  };
+}
 
 export class Avatar {
   constructor(scene, rig, camera) {
@@ -62,6 +88,7 @@ export class Avatar {
       const muzzles = [];
       obj.traverse((o) => { if (/Muzzle/.test(o.name) && !o.isMesh) muzzles.push(o); });
       this.models[kind] = { obj, eye, flames, muzzles };
+      if (kind === 'human') this.models[kind].legs = makeLimbs(obj);
     }));
   }
 
@@ -132,6 +159,27 @@ export class Avatar {
         m.obj.rotation.x = m.pitch;
       }
 
+      // 人間は地面に降りると走る: 脚を真下に向けて交互に振り、体を起こして足を地面に着ける
+      if (m.legs) {
+        const originY = this.rig.position.y + m.obj.position.y;
+        const lowY = view === 'side' ? originY - 1.1 : originY; // 横スクロールは体の中心を目の高さに置いているので、その分ずらす
+        const onGround = lowY < 1.0 && this.fallT < 0 && !this.riding && view !== '1st';
+        m.run = (m.run || 0) + ((onGround ? 1 : 0) - (m.run || 0)) * Math.min(1, dt * 8);
+        m.runPhase = (m.runPhase || 0) + dt * (9 + thrust * 3);
+        const sw = Math.sin(m.runPhase);
+        m.legs.L.rotation.x = m.run * (LEG_DOWN + sw * 0.7);
+        m.legs.R.rotation.x = m.run * (LEG_DOWN - sw * 0.7);
+        m.legs.arm.rotation.x = m.run * sw * 0.7;
+        m.obj.rotation.x *= 1 - m.run * 0.85;
+        if (m.run > 0.01 && m.legs.feet.length) {
+          // 低いほうの足の裏 (ブーツの下端) が地面 (y = 0) にちょうど着くように、体の高さを合わせる
+          this.rig.updateMatrixWorld(true); // このフレームで動かしたリグの位置も反映して測る
+          let foot = Infinity;
+          for (const f of m.legs.feet) foot = Math.min(foot, _box.setFromObject(f).min.y);
+          m.obj.position.y -= m.run * foot;
+        }
+      }
+
       // よろける: 前のめりになって、少し跳ねる
       if (this.stumbleT > 0) {
         this.stumbleT -= dt;
@@ -152,7 +200,7 @@ export class Avatar {
       // 炎: 速度に合わせて伸び縮みし、ちらつく
       for (const [i, f] of m.flames.entries()) {
         const flicker = 0.85 + 0.15 * Math.sin(this.t * 40 + i * 2.1) + 0.1 * Math.sin(this.t * 67 + i);
-        const len = (0.4 + thrust * 0.8) * flicker;
+        const len = (0.4 + thrust * 0.8) * flicker * (1 - (m.run || 0) * 0.7); // 走っている間は炎を小さく
         f.mesh.scale.set(f.base.x * (0.8 + 0.2 * flicker), f.base.y * len, f.base.z * (0.8 + 0.2 * flicker));
       }
     }

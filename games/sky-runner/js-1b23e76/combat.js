@@ -1,5 +1,6 @@
 // 戦闘: 敵、敵弾、自機の機関砲、ロックオン、追尾ミサイル、爆発と煙
 import * as THREE from 'three';
+import { EXTRA } from './enemies.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { sfx } from './audio.js';
@@ -545,13 +546,14 @@ export class Combat {
 
   // 出す敵の群れを重み付きで選ぶ。重いもの (ガンシップ・建設ロボ) は同時に出しすぎない
   spawnWave(px, py) {
-    const heavy = this.enemies.filter((e) => e.kind === 'gunship' || e.kind === 'mech').length;
+    const heavy = this.enemies.filter((e) => e.kind === 'gunship' || e.kind === 'mech' || EXTRA[e.kind]?.heavy).length;
     // ステージ表の組み合わせ (なければ全種類)。重いもの (ガンシップ・重機) は同時に出しすぎない
     const base = this.waveTable || [['fighter', 3], ['gremlin', 2.2], ['pill', 2], ['moai', 1.6], ['ptero', 1.8], ['mech', 1.3], ['gunship', 1]];
-    const table = base.map(([k, w]) => [k, k === 'mech' ? (heavy === 0 ? w : 0) : k === 'gunship' ? (heavy < 2 ? w : 0) : w]);
+    const table = base.map(([k, w]) => [k, k === 'mech' ? (heavy === 0 ? w : 0) : k === 'gunship' || EXTRA[k]?.heavy ? (heavy < 2 ? w : 0) : w]);
     if (table.every(([, w]) => w <= 0)) table.push(['fighter', 1]); // 重い敵がいて全部の重みが 0 になったら、戦闘機を出す
     let r = Math.random() * table.reduce((a, [, w]) => a + w, 0);
     const kind = this.forceWave || table.find(([, w]) => (r -= w) < 0)?.[0] || 'fighter';
+    if (EXTRA[kind]) return EXTRA[kind].spawn(this, px, py); // 追加の敵 (enemies.js)
     ({
       fighter: () => this.spawnFighterWave(px, py),
       gunship: () => this.spawnGunship(px, py),
@@ -732,7 +734,7 @@ export class Combat {
 
   // ダンゴムシの殻と、閉じた晶洞岩に当たった弾は跳ね返る
   pillShielded(e) {
-    return (e.kind === 'pill' && e.open < 0.6) || (e.kind === 'moai' && e.mouth < 0.5);
+    return (e.kind === 'pill' && e.open < 0.6) || (e.kind === 'moai' && e.mouth < 0.5) || !!EXTRA[e.kind]?.shielded?.(e);
   }
 
   splitPill(e) {
@@ -1231,9 +1233,11 @@ export class Combat {
     if (e.bossGroup) e.bossGroup.kills++;
     this.score += Math.round(e.score * this.mult);
     this.kills++;
-    this.explode(e.mesh.position, ['gunship', 'mech', 'moai', 'ptero'].includes(e.kind));
+    const big = ['gunship', 'mech', 'moai', 'ptero'].includes(e.kind) || EXTRA[e.kind]?.heavy || EXTRA[e.kind]?.big;
+    this.explode(e.mesh.position, !!big);
     if (e.kind === 'pill') this.splitPill(e);
-    if (['gunship', 'mech', 'moai'].includes(e.kind) && Math.random() < 0.35) this.spawnItem(e.mesh.position);
+    EXTRA[e.kind]?.onDeath?.(this, e);
+    if ((['gunship', 'mech', 'moai'].includes(e.kind) || EXTRA[e.kind]?.big) && Math.random() < 0.35) this.spawnItem(e.mesh.position);
   }
 
   // ---- 毎フレーム
@@ -1361,6 +1365,8 @@ export class Combat {
           if (p.y > 45) e.dead = true;
         }
         e.mesh.rotation.z = Math.sin(e.t * 0.7) * 0.15;
+      } else if (EXTRA[e.kind]) {
+        EXTRA[e.kind].update(this, e, dt, scroll, ctx, p);
       }
       if (ctx.planeX !== undefined && ctx.planeX !== null) p.x = ctx.planeX; // 横スクロール: 同じ平面にそろえる
       if (ctx.side && e.kind !== 'boss') {
@@ -1401,12 +1407,14 @@ export class Combat {
         } else if (e.kind === 'gunship') {
           e.fireT = 1.6;
           for (const sp of [-0.12, 0, 0.12]) this.fireBullet(_b.copy(p).add(_c.set(0, -0.2, 3)), ctx.player, sp);
+        } else if (EXTRA[e.kind]?.fire) {
+          EXTRA[e.kind].fire(this, e, ctx, p, lv);
         }
       }
       if (!e.dead && p.distanceTo(ctx.player) < e.r + ctx.playerR) {
         ctx.onPlayerHit(e.kind === 'boss' ? 30 : 25);
         // 体当たりしてくる敵は、ぶつかったら自分も爆発する
-        if (e.kind === 'gremlin' || e.kind === 'pillpart' || e.kind === 'pill') {
+        if (e.kind === 'gremlin' || e.kind === 'pillpart' || e.kind === 'pill' || EXTRA[e.kind]?.kamikaze) {
           e.dead = true;
           this.explode(p);
         }
@@ -1503,11 +1511,9 @@ export class Combat {
         }
       }
       if (s.dead || !ctx.world) continue;
-      for (const o of ctx.world.obstacles) {
-        if (o.dead) continue;
-        const op = o.group.position;
-        const c = _d.set(op.x, o.cy !== undefined ? o.cy : THREE.MathUtils.clamp(s.pos.y, 0, o.h), op.z);
-        if (!segHit(s.prev, s.pos, c, o.r)) continue;
+      const o = ctx.world.shotTest(s.prev, s.pos, _d); // 障害物の形 (部品) で当たりを見る
+      if (o) {
+        const c = _d;
         s.dead = true;
         if (o.breakable) {
           o.dead = true;
@@ -1516,7 +1522,6 @@ export class Combat {
         } else {
           this.sparks.emit(c, _b.set(0, 2, 2), WHITE, 0.6, 0.15);
         }
-        break;
       }
     }
 
