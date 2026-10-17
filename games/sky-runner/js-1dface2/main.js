@@ -426,6 +426,9 @@ const BOSS_INFO = {
   worm: ['砂岩の大蛇', '茶色い印から飛び出す。頭だけを狙え'],
   turbine: ['双子の回転刃', '赤く光った刃が飛んでくる。真ん中の核を撃て'],
   phantom: ['水晶の亡霊', '本物には影がある。目が水色のものを撃て'],
+  laserwing: ['光翼の母船', '赤い線の高さから離れろ。翼の先を壊せば光線が止まる'],
+  mantis: ['硝子のカマキリ', '斬撃は上下によけろ。振り終わりに光る腹を撃て'],
+  whale: ['溶岩の結晶鯨', '浮上したら背中の潮吹き穴を撃て'],
 };
 let bossSeen = new Set();
 try { bossSeen = new Set(JSON.parse(localStorage.getItem('skyrunner.bossSeen') || '[]')); } catch (_) { /* 保存なし */ }
