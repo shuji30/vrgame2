@@ -6,7 +6,7 @@ const dz = (v) => (Math.abs(v) < DZ ? 0 : (v - Math.sign(v) * DZ) / (1 - DZ));
 const clamp1 = (v) => Math.max(-1, Math.min(1, v));
 
 // Gamepad API の standard マッピング (Xbox 系)
-const PAD = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, BACK: 8, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
+const PAD = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, BACK: 8, START: 9, LSTICK: 10, RSTICK: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
 // WebXR の xr-standard マッピング
 const XR = { TRIGGER: 0, SQUEEZE: 1, TOUCHPAD: 2, STICK: 3, BTN_1: 4, BTN_2: 5 };
 
@@ -24,10 +24,10 @@ function readXRStick(gp) {
 }
 
 export const HINTS = {
-  xr: '左スティック: 移動   右スティック前後: アクセル/ブレーキ   B/Y: 視点   X: ポーズ',
-  pad: '左スティック/十字: 移動   RT/LT: アクセル/ブレーキ   Y: 視点   START: ポーズ',
-  kb: 'WASD/矢印: 移動   E/Shift: アクセル   Q/Z: ブレーキ   V: 視点   Esc: ポーズ',
-  mouse: 'マウス: 移動   E/Shift: アクセル   Q/Z: ブレーキ   V: 視点   Esc: ポーズ',
+  xr: '左スティック: 移動   右スティック前後: 加速/減速   B/Y: 視点   右スティック押し込み: 位置合わせ   X: ポーズ',
+  pad: '左スティック/十字: 移動   RT/LT: 加速/減速   Y: 視点   START: ポーズ',
+  kb: 'WASD/矢印: 移動   E/Shift: 加速   Q/Z: 減速   V: 視点   Esc: ポーズ',
+  mouse: 'マウス: 移動   E/Shift: 加速   Q/Z: 減速   V: 視点   Esc: ポーズ',
 };
 
 export class Input {
@@ -38,6 +38,7 @@ export class Input {
     this.clicked = false;
     this.mouse = { x: 0, y: 0, down: false, active: false };
     this.prevButtons = new Map();
+    this.prevDir = new Map();
     this.lastSource = 'kb';
     this.debug = { pads: [], xr: [] };
     this.state = this.blank();
@@ -70,7 +71,8 @@ export class Input {
       throttle: 0,          // -1 (ブレーキ) .. +1 (アクセル)
       fire: false,          // パッド / キーボード / マウスの射撃
       handFire: [],         // [{controller, fire}] VR コントローラーごとの射撃
-      view: false, pause: false, confirm: false, back: false, debug: false, // 押した瞬間だけ true
+      view: false, pause: false, confirm: false, back: false, debug: false, recenter: false, // 押した瞬間だけ true
+      leftRight: 0,         // パッドの左右を倒した瞬間 (-1 / +1)。タイトル画面の選択用
       source: this.lastSource,
     };
   }
@@ -103,6 +105,7 @@ export class Input {
     if (e('Enter', 'Space')) s.confirm = true;
     if (e('Backspace')) s.back = true;
     if (e('KeyI')) s.debug = true;
+    if (e('KeyC')) s.recenter = true;
     this.keyEdges.clear();
 
     // ---- マウス
@@ -137,6 +140,12 @@ export class Input {
       if (ed(PAD.A) || ed(PAD.START)) s.confirm = true;
       if (ed(PAD.B)) s.back = true;
       if (ed(PAD.BACK)) s.debug = true;
+      if (ed(PAD.RSTICK)) s.recenter = true;
+      // 左右を倒した瞬間 (十字キーかスティック)
+      const dir = x < -0.5 ? -1 : x > 0.5 ? 1 : 0;
+      const prevDir = this.prevDir.get(gp.index) || 0;
+      if (dir && dir !== prevDir) s.leftRight = dir;
+      this.prevDir.set(gp.index, dir);
       if (x || y || Math.abs(th) > 0.05 || btn.some(Boolean)) this.lastSource = 'pad';
       this.debug.pads.push({
         id: gp.id, mapping: gp.mapping || '(none)',
@@ -168,6 +177,7 @@ export class Input {
       if (hand === 'right' && ed(XR.SQUEEZE)) s.debug = true;   // 右グリップ
       if (hand === 'left' && ed(XR.BTN_1)) s.pause = true;      // X
       if (hand === 'right' && ed(XR.BTN_1)) s.back = true;      // A
+      if (hand === 'right' && ed(XR.STICK)) s.recenter = true;  // 右スティック押し込み: 位置を合わせ直す
       if (trig || st.x || st.y) this.lastSource = 'xr';
       this.debug.xr.push({
         hand, profiles: (src.profiles || []).join(', '),

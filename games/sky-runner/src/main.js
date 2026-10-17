@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { World } from './world.js';
 import { Input, HINTS } from './input.js';
 import { Hud, DebugPanel } from './hud.js';
+import { Avatar } from './avatar.js';
 import { initAudio, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setEngineEnabled, setPaused, toggleMute } from './audio.js';
 
 // ---- 定数
@@ -18,8 +19,13 @@ const SPEED = {
 const READY_TIME = 2.5;    // 開始時に 0 から基準速度までゆっくり加速する時間 (s)
 
 // ---- 設定 (localStorage に保存)
-const settings = { scale: 1.0, autoReturn: true, bgm: true, engine: true };
+const settings = { scale: 1.0, autoReturn: true, bgm: true, engine: true, player: 'ship', view: '1st' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('skyrunner.settings') || '{}')); } catch (_) { /* 保存なし */ }
+// 開発用: ?player=ship|human&view=1st|3rd で上書きする
+for (const key of ['player', 'view']) {
+  const v = new URLSearchParams(location.search).get(key);
+  if (v) settings[key] = v;
+}
 const applyAudioSettings = () => { setBGMEnabled(settings.bgm); setEngineEnabled(settings.engine); };
 const saveSettings = () => { try { localStorage.setItem('skyrunner.settings', JSON.stringify(settings)); } catch (_) { /* 保存不可 */ } };
 
@@ -41,6 +47,8 @@ const world = new World(scene);
 const input = new Input(renderer.domElement);
 const hud = new Hud(camera);
 const debugPanel = new DebugPanel(rig);
+const avatar = new Avatar(scene, rig, camera);
+avatar.load('./assets/').catch((e) => console.error('モデルを読み込めませんでした', e));
 debugPanel.visible = new URLSearchParams(location.search).has('debug');
 
 // 被弾したときに視界を赤くする
@@ -111,6 +119,7 @@ function startPlay() {
   Object.assign(S, { mode: 'play', paused: false, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0 });
   world.clear();
   world.applyTheme(0);
+  avatar.recenter();
   overlay.hidden = true;
   applyAudioSettings();
   setPaused(false);
@@ -211,6 +220,7 @@ function update(dt) {
   if (S.mode === 'title') {
     // パッドの A / START でもデスクトップモードを開始できる
     if (a.confirm && a.source === 'pad' && !renderer.xr.isPresenting) startPlay();
+    if (a.leftRight) setPlayer(a.leftRight < 0 ? 'ship' : 'human');
   } else {
     if (a.pause) togglePause(!S.paused);
     else if (S.paused && a.back) toTitle();
@@ -220,7 +230,16 @@ function update(dt) {
       speed = 0;
       running = false;
     } else {
-      if (a.view) showMsg('VIEW: 1ST PERSON', '三人称視点は Phase 2 で追加予定', 1.5);
+      if (a.view) {
+        settings.view = settings.view === '1st' ? '3rd' : '1st';
+        saveSettings();
+        showMsg(settings.view === '1st' ? 'VIEW: 1ST PERSON' : 'VIEW: 3RD PERSON', '', 1.2);
+        avatar.recenter();
+      }
+      if (a.recenter) {
+        avatar.recenter();
+        showMsg('RECENTER', '', 0.8);
+      }
 
       if (Math.abs(a.throttle) > 0.01) S.factor += a.throttle * SPEED.accel * dt;
       else if (settings.autoReturn) S.factor = approach(S.factor, 1, SPEED.ret * dt);
@@ -235,10 +254,15 @@ function update(dt) {
   }
 
   rig.position.set(S.px, S.py + S.floorOffset, 0);
-  camera.getWorldPosition(P);
+  const play = S.mode === 'play';
+  avatar.update(dt, {
+    kind: settings.player, view: play ? settings.view : '3rd',
+    vx: S.vx, vy: S.vy, thrust: play ? speed / SPEED.base : 0.3, presenting: renderer.xr.isPresenting,
+  });
+  P.copy(avatar.hitPoint);
   world.update(dt, speed, P, running);
 
-  if (S.mode === 'play' && running && S.invuln <= 0 && world.hitTest(P, 0.35)) onHit();
+  if (play && running && S.invuln <= 0 && world.hitTest(P, avatar.radius)) onHit();
 
   flash.material.opacity = Math.max(0, flash.material.opacity - dt * 1.2);
   setEngine(S.mode === 'play' && running ? speed / SPEED.base : 0);
@@ -258,7 +282,6 @@ function update(dt) {
     if (S.msgT <= 0) S.msg = S.sub = '';
   }
 
-  const play = S.mode === 'play';
   hud.mesh.visible = play;
   hud.draw({
     play,
@@ -266,7 +289,7 @@ function update(dt) {
     hits: S.hits,
     factor: Math.round(S.factor * 100) / 100,
     kmh: Math.round(speed * 3.6),
-    view: '1ST',
+    view: `${settings.player === 'ship' ? 'SHIP' : 'HUMAN'} ${settings.view.toUpperCase()}`,
     msg: S.paused ? 'PAUSE' : S.msg,
     sub: S.paused ? (a.source === 'pad' ? 'START: 再開   B: タイトルへ' : a.source === 'xr' ? 'X/トリガー: 再開   A: タイトルへ' : 'Esc/クリック: 再開   Backspace: タイトルへ') : S.sub,
     hint: play ? HINTS[a.source] : '',
@@ -298,6 +321,15 @@ const chkReturn = document.getElementById('autoReturn');
 const status = document.getElementById('status');
 const padStatus = document.getElementById('pads');
 
+// プレイヤーの選択 (宇宙船 / 人間)。パッドの左右でも切り替えられる
+const playerInputs = [...document.querySelectorAll('input[name="player"]')];
+function setPlayer(kind) {
+  settings.player = kind;
+  saveSettings();
+  playerInputs.forEach((el) => { el.checked = el.value === kind; });
+}
+setPlayer(settings.player === 'human' ? 'human' : 'ship');
+playerInputs.forEach((el) => el.addEventListener('change', () => setPlayer(el.value)));
 selScale.value = String(settings.scale);
 chkReturn.checked = settings.autoReturn;
 for (const key of ['bgm', 'engine']) {

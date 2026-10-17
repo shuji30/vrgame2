@@ -16,6 +16,14 @@
   .card { max-width: 640px; width: 100%; background: rgba(10,16,40,.78); border-radius: 16px; padding: 28px 32px; box-shadow: 0 10px 40px rgba(0,0,0,.4); }
   h1 { margin: 0 0 4px; font-size: 40px; letter-spacing: .06em; color: #ffe14a; text-shadow: 3px 3px 0 #e2559a; font-style: italic; }
   .lead { margin: 0 0 20px; opacity: .85; }
+  .players { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .players label { flex: 1 1 180px; cursor: pointer; }
+  .players input { position: absolute; opacity: 0; }
+  .players span { display: block; padding: 10px 14px; border-radius: 10px; border: 2px solid rgba(255,255,255,.25); }
+  .players b { display: block; font-size: 18px; }
+  .players small { opacity: .75; }
+  .players input:checked + span { border-color: #ffe14a; background: rgba(255,225,74,.15); }
+  .players input:focus-visible + span { outline: 2px solid #3ec0ff; }
   .buttons { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
   button { font: inherit; font-weight: bold; font-size: 18px; padding: 12px 24px; border-radius: 10px; border: 0; cursor: pointer; background: #ffe14a; color: #1a1a40; }
   button.secondary { background: #3ec0ff; }
@@ -30,14 +38,21 @@
   a { color: #9fd0ff; }
 </style>
 <script type="importmap">
-{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
 </script>
 </head>
 <body>
 <div id="overlay">
   <div class="card">
     <h1>SKY RUNNER XR</h1>
-    <p class="lead">市松模様の大地を駆け抜ける 3D シューティング (開発版: Phase 0〜1)</p>
+    <p class="lead">市松模様の大地を駆け抜ける 3D シューティング (開発版: Phase 0〜2)</p>
+    <div class="players" role="radiogroup" aria-label="プレイヤー">
+      <label><input type="radio" name="player" value="ship"><span><b>宇宙船</b><small>コックピットから操縦</small></span></label>
+      <label><input type="radio" name="player" value="human"><span><b>人間</b><small>ジェットパックで飛ぶ</small></span></label>
+    </div>
     <div class="buttons">
       <button id="btnVR" disabled>VR で遊ぶ</button>
       <button id="btnDesk" class="secondary">デスクトップで遊ぶ</button>
@@ -63,7 +78,9 @@
       <tr><th></th><th>VR</th><th>パッド</th><th>キーボード/マウス</th></tr>
       <tr><td>移動</td><td>左スティック</td><td>左スティック/十字</td><td>マウス / WASD</td></tr>
       <tr><td>アクセル/ブレーキ</td><td>右スティック前後</td><td>RT / LT</td><td>E・Shift / Q・Z</td></tr>
-      <tr><td>視点</td><td>B / Y</td><td>Y</td><td>V</td></tr>
+      <tr><td>視点 (一人称/三人称)</td><td>B / Y</td><td>Y</td><td>V</td></tr>
+      <tr><td>位置合わせ</td><td>右スティック押し込み</td><td>右スティック押し込み</td><td>C</td></tr>
+      <tr><td>機体の選択 (タイトル)</td><td>—</td><td>左右</td><td>クリック</td></tr>
       <tr><td>ポーズ</td><td>X</td><td>START</td><td>Esc</td></tr>
     </table>
     </div>
