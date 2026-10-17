@@ -89,6 +89,19 @@
   summary::before { content: "▸ "; color: var(--sun); }
   details[open] summary::before { content: "▾ "; }
   .settings { display: grid; gap: 8px; padding: 0 12px 12px; font-size: 13px; }
+  .stage-select { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+    background: rgba(0, 0, 0, 0.35); color: #fff; font-family: var(--logo); font-size: 15px; letter-spacing: 0.06em; }
+  .stage-select option { background: #1a2238; color: #fff; }
+  .sound { padding: 0 12px 12px; }
+  .sound .sub { margin: 6px 0; font-size: 12px; letter-spacing: 0.15em; color: var(--sun); }
+  .sound .sub small { margin-left: 8px; letter-spacing: 0; color: rgba(255, 255, 255, 0.6); }
+  .snd-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+  .snd-list button { text-align: left; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.06); color: #fff; cursor: pointer; font-family: var(--logo); font-size: 13px; }
+  .snd-list button small { display: block; font-family: inherit; font-size: 11px; color: rgba(255, 255, 255, 0.65); }
+  .snd-list button:hover { background: rgba(255, 255, 255, 0.14); }
+  .snd-list button.playing { border-color: var(--sun); background: rgba(255, 200, 60, 0.18); }
+  .snd-list button.playing::before { content: "■ "; color: var(--sun); }
   select { font: inherit; padding: 3px 6px; }
   .tablewrap { overflow-x: auto; padding: 0 8px 10px; }
   table { border-collapse: collapse; font-size: 12px; width: 100%; }
@@ -157,6 +170,9 @@
         <span><b>横スクロール</b><small>おまけ / 真横から見る</small></span></span></label>
     </div>
 
+    <p class="section-label">STAGE SELECT</p>
+    <select id="stageSel" class="stage-select" aria-label="ステージ"></select>
+
     <div class="buttons">
       <button id="btnVR" class="launch" disabled>VR で出撃 <small>ヘッドセット</small></button>
       <button id="btnDesk" class="launch secondary">デスクトップで出撃 <small>マウス / パッド</small></button>
@@ -188,6 +204,15 @@
         <label><input type="checkbox" id="bgm"> BGM</label>
         <label><input type="checkbox" id="engine"> エンジン音</label>
         <p class="note">Pimax など高解像度の PCVR で重い場合は、解像度を 0.5〜0.75 にしてください。入力の確認は I キー / パッドの Back / 左スティック押し込み、音を消すのは M キーです。</p>
+      </div>
+    </details>
+    <details id="soundTest">
+      <summary>サウンドテスト (BGM・効果音)</summary>
+      <div class="sound">
+        <p class="sub">BGM <small>もう一度押すと止まります</small></p>
+        <div id="bgmList" class="snd-list"></div>
+        <p class="sub">効果音</p>
+        <div id="seList" class="snd-list"></div>
       </div>
     </details>
     <details>
@@ -229,7 +254,7 @@
     <button class="tbtn fire" data-hold="fire" aria-label="射撃">FIRE</button>
   </div>
 </div>
-<script type="module" src="./js-5e44f4f/main.js"></script>
+<script type="module" src="./js-49b90ba/main.js"></script>
 <script>
   // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
   if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {

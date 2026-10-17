@@ -3,7 +3,7 @@ import { World } from './world.js';
 import { Input, HINTS } from './input.js';
 import { Hud, DebugPanel } from './hud.js';
 import { Avatar } from './avatar.js';
-import { DragonRide } from './ride.js';
+import { SledRide } from './ride.js';
 import { Combat, MISSILE_MAX, loadEnemyModels } from './combat.js';
 import { STAGES, STAGE_COUNT, stageAt } from './stages.js';
 import { Vignette, VIGNETTE_LEVELS } from './comfort.js';
@@ -11,7 +11,7 @@ import { CEIL_Y } from './world.js';
 import { TouchControls, isTouchDevice } from './touch.js';
 import { THEMES } from './world.js';
 import { VERSION, loadBuildInfo } from './version.js';
-import { initAudio, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, toggleMute } from './audio.js';
+import { BGM_LIST, SE_LIST, captureAudioStream, initAudio, previewBGM, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, toggleMute } from './audio.js';
 
 // ---- 定数
 const X_LIMIT = 32;        // 左右の移動範囲 (m)
@@ -31,6 +31,7 @@ const SIDE_Z_MIN = -24, SIDE_Z_MAX = 10, SIDE_Z_START = 6; // 画面に収まる
 const SIDE_SCROLL = 0.3; // 横スクロールでは地面の流れを遅くする (映る範囲が狭いため)
 const READY_TIME = 2.5;    // 開始時に 0 から基準速度までゆっくり加速する時間 (s)
 const DEV_STAGE_LEN = Number(new URLSearchParams(location.search).get('stageLen')) || 0; // 開発用: ?stageLen=10 でボスまでを短くする
+const NO_HUD = new URLSearchParams(location.search).has('nohud'); // 開発用: プロモーション用の撮影で HUD を消す
 const DEV_START_STAGE = Number(new URLSearchParams(location.search).get('stage')) || 1; // 開発用: ?stage=7 で途中のステージから
 const LIVES = 3;
 const EXTENDS = [100000, 300000, 600000, 1000000]; // この点数で残機が 1 増える
@@ -80,7 +81,7 @@ const debugPanel = new DebugPanel(rig);
 const avatar = new Avatar(scene, rig, camera);
 avatar.load('./assets/').catch((e) => console.error('モデルを読み込めませんでした', e));
 const combat = new Combat(scene);
-const ride = new DragonRide(scene);
+const ride = new SledRide(scene);
 combat.forceWave = new URLSearchParams(location.search).get('wave'); // 開発用: ?wave=moai などで出す敵を固定する
 loadEnemyModels('./assets/enemies.glb').catch((e) => console.error('敵のモデルを読み込めませんでした', e));
 debugPanel.visible = new URLSearchParams(location.search).has('debug');
@@ -164,7 +165,8 @@ function showMsg(msg, sub = '', time = 2) {
 const overlay = document.getElementById('overlay');
 
 function startPlay(stageNo) {
-  if (!Number.isInteger(stageNo)) stageNo = DEV_START_STAGE;
+  if (!Number.isInteger(stageNo)) stageNo = selectedStage; // タイトルで選んだ面 (もう一度のときも同じ面から)
+  stopPreview();
   S.fromStart = stageNo === 1;
   initAudio();
   Object.assign(S, {
@@ -227,6 +229,50 @@ function togglePause(p) {
   S.paused = p;
   setPaused(p);
 }
+
+// タイトルのステージ選択 (開発用の ?stage=N があれば、それを最初に選んでおく)
+let selectedStage = Math.max(1, Math.min(STAGE_COUNT, DEV_START_STAGE));
+const stageSel = document.getElementById('stageSel');
+STAGES.forEach((st, i) => {
+  const kind = st.kind === 'bonus' ? '  ★BONUS' : st.kind === 'rush' ? '  ★BOSS RUSH' : '';
+  stageSel.add(new Option(`STAGE ${String(i + 1).padStart(2, '0')}  ${st.name}${kind}`, String(i + 1)));
+});
+stageSel.value = String(selectedStage);
+stageSel.addEventListener('change', () => { selectedStage = Number(stageSel.value); });
+
+// サウンドテスト: BGM は押すたびに 再生 / 停止、効果音は押すたびに鳴らす
+let previewing = null;
+const bgmButtons = [];
+function stopPreview() {
+  if (!previewing) return;
+  previewing = null;
+  previewBGM(null);
+  bgmButtons.forEach((b) => b.classList.remove('playing'));
+}
+const sndButton = (name, desc, onClick) => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.append(name);
+  const s = document.createElement('small');
+  s.textContent = desc;
+  b.append(s);
+  b.addEventListener('click', onClick);
+  return b;
+};
+for (const m of BGM_LIST) {
+  const b = sndButton(m.name, m.desc, () => {
+    const again = previewing === m.id;
+    stopPreview();
+    if (again) return;
+    previewing = m.id;
+    previewBGM(m.id);
+    b.classList.add('playing');
+  });
+  bgmButtons.push(b);
+  document.getElementById('bgmList').append(b);
+}
+for (const e of SE_LIST) document.getElementById('seList').append(sndButton(e.name, e.desc, () => { initAudio(); e.play(); }));
+document.getElementById('soundTest').addEventListener('toggle', (ev) => { if (!ev.target.open) stopPreview(); });
 
 const showHiScore = () => {
   document.getElementById('hiscore').textContent = String(hiScore);
@@ -399,7 +445,7 @@ function playerExplosion(big) {
   combat.explode(boomPos, big);
 }
 
-// ボーナスステージ: 龍の頭に乗って、木をなぎ倒す (敵は出ず、ダメージも受けない)
+// ボーナスステージ: 水晶のそりに乗って、木をなぎ倒す (敵は出ず、ダメージも受けない)
 function startBonus(title = 'BONUS STAGE', name = '') {
   S.phase = 'bonus';
   S.phaseT = 0;
@@ -408,7 +454,7 @@ function startBonus(title = 'BONUS STAGE', name = '') {
   ride.start();
   avatar.riding = true;
   setBGMMode('bonus');
-  showMsg(title, `${name ? name + ' - ' : ''}BONUS STAGE: 龍に乗って木をなぎ倒せ!`, 3);
+  showMsg(title, `${name ? name + ' - ' : ''}BONUS STAGE: 水晶のそりで木をなぎ倒せ!`, 3);
   say('Bonus stage');
 }
 
@@ -419,15 +465,15 @@ function endBonus() {
   world.mode = 'normal';
 }
 
-// 龍の頭を置く位置: 一人称は自分の真下 (頭にまたがる)、三人称は機体の真下
+// そりを置く位置: 一人称は自分の足元 (そりの上に立ち、先頭の水晶が前に見える)、三人称は機体の真下
 const rideAnchor = new THREE.Vector3();
 function updateRide(dt) {
   if (!ride.active) return;
-  if (settings.view === '1st') camera.getWorldPosition(rideAnchor).add(new THREE.Vector3(0, -1.7, -2.6));
-  else avatar.center(settings.player, rideAnchor).add(new THREE.Vector3(0, -1.5, 0.3));
+  if (settings.view === '1st') camera.getWorldPosition(rideAnchor).add(new THREE.Vector3(0, -1.9, -0.6));
+  else avatar.center(settings.player, rideAnchor).add(new THREE.Vector3(0, -1.3, 0.3));
   ride.update(dt, rideAnchor);
   if (S.phase !== 'bonus') return;
-  // 龍の頭で体当たりした木を、なぎ倒す
+  // そりで体当たりした木を、なぎ倒す
   for (let i = 0; i < 6; i++) {
     const o = world.hitTest(ride.headPos, 3);
     if (!o) break;
@@ -773,7 +819,7 @@ function update(dt) {
     if (S.msgT <= 0) S.msg = S.sub = '';
   }
 
-  hud.mesh.visible = inGame;
+  hud.mesh.visible = inGame && !NO_HUD;
   // デスクトップでは HUD を画面いっぱいに広げる (VR では視野の中央に収める)。縦長の画面 (スマートフォン) では幅に合わせて縮める
   {
     const visW = 2 * 1.5 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect;
@@ -810,6 +856,8 @@ function update(dt) {
   debugPanel.draw(dt, { fps: S.fps, xr: renderer.xr.isPresenting, refSpace: S.refSpace, scale: settings.scale, version: buildInfo, calls: renderer.info.render.calls, tris: renderer.info.render.triangles }, input);
 }
 
+// 開発用: プロモーション動画の録画で、ゲームの音を取り出す
+window.__audioStream = () => captureAudioStream();
 // 開発用: 自動テストからすぐ撃墜させる
 window.__debugPx = () => S.px;
 window.__debugKill = () => { S.lives = 1; S.invuln = 0; onHit(999); };
@@ -876,7 +924,7 @@ addEventListener('keydown', (e) => {
 });
 selScale.addEventListener('change', () => { settings.scale = Number(selScale.value); saveSettings(); });
 chkReturn.addEventListener('change', () => { settings.autoReturn = chkReturn.checked; saveSettings(); });
-btnDesk.addEventListener('click', () => startPlay(1)); // クリックの情報をステージ番号と取り違えないように
+btnDesk.addEventListener('click', () => startPlay(selectedStage)); // クリックの情報をステージ番号と取り違えないように
 document.getElementById('btnContinue').addEventListener('click', () => startPlay(progress));
 btnVR.addEventListener('click', enterVR);
 if (new URLSearchParams(location.search).has('play')) startPlay(); // 開発用: ?play ですぐ開始

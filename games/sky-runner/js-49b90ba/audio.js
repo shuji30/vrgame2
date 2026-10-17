@@ -1,5 +1,6 @@
 // WebAudio で効果音と BGM をすべて合成する(外部音源ファイル不要)
 
+let outNode = null; // 最終段 (録画で音を取り出すため)
 let ctx = null, master = null, sfxBus = null, bgmBus = null, noiseBuf = null;
 let muted = false, timer = null, step = 0, nextTime = 0;
 let transpose = 0, tempo = 152;
@@ -25,6 +26,7 @@ export function initAudio() {
   limiter.attack.value = 0.002;
   limiter.release.value = 0.1;
   master.connect(limiter).connect(ctx.destination);
+  outNode = limiter;
   sfxBus = ctx.createGain();
   sfxBus.gain.value = 0.8;
   sfxBus.connect(master);
@@ -907,6 +909,51 @@ export function setEngine(level) {
 export function setEngineEnabled(on) {
   engineEnabled = on;
   if (!on) setEngine(0);
+}
+
+// ---- サウンドテスト (タイトル画面で試し聞きする)。曲と効果音の名前の一覧
+export const BGM_LIST = [
+  { id: 'rock', name: 'SKY HIGHWAY', desc: '通常ステージ / ハードロック' },
+  { id: 'boss', name: 'PRISM MENACE', desc: 'ボス戦 / 不協和音' },
+  { id: 'bonus', name: 'CRYSTAL SLED PARTY', desc: 'ボーナスステージ / ポップ' },
+];
+export const SE_LIST = [
+  { name: 'BLASTER', desc: '機関砲', play: () => sfx.shot() },
+  { name: 'CRACK', desc: '敵に命中', play: () => sfx.hit() },
+  { name: 'POP BURST', desc: '小さな爆発', play: () => sfx.explode(false) },
+  { name: 'MEGA BLAST', desc: '大きな爆発', play: () => sfx.explode(true) },
+  { name: 'IMPACT', desc: '被弾', play: () => sfx.damage() },
+  { name: 'ENEMY ORB', desc: '敵の弾', play: () => sfx.enemyShot() },
+  { name: 'FLYBY', desc: '敵とすれちがう', play: () => sfx.whoosh() },
+  { name: 'PTERO CRY', desc: '翼竜の叫び', play: () => sfx.screech() },
+  { name: 'PRISM BEAM', desc: 'ボスの光の帯', play: () => sfx.fireBreath() },
+  { name: 'RICOCHET', desc: '殻で弾が跳ね返る', play: () => sfx.ricochet() },
+  { name: 'LOCK-ON', desc: 'ミサイルのロック', play: () => sfx.lock() },
+  { name: 'HOMING LAUNCH', desc: 'ミサイル発射', play: () => sfx.missile() },
+  { name: 'RECOVER', desc: 'ライフ回復', play: () => sfx.heal() },
+  { name: 'LOW LIFE', desc: 'ライフ残りわずか', play: () => sfx.lowLife() },
+  { name: 'WARNING', desc: 'ボス接近', play: () => sfx.warning() },
+  { name: 'STAGE CLEAR', desc: 'ステージクリア', play: () => sfx.clear() },
+  { name: 'RUNNER SCREAM', desc: 'ランナーがやられた声', play: () => sfx.scream() },
+];
+
+// 曲を試し聞きする (id が null なら止める)。BGM の設定がオフでも鳴らす
+export function previewBGM(id) {
+  initAudio();
+  stopBGM();
+  if (!id || !ctx) return;
+  setBGMMode(id, { key: 0, tempo: 152 });
+  step = 0;
+  nextTime = ctx.currentTime + 0.1;
+  timer = setInterval(schedule, 25);
+}
+
+// 開発用: ゲームの音を MediaStream として取り出す (プロモーション動画の録画用)
+export function captureAudioStream() {
+  if (!ctx || !outNode) return null;
+  const dest = ctx.createMediaStreamDestination();
+  outNode.connect(dest);
+  return dest.stream;
 }
 
 export function toggleMute() {
