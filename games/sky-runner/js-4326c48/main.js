@@ -1,17 +1,19 @@
 import * as THREE from 'three';
 import { World } from './world.js';
-import { Input, HINTS } from './input.js';
+import { Input } from './input.js';
 import { Hud, DebugPanel } from './hud.js';
 import { Avatar } from './avatar.js';
-import { DragonRide } from './ride.js';
+import { SledRide } from './ride.js';
 import { Combat, MISSILE_MAX, loadEnemyModels } from './combat.js';
 import { STAGES, STAGE_COUNT, stageAt } from './stages.js';
 import { Vignette, VIGNETTE_LEVELS } from './comfort.js';
 import { CEIL_Y } from './world.js';
 import { TouchControls, isTouchDevice } from './touch.js';
+import { WheelInput } from './wheel/devices.js';
+import { WheelPanel } from './wheel/calibration.js';
 import { THEMES } from './world.js';
 import { VERSION, loadBuildInfo } from './version.js';
-import { initAudio, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, toggleMute } from './audio.js';
+import { BGM_LIST, SE_LIST, captureAudioStream, initAudio, previewBGM, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, toggleMute } from './audio.js';
 
 // ---- 定数
 const X_LIMIT = 32;        // 左右の移動範囲 (m)
@@ -31,6 +33,7 @@ const SIDE_Z_MIN = -24, SIDE_Z_MAX = 10, SIDE_Z_START = 6; // 画面に収まる
 const SIDE_SCROLL = 0.3; // 横スクロールでは地面の流れを遅くする (映る範囲が狭いため)
 const READY_TIME = 2.5;    // 開始時に 0 から基準速度までゆっくり加速する時間 (s)
 const DEV_STAGE_LEN = Number(new URLSearchParams(location.search).get('stageLen')) || 0; // 開発用: ?stageLen=10 でボスまでを短くする
+const NO_HUD = new URLSearchParams(location.search).has('nohud'); // 開発用: プロモーション用の撮影で HUD を消す
 const DEV_START_STAGE = Number(new URLSearchParams(location.search).get('stage')) || 1; // 開発用: ?stage=7 で途中のステージから
 const LIVES = 3;
 const EXTENDS = [100000, 300000, 600000, 1000000]; // この点数で残機が 1 増える
@@ -76,11 +79,15 @@ const input = new Input(renderer.domElement);
 const hud = new Hud(camera);
 const touch = new TouchControls(document.getElementById('touch'));
 input.touch = touch;
+// ハンコン (ハンドル + ペダル)。設定はタイトル画面の「ハンコン設定」で行う
+input.wheel = new WheelInput();
+const wheelPanel = document.getElementById('wheelPanel');
+new WheelPanel(wheelPanel, input.wheel);
 const debugPanel = new DebugPanel(rig);
 const avatar = new Avatar(scene, rig, camera);
 avatar.load('./assets/').catch((e) => console.error('モデルを読み込めませんでした', e));
 const combat = new Combat(scene);
-const ride = new DragonRide(scene);
+const ride = new SledRide(scene);
 combat.forceWave = new URLSearchParams(location.search).get('wave'); // 開発用: ?wave=moai などで出す敵を固定する
 loadEnemyModels('./assets/enemies.glb').catch((e) => console.error('敵のモデルを読み込めませんでした', e));
 debugPanel.visible = new URLSearchParams(location.search).has('debug');
@@ -164,7 +171,10 @@ function showMsg(msg, sub = '', time = 2) {
 const overlay = document.getElementById('overlay');
 
 function startPlay(stageNo) {
-  if (!Number.isInteger(stageNo)) stageNo = DEV_START_STAGE;
+  if (!Number.isInteger(stageNo)) stageNo = selectedStage; // タイトルで選んだ面 (もう一度のときも同じ面から)
+  stopPreview();
+  wheelPanel.open = false; // ハンコン設定を閉じる (開いている間は、ハンコンをゲームの操作として読まないため)
+  input.wheel.panelOpen = false;
   S.fromStart = stageNo === 1;
   initAudio();
   Object.assign(S, {
@@ -228,6 +238,50 @@ function togglePause(p) {
   setPaused(p);
 }
 
+// タイトルのステージ選択 (開発用の ?stage=N があれば、それを最初に選んでおく)
+let selectedStage = Math.max(1, Math.min(STAGE_COUNT, DEV_START_STAGE));
+const stageSel = document.getElementById('stageSel');
+STAGES.forEach((st, i) => {
+  const kind = st.kind === 'bonus' ? '  ★BONUS' : st.kind === 'rush' ? '  ★BOSS RUSH' : '';
+  stageSel.add(new Option(`STAGE ${String(i + 1).padStart(2, '0')}  ${st.name}${kind}`, String(i + 1)));
+});
+stageSel.value = String(selectedStage);
+stageSel.addEventListener('change', () => { selectedStage = Number(stageSel.value); });
+
+// サウンドテスト: BGM は押すたびに 再生 / 停止、効果音は押すたびに鳴らす
+let previewing = null;
+const bgmButtons = [];
+function stopPreview() {
+  if (!previewing) return;
+  previewing = null;
+  previewBGM(null);
+  bgmButtons.forEach((b) => b.classList.remove('playing'));
+}
+const sndButton = (name, desc, onClick) => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.append(name);
+  const s = document.createElement('small');
+  s.textContent = desc;
+  b.append(s);
+  b.addEventListener('click', onClick);
+  return b;
+};
+for (const m of BGM_LIST) {
+  const b = sndButton(m.name, m.desc, () => {
+    const again = previewing === m.id;
+    stopPreview();
+    if (again) return;
+    previewing = m.id;
+    previewBGM(m.id);
+    b.classList.add('playing');
+  });
+  bgmButtons.push(b);
+  document.getElementById('bgmList').append(b);
+}
+for (const e of SE_LIST) document.getElementById('seList').append(sndButton(e.name, e.desc, () => { initAudio(); e.play(); }));
+document.getElementById('soundTest').addEventListener('toggle', (ev) => { if (!ev.target.open) stopPreview(); });
+
 const showHiScore = () => {
   document.getElementById('hiscore').textContent = String(hiScore);
   const btn = document.getElementById('btnContinue');
@@ -255,6 +309,7 @@ async function enterVR() {
   initAudio();
   try {
     renderer.xr.setFramebufferScaleFactor(settings.scale);
+    if (input.wheel.hasBindings()) input.wheel.bridge.connect(); // VR の最中はブリッジ経由でハンコンを読む
     const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] });
     let type = 'local-floor';
     try { await session.requestReferenceSpace('local-floor'); } catch (_) { type = 'local'; }
@@ -290,6 +345,17 @@ const vrGentle = () => renderer.xr.isPresenting && settings.vrGentle;
 const yMax = () => Math.min(stageAt(S.stage).ceiling ? CEIL_Y - 8 : Y_MAX, vrGentle() ? 12 : Y_MAX);
 const moveY = () => MOVE_Y * (vrGentle() ? 0.6 : 1);
 
+// ハンコンのクラッチ: 踏み込み量 = 高さ (a.altitude 0..1)。目標の高さへ、上下の速さを抑えてなめらかに近づける
+// (急に動くと VR で酔いやすい)。返り値は新しい上下の速さ
+function altitudeVy(dt, altitude) {
+  const target = clamp(altitude, 0, 1) * yMax();
+  const vmax = moveY() * 1.5;
+  const want = clamp((target - S.py) * 2.5, -vmax, vmax);
+  return S.vy + (want - S.vy) * (1 - Math.exp(-dt * 6));
+}
+// 上下の入力 (スティックなど。上下反転の設定を効かせる) + ハンコンのパドル (反転しない)
+const liftInput = (a) => clamp((settings.invertY ? -a.move.y : a.move.y) + (a.lift || 0), -1, 1);
+
 function movePlayer(dt, a) {
   if (isSide()) return moveSide(dt, a);
   const ox = S.px, oy = S.py;
@@ -301,9 +367,10 @@ function movePlayer(dt, a) {
   } else {
     // スティック: 速度を滑らかに変える (急に動き出すと VR で酔いやすい)
     const k = 1 - Math.exp(-dt * 8);
-    const my = settings.invertY ? -a.move.y : a.move.y; // 上下反転 (操縦桿のように、前に倒すと下がる)
+    const my = liftInput(a); // 上下反転 (操縦桿のように、前に倒すと下がる)
     S.vx += (a.move.x * MOVE_X - S.vx) * k;
-    S.vy += (my * moveY() - S.vy) * k;
+    if (a.altitude != null) S.vy = altitudeVy(dt, a.altitude); // ハンコンのクラッチ: 高さを位置で決める
+    else S.vy += (my * moveY() - S.vy) * k;
     S.px += S.vx * dt;
     S.py += S.vy * dt;
   }
@@ -399,7 +466,7 @@ function playerExplosion(big) {
   combat.explode(boomPos, big);
 }
 
-// ボーナスステージ: 龍の頭に乗って、木をなぎ倒す (敵は出ず、ダメージも受けない)
+// ボーナスステージ: 水晶のそりに乗って、木をなぎ倒す (敵は出ず、ダメージも受けない)
 function startBonus(title = 'BONUS STAGE', name = '') {
   S.phase = 'bonus';
   S.phaseT = 0;
@@ -419,15 +486,15 @@ function endBonus() {
   world.mode = 'normal';
 }
 
-// 龍の頭を置く位置: 一人称は自分の真下 (頭にまたがる)、三人称は機体の真下
+// そりを置く位置: 一人称は自分の足元 (そりの上に立ち、先頭の水晶が前に見える)、三人称は機体の真下
 const rideAnchor = new THREE.Vector3();
 function updateRide(dt) {
   if (!ride.active) return;
-  if (settings.view === '1st') camera.getWorldPosition(rideAnchor).add(new THREE.Vector3(0, -1.7, -2.6));
-  else avatar.center(settings.player, rideAnchor).add(new THREE.Vector3(0, -1.5, 0.3));
+  if (settings.view === '1st') camera.getWorldPosition(rideAnchor).add(new THREE.Vector3(0, -1.9, -0.6));
+  else avatar.center(settings.player, rideAnchor).add(new THREE.Vector3(0, -1.3, 0.3));
   ride.update(dt, rideAnchor);
   if (S.phase !== 'bonus') return;
-  // 龍の頭で体当たりした木を、なぎ倒す
+  // そりで体当たりした木を、なぎ倒す
   for (let i = 0; i < 6; i++) {
     const o = world.hitTest(ride.headPos, 3);
     if (!o) break;
@@ -469,9 +536,10 @@ function moveSide(dt, a) {
     S.py += ((a.abs.y * 0.5 + 0.5) * yMax() - S.py) * k;
   } else {
     const k = 1 - Math.exp(-dt * 8);
-    const my = settings.invertY ? -a.move.y : a.move.y;
+    const my = liftInput(a);
     S.vz += (-a.move.x * MOVE_X - S.vz) * k; // 右へ倒すと前 (-Z) へ
-    S.vy += (my * moveY() - S.vy) * k;
+    if (a.altitude != null) S.vy = altitudeVy(dt, a.altitude);
+    else S.vy += (my * moveY() - S.vy) * k;
     S.pz += S.vz * dt;
     S.py += S.vy * dt;
   }
@@ -561,6 +629,7 @@ const RETRY_HINT = {
   pad: 'A / START: もう一度   B: タイトルへ',
   kb: 'Space / Enter: もう一度   Backspace: タイトルへ',
   mouse: 'クリック: もう一度   Backspace: タイトルへ',
+  wheel: '機関砲のボタン: もう一度   タイトルへのボタン / Backspace: タイトルへ',
 };
 
 // ---- 照準と射撃
@@ -645,7 +714,7 @@ function update(dt) {
 
   if (S.mode === 'title') {
     // パッドの A / START でもデスクトップモードを開始できる
-    if (a.confirm && a.source === 'pad' && !renderer.xr.isPresenting) startPlay();
+    if (a.confirm && (a.source === 'pad' || a.source === 'wheel') && !renderer.xr.isPresenting) startPlay();
     if (a.leftRight) setPlayer(a.leftRight < 0 ? 'ship' : 'human');
   } else if (S.mode === 'over') {
     // ゲームオーバー: 景色だけゆっくり止まっていく。2 秒たったら、もう一度 / タイトルへ
@@ -733,7 +802,8 @@ function update(dt) {
     S.lowLifeT = 1.2;
     sfx.lowLife();
   }
-  if (play && running) updateCombat(dt, speed, a);
+  const riding = ['bonus', 'bonusEnd'].includes(S.phase); // ボーナスステージはそりを操るだけ (撃たない)
+  if (play && running) updateCombat(dt, speed, riding ? { ...a, fire: false, handFire: [], missile: false } : a);
   if (combat.announce) {
     showMsg(combat.announce, '', 2);
     say(combat.announce.toLowerCase().replace('!', ''));
@@ -773,7 +843,7 @@ function update(dt) {
     if (S.msgT <= 0) S.msg = S.sub = '';
   }
 
-  hud.mesh.visible = inGame;
+  hud.mesh.visible = inGame && !NO_HUD;
   // デスクトップでは HUD を画面いっぱいに広げる (VR では視野の中央に収める)。縦長の画面 (スマートフォン) では幅に合わせて縮める
   {
     const visW = 2 * 1.5 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect;
@@ -793,8 +863,8 @@ function update(dt) {
     missileMax: MISSILE_MAX,
     locks: combat.locks.length,
     msg: S.paused ? 'PAUSE' : S.msg,
-    sub: S.paused ? (a.source === 'pad' ? 'START: 再開   B: タイトルへ' : a.source === 'xr' ? 'X/トリガー: 再開   A: タイトルへ' : 'Esc/クリック: 再開   Backspace: タイトルへ') : S.sub,
-    hint: S.paused ? buildInfo : play ? HINTS[a.source] : S.mode === 'over' && S.overT > 2 ? RETRY_HINT[a.source] : '',
+    sub: S.paused ? (a.source === 'pad' ? 'START: 再開   B: タイトルへ' : a.source === 'xr' ? 'X/トリガー: 再開   A: タイトルへ' : a.source === 'wheel' ? 'ポーズ / 機関砲のボタン: 再開   タイトルへのボタン: タイトルへ' : 'Esc/クリック: 再開   Backspace: タイトルへ') : S.sub,
+    hint: S.paused ? buildInfo : S.mode === 'over' && S.overT > 2 ? RETRY_HINT[a.source] : '', // プレイ中は操作方法を出さない
     lives: S.lives,
     life: Math.max(0, Math.round(S.life)),
     lifeMax: LIFE_MAX,
@@ -810,6 +880,8 @@ function update(dt) {
   debugPanel.draw(dt, { fps: S.fps, xr: renderer.xr.isPresenting, refSpace: S.refSpace, scale: settings.scale, version: buildInfo, calls: renderer.info.render.calls, tris: renderer.info.render.triangles }, input);
 }
 
+// 開発用: プロモーション動画の録画で、ゲームの音を取り出す
+window.__audioStream = () => captureAudioStream();
 // 開発用: 自動テストからすぐ撃墜させる
 window.__debugPx = () => S.px;
 window.__debugKill = () => { S.lives = 1; S.invuln = 0; onHit(999); };
@@ -876,7 +948,7 @@ addEventListener('keydown', (e) => {
 });
 selScale.addEventListener('change', () => { settings.scale = Number(selScale.value); saveSettings(); });
 chkReturn.addEventListener('change', () => { settings.autoReturn = chkReturn.checked; saveSettings(); });
-btnDesk.addEventListener('click', () => startPlay(1)); // クリックの情報をステージ番号と取り違えないように
+btnDesk.addEventListener('click', () => startPlay(selectedStage)); // クリックの情報をステージ番号と取り違えないように
 document.getElementById('btnContinue').addEventListener('click', () => startPlay(progress));
 btnVR.addEventListener('click', enterVR);
 if (new URLSearchParams(location.search).has('play')) startPlay(); // 開発用: ?play ですぐ開始

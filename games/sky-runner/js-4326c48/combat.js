@@ -270,29 +270,27 @@ function fallback(color, r) {
 const TPL = {};
 const WHITE = new THREE.Color(0xffffff), BLACK = new THREE.Color(0x000000), DUST = new THREE.Color(0.55, 0.5, 0.42);
 const ITEM_COL = new THREE.Color(0.3, 1, 0.5);
-const BOSS_GREEN = 0x2e9a3c, BOSS_DARK_GREEN = 0x1d4a26;
+// ボスの色 (頭のプリズムと、光の帯の色相)。単頭は水色、双晶は青と紫
+const BOSS_HUES = { single: [0.52], twin: [0.6, 0.78] };
 const FIRE_COL = new THREE.Color(1, 0.55, 0.15);
 
-// ボーナスステージで乗る「水晶のそり」(先頭と、うしろに連なる光のかけら)。敵ではないので当たり判定はない
-export function makeFriendlyDragon(nSegs = 10, scale = 0.6) {
+// ボーナスステージで乗る「水晶のそり」(そり本体と、うしろに連なる光のかけら)。敵ではないので当たり判定はない
+export function makeCrystalSled(nSegs = 10) {
   const part = (tpl, fallbackR, scale) => {
     let made;
     if (tpl) made = instance(tpl);
     else {
-      const mat = new THREE.MeshStandardMaterial({ color: 0xf4f1e8, roughness: 0.5, flatShading: true });
+      const mat = new THREE.MeshStandardMaterial({ color: 0xbfeaf8, roughness: 0.2, flatShading: true });
       made = { mesh: new THREE.Mesh(new THREE.IcosahedronGeometry(fallbackR, 1), mat), mats: [mat] };
-    }
-    for (const m of made.mats) {
-      if (m.name === 'EN_Red') m.color.setHex(0xf4f1e8);
-      if (m.name === 'EN_Gunmetal') m.color.setHex(0xd8b860);
     }
     made.mesh.scale.setScalar(scale);
     return { mesh: made.mesh, mats: made.mats, r: fallbackR * scale, spine: new THREE.Vector3() };
   };
-  const head = part(TPL.head, 2.6, scale);
-  const segs = Array.from({ length: nSegs }, (_, i) => part(i === nSegs - 1 ? TPL.tail : TPL.segment, i === nSegs - 1 ? 1.3 : 1.6, scale));
-  return { head, segs };
+  const head = part(TPL.sled, 2.4, 0.8);
+  const segs = Array.from({ length: nSegs }, (_, i) => part(TPL.shard, 1.6, 0.5 - i * 0.02));
+  return { head, segs, ready: sledReady() };
 }
+export const sledReady = () => !!TPL.sled;
 
 // 部品を同じマテリアルごとに1つのメッシュへまとめる (描画回数を減らして VR でも軽くする)。
 // parts に名前を渡した部品 (あご・耳・羽など動かすもの) は別にまとめ、同じ名前の子として元の位置に置く
@@ -345,6 +343,7 @@ export async function loadEnemyModels(url) {
     mech: ['DozerBot', ['DozerEye']],                                 // 建設ロボ: バイザーの光が動く
     pill: ['PillBug', ['PillSeg0', 'PillSeg1', 'PillSeg2']],
     ptero: ['Pterosaur', ['PteroWingL', 'PteroWingR']],
+    sled: ['CrystalSled'], shard: ['SledShard'],                      // ボーナスステージの水晶のそり
   };
   for (const [key, [name, parts]] of Object.entries(models)) {
     const node = gltf.scene.getObjectByName(name);
@@ -882,17 +881,22 @@ export class Combat {
     const twin = def.type === 'twin';
     const hp = def.hp || Math.round((300 + lv * 100) * (twin ? 1.4 : 1));
     const b = { parts: [], heads: [], body: [], twin, hp, maxHp: hp, t: 0, segFireT: 2, dying: -1, exploded: 0, lunging: null };
-    const make = (tpl, fallbackR, r, isHead, scale = 1) => {
+    const hues = twin ? BOSS_HUES.twin : BOSS_HUES.single;
+    const make = (tpl, fallbackR, r, isHead, scale = 1, hue = hues[0]) => {
       let made;
       if (tpl) made = instance(tpl);
       else {
-        const mat = new THREE.MeshStandardMaterial({ color: isHead ? 0x2e9a3c : 0x1d4a26, metalness: 0.5, roughness: 0.4, flatShading: true });
+        const mat = new THREE.MeshStandardMaterial({ color: 0x7fd8f0, metalness: 0.3, roughness: 0.2, flatShading: true });
         made = { mesh: new THREE.Mesh(new THREE.IcosahedronGeometry(fallbackR, 1), mat), mats: [mat] };
       }
-      // 龍は緑色にする (赤と鉄色の材質は他の敵と共通なので、ここで龍の分だけ色を変える)
+      // プリズムとガラス玉の色を、頭ごとの色相に塗る (胴体は少し暗く)
       for (const m of made.mats) {
-        if (m.name === 'EN_Red') m.color.setHex(BOSS_GREEN);
-        if (m.name === 'EN_Gunmetal') m.color.setHex(BOSS_DARK_GREEN);
+        if (m.name === 'EN_PrismMain') m.color.setHSL(hue, 0.75, isHead ? 0.62 : 0.55);
+        if (m.name === 'EN_OrbGlass') {
+          m.color.setHSL(hue, 0.6, 0.6);
+          m.emissive.setHSL(hue, 0.8, 0.22);
+          m.userData.base = m.emissive.clone();
+        }
       }
       made.mesh.scale.setScalar(BOSS_SCALE * scale);
       r *= BOSS_SCALE * scale;
@@ -905,10 +909,10 @@ export class Combat {
     };
     const nHeads = twin ? 2 : 1;
     for (let h = 0; h < nHeads; h++) {
-      const head = make(TPL.head, 2.2, 2.6, true);
-      const neck = twin ? Array.from({ length: 4 }, () => make(TPL.segment, 1.4, 1.6, false, 0.8)) : [];
+      const head = make(TPL.head, 2.2, 2.6, true, 1, hues[h]);
+      const neck = twin ? Array.from({ length: 4 }, () => make(TPL.segment, 1.4, 1.6, false, 0.8, hues[h])) : [];
       b.heads.push({
-        head, neck, side: twin ? (h ? 1 : -1) : 0, phase: h * 2.1,
+        head, neck, side: twin ? (h ? 1 : -1) : 0, phase: h * 2.1, hue: hues[h],
         fireT: 3 + h * 0.8, breathT: 8 + h * 3, breath: 0, flameT: 0, lungeT: 9 + h * 4, lunge: 0,
       });
     }
@@ -1055,7 +1059,7 @@ export class Combat {
     if (!ctx.active || t < 5) return;
     for (const H of b.heads) {
       const head = H.head;
-      // 火炎放射: ときどき口から炎を噴き出す (首を振るので、炎が左右に流れる)
+      // 光の帯: ときどき口の核から光を噴き出す (首を振るので、帯が左右に流れる)
       H.breathT -= dt;
       if (H.breathT <= 0 && H.lunge <= 0 && !b.heads.some((o) => o !== H && o.breath > 0)) {
         H.breathT = rand(4.5, 6.5) / (1 + (this.level - 1) * 0.1) * (b.twin ? 1.3 : 1);
@@ -1065,13 +1069,13 @@ export class Combat {
       if (H.breath > 0) {
         H.breath -= dt;
         H.flameT -= dt;
-        const mouth = _c.set(0, -0.6, 2.8).multiplyScalar(BOSS_SCALE).applyQuaternion(head.mesh.quaternion).add(head.mesh.position);
+        const mouth = _c.set(0, -0.35, 2.9).multiplyScalar(BOSS_SCALE).applyQuaternion(head.mesh.quaternion).add(head.mesh.position);
         while (H.flameT <= 0) {
           H.flameT += 0.04;
           const sway = Math.sin(t * 2.2 + H.phase) * 0.25;
-          this.fireBullet(mouth.clone(), _b.copy(P).add(_a.set(rand(-1.5, 1.5), rand(-1, 1), 0)), sway, 'fire');
+          this.fireBullet(mouth.clone(), _b.copy(P).add(_a.set(rand(-1.5, 1.5), rand(-1, 1), 0)), sway, 'fire', H.hue);
         }
-        continue; // 炎を吐いている頭は、ほかの攻撃をしない
+        continue; // 光の帯を吐いている頭は、ほかの攻撃をしない
       }
       // 頭から扇形に撃つ
       H.fireT -= dt;
@@ -1144,7 +1148,7 @@ export class Combat {
   }
 
   // type: 'orb' (光る弾)、'ring' (晶洞岩の光の輪、遅いが大きい)、'shell' (バズーカ、煙を引く)
-  fireBullet(from, at, spread = 0, type = 'orb') {
+  fireBullet(from, at, spread = 0, type = 'orb', hue = null) {
     const dir = _d.subVectors(at, from).normalize();
     if (spread) dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), spread);
     let m, speed = 34, r = 0.45;
@@ -1156,9 +1160,10 @@ export class Combat {
       speed = 30;
       r = 0.8;
     } else if (type === 'fire') {
-      // 炎: 進むにつれて大きく膨らみ、薄れていく
+      // 炎 (hue があればボスの光の帯): 進むにつれて大きく膨らみ、薄れていく
       const mat = MAT.fire.clone();
-      mat.color.setHSL(rand(0.02, 0.1), 1, rand(0.5, 0.65));
+      if (hue != null) mat.color.setHSL(hue + rand(-0.04, 0.04), 0.9, rand(0.6, 0.75));
+      else mat.color.setHSL(rand(0.02, 0.1), 1, rand(0.5, 0.65));
       m = new THREE.Mesh(GEO.bullet, mat);
       mats = [mat];
       speed = rand(30, 38);
@@ -1472,7 +1477,7 @@ export class Combat {
       }
       if (s.life <= 0) { s.dead = true; continue; }
       for (const b of this.bullets) {
-        if (!b.dead && b.type !== 'fire' && segHit(s.prev, s.pos, b.mesh.position, b.r + 0.3)) { // 炎は撃ち落とせない
+        if (!b.dead && b.type !== 'fire' && segHit(s.prev, s.pos, b.mesh.position, b.r + 0.3)) { // 炎と光の帯は撃ち落とせない
           b.dead = s.dead = true;
           this.score += 10;
           this.explode(b.mesh.position);

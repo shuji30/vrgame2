@@ -1,11 +1,15 @@
 // WebAudio で効果音と BGM をすべて合成する(外部音源ファイル不要)
+import { GENRE_NAMES, makeSongs } from './songs.js';
 
+let outNode = null; // 最終段 (録画で音を取り出すため)
 let ctx = null, master = null, sfxBus = null, bgmBus = null, noiseBuf = null;
 let muted = false, timer = null, step = 0, nextTime = 0;
 let transpose = 0, tempo = 152;
 let bgmEnabled = true, engineEnabled = true;
 
 const MASTER_VOL = 0.6;
+const BGM_LEVEL = 0.35;
+let bgmMix = 1; // 今の曲の音量の倍率 (songs.js の mix)
 
 export function initAudio() {
   if (ctx) {
@@ -25,11 +29,12 @@ export function initAudio() {
   limiter.attack.value = 0.002;
   limiter.release.value = 0.1;
   master.connect(limiter).connect(ctx.destination);
+  outNode = limiter;
   sfxBus = ctx.createGain();
   sfxBus.gain.value = 0.8;
   sfxBus.connect(master);
   bgmBus = ctx.createGain();
-  bgmBus.gain.value = 0.35;
+  bgmBus.gain.value = BGM_LEVEL;
   bgmBus.connect(master);
 
   noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
@@ -812,17 +817,39 @@ function bonusStep(s, t) {
 
 let song = 'rock';
 
+// ステージごとのジャンル別の曲 (songs.js)。楽器はこのファイルのものを渡して使う
+let genreSongs = null;
+const genres = () => (genreSongs ||= makeSongs({
+  ctx: () => ctx, bgmBus: () => bgmBus, band: () => band, tr: () => transpose,
+  mtof, osc, noise, kick, snare, hat, crash, clap, bassNote, powerChord, leadNote, popLead, sustainEnv,
+}));
+
 function schedule() {
   const songs = {
     rock: [playStep, tempo, STEPS],
     boss: [bossStep, BOSS_TEMPO, BOSS_STEPS],
     bonus: [bonusStep, BONUS_TEMPO, BONUS_STEPS],
   };
-  const [play, bpm, steps] = songs[song];
+  let entry = songs[song], swing = 0;
+  if (!entry) {
+    // ジャンル別の曲: ステージのテンポ (152 が基準) に合わせて少し速くする
+    const g = genres()[song];
+    const spbG = 60 / (g.tempo * tempo / 152) / 4;
+    entry = [(s, t) => { ensureBand(); g.step(s, t, spbG); }, g.tempo * tempo / 152, 128];
+    swing = g.swing || 0;
+  }
+  const mix = songs[song] ? 1 : genres()[song].mix || 1;
+  if (mix !== bgmMix) {
+    bgmMix = mix;
+    bgmBus.gain.setTargetAtTime(BGM_LEVEL * mix, ctx.currentTime, 0.05);
+  }
+  const [play, bpm, steps] = entry;
   const spb = 60 / bpm / 4;
   while (nextTime < ctx.currentTime + 0.12) {
+    // スウィング: 8 分の裏 (16 分の 3 つ目) を後ろへずらす
+    const at = swing && step % 4 === 2 ? nextTime + spb * swing : nextTime;
     // 1ステップの演奏でエラーが出ても、BGM 全体が止まらないように次へ進める
-    try { play(step, nextTime); } catch (e) { console.error(e); }
+    try { play(step, at); } catch (e) { console.error(e); }
     nextTime += spb;
     step = (step + 1) % steps;
   }
@@ -845,10 +872,13 @@ export function setBGMEnabled(on) {
   if (!on) stopBGM();
 }
 
-// 曲を切り替える (曲の頭から)。mode: 'rock' (通常) | 'boss' | 'bonus'。true / false はボス戦 / 通常。
-// opts: { key, tempo } 通常の曲のキー (半音) とテンポ (ステージごとに上げる)
+// 曲を切り替える (曲の頭から)。mode: 'rock' (通常) | 'boss' | 'bonus' | ジャンル名。true / false はボス戦 / 通常。
+// opts: { key, tempo, song } 通常の曲のキー (半音) とテンポ (ステージごとに上げる)、song はステージの曲のジャンル
+let stageSong = 'rock';
 export function setBGMMode(mode, opts) {
-  const next = mode === true ? 'boss' : mode === false ? 'rock' : mode;
+  if (opts && opts.song !== undefined) stageSong = opts.song || 'rock';
+  let next = mode === true ? 'boss' : mode === false ? 'rock' : mode;
+  if (next === 'rock') next = stageSong; // 通常の曲は、そのステージのジャンルの曲
   if (opts) {
     transpose = opts.key || 0;
     tempo = opts.tempo || 152;
@@ -907,6 +937,52 @@ export function setEngine(level) {
 export function setEngineEnabled(on) {
   engineEnabled = on;
   if (!on) setEngine(0);
+}
+
+// ---- サウンドテスト (タイトル画面で試し聞きする)。曲と効果音の名前の一覧
+export const BGM_LIST = [
+  { id: 'rock', name: 'SKY HIGHWAY', desc: 'ハードロック' },
+  ...['classical', 'jazz', 'pops', 'alternative', 'bossa', 'reggae', 'metal', 'grunge'].map((id) => ({ id, name: GENRE_NAMES[id][0], desc: GENRE_NAMES[id][1] })),
+  { id: 'boss', name: 'PRISM MENACE', desc: 'ボス戦 / 不協和音' },
+  { id: 'bonus', name: 'CRYSTAL SLED PARTY', desc: 'ボーナスステージ / ポップ' },
+];
+export const SE_LIST = [
+  { name: 'BLASTER', desc: '機関砲', play: () => sfx.shot() },
+  { name: 'CRACK', desc: '敵に命中', play: () => sfx.hit() },
+  { name: 'POP BURST', desc: '小さな爆発', play: () => sfx.explode(false) },
+  { name: 'MEGA BLAST', desc: '大きな爆発', play: () => sfx.explode(true) },
+  { name: 'IMPACT', desc: '被弾', play: () => sfx.damage() },
+  { name: 'ENEMY ORB', desc: '敵の弾', play: () => sfx.enemyShot() },
+  { name: 'FLYBY', desc: '敵とすれちがう', play: () => sfx.whoosh() },
+  { name: 'PTERO CRY', desc: '翼竜の叫び', play: () => sfx.screech() },
+  { name: 'PRISM BEAM', desc: 'ボスの光の帯', play: () => sfx.fireBreath() },
+  { name: 'RICOCHET', desc: '殻で弾が跳ね返る', play: () => sfx.ricochet() },
+  { name: 'LOCK-ON', desc: 'ミサイルのロック', play: () => sfx.lock() },
+  { name: 'HOMING LAUNCH', desc: 'ミサイル発射', play: () => sfx.missile() },
+  { name: 'RECOVER', desc: 'ライフ回復', play: () => sfx.heal() },
+  { name: 'LOW LIFE', desc: 'ライフ残りわずか', play: () => sfx.lowLife() },
+  { name: 'WARNING', desc: 'ボス接近', play: () => sfx.warning() },
+  { name: 'STAGE CLEAR', desc: 'ステージクリア', play: () => sfx.clear() },
+  { name: 'RUNNER SCREAM', desc: 'ランナーがやられた声', play: () => sfx.scream() },
+];
+
+// 曲を試し聞きする (id が null なら止める)。BGM の設定がオフでも鳴らす
+export function previewBGM(id) {
+  initAudio();
+  stopBGM();
+  if (!id || !ctx) return;
+  setBGMMode(id, { key: 0, tempo: 152, song: 'rock' });
+  step = 0;
+  nextTime = ctx.currentTime + 0.1;
+  timer = setInterval(schedule, 25);
+}
+
+// 開発用: ゲームの音を MediaStream として取り出す (プロモーション動画の録画用)
+export function captureAudioStream() {
+  if (!ctx || !outNode) return null;
+  const dest = ctx.createMediaStreamDestination();
+  outNode.connect(dest);
+  return dest.stream;
 }
 
 export function toggleMute() {

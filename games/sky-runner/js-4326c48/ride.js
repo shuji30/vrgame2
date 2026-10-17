@@ -1,11 +1,11 @@
-// ボーナスステージで乗る水晶のそり。頭はプレイヤーの下 (一人称) か機体の下 (三人称) に置き、
-// 胴体は後ろへうねりながらついてくる
+// ボーナスステージで乗る水晶のそり。そりはプレイヤーの足元 (一人称) か機体の下 (三人称) に置き、
+// 光のかけらが後ろへうねりながらついてくる
 import * as THREE from 'three';
-import { makeFriendlyDragon } from './combat.js';
+import { makeCrystalSled, sledReady } from './combat.js';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3();
 
-export class DragonRide {
+export class SledRide {
   constructor(scene) {
     this.scene = scene;
     this.active = false;
@@ -17,9 +17,10 @@ export class DragonRide {
 
   start() {
     this.stop();
-    const { head, segs } = makeFriendlyDragon(10);
+    const { head, segs, ready } = makeCrystalSled(10);
     this.head = head;
     this.segs = segs;
+    this.ready = ready; // モデルの読み込み前に始まったときは、読み込めた時点で作り直す
     for (const p of [head, ...segs]) this.scene.add(p.mesh);
     this.active = true;
     this.t = 0;
@@ -40,6 +41,11 @@ export class DragonRide {
   // anchor: 頭を置くワールド座標
   update(dt, anchor) {
     if (!this.active) return;
+    if (!this.ready && sledReady()) {
+      const t = this.t;
+      this.start();
+      this.t = t;
+    }
     this.t += dt;
     const h = this.head;
     if (!this.placed) {
@@ -49,7 +55,7 @@ export class DragonRide {
     h.mesh.position.copy(anchor);
     h.spine.copy(anchor);
     h.mesh.rotation.set(Math.sin(this.t * 2) * 0.04, Math.PI, Math.sin(this.t * 1.3) * 0.05); // 前 (-Z) を向く
-    // 胴体: 後ろへ流しながら前の節についていき、うねりを足す
+    // 光のかけら: 後ろへ流しながら前のかけらについていき、うねりを足す
     let prev = h;
     this.segs.forEach((s, i) => {
       s.spine.z += 10 * dt;

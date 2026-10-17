@@ -23,7 +23,7 @@ export const STAGES = [
     waves: [['fighter', 3], ['gremlin', 1]],
     obstacles: { bush: 3, tree: 2, rock: 1.5, column: 0.5, lane: 0.25 },
     palette: { a: 0xe9cf6a, b: 0x3e9c3c, fog: 0xf6dcae, sky: 0x2f72d8, mount: 0x5a70a8, col: ['#f4f4f4', '#e2559a'], bush: 0x2e8b3a },
-    bgm: { key: 0, tempo: 152 },
+    bgm: { key: 0, tempo: 152, song: 'rock' },
     boss: { type: 'serpent', hp: 380, escape: 0 },
   },
   {
@@ -31,7 +31,7 @@ export const STAGES = [
     waves: [['moai', 2.5], ['fighter', 1.5], ['gremlin', 0.5]],
     obstacles: { bush: 2.5, tree: 1.5, column: 1.5, lane: 0.27 },
     palette: { a: 0x8fe6cf, b: 0x2e8a8a, fog: 0xd8f4ec, sky: 0x2a8ed8, mount: 0x3a7a9a, col: ['#ffffff', '#2fa0b8'], bush: 0x2fa070 },
-    bgm: { key: 0, tempo: 152 },
+    bgm: { key: 0, tempo: 152, song: 'pops' },
     boss: { type: 'swarm', hp: 0, escape: 25 },
   },
   {
@@ -39,7 +39,7 @@ export const STAGES = [
     waves: [['gremlin', 2.5], ['ptero', 1.2], ['fighter', 1]],
     obstacles: { mushroom: 3.5, tree: 1, rock: 1, lane: 0.28 },
     palette: { a: 0xffbcd9, b: 0x9a52c8, fog: 0xffe2f0, sky: 0x6a3ad0, mount: 0x9a6ac0, col: ['#ffffff', '#ff6aa8'], bush: 0xd062c4 },
-    bgm: { key: 1, tempo: 154 },
+    bgm: { key: 1, tempo: 154, song: 'jazz' },
     boss: { type: 'twin', hp: 520, escape: 0 },
   },
   {
@@ -47,7 +47,7 @@ export const STAGES = [
     waves: [['mech', 3], ['fighter', 1.5]],
     obstacles: { column: 3, rock: 0.6, lane: 0.3 },
     palette: { a: 0xcfd3dc, b: 0x5a6070, fog: 0xd8dce8, sky: 0x4a5a80, mount: 0x5a6478, col: ['#e8ecf4', '#3a4458'], bush: 0x6a7a6a },
-    bgm: { key: 1, tempo: 158 },
+    bgm: { key: 1, tempo: 158, song: 'metal' },
     boss: { type: 'squad', hp: 0, escape: 32 },
   },
   {
@@ -61,7 +61,7 @@ export const STAGES = [
     waves: [['fighter', 2.5], ['gunship', 1.4]],
     obstacles: { column: 1.5, rock: 2, bush: 1, lane: 0.28 },
     palette: { a: 0xf3c477, b: 0xc0702a, fog: 0xf8e0b8, sky: 0xd88a4a, mount: 0xb07a50, col: ['#fff4e0', '#c0502a'], bush: 0x8a8a3a },
-    bgm: { key: 2, tempo: 156 },
+    bgm: { key: 2, tempo: 156, song: 'bossa' },
     boss: { type: 'swarm', hp: 0, escape: 30 },
   },
   {
@@ -69,7 +69,7 @@ export const STAGES = [
     waves: [['pill', 2.5], ['fighter', 1.5], ['gremlin', 1]],
     obstacles: { rock: 2.5, tree: 1.5, column: 1, lane: 0.3 },
     palette: { a: 0xdce8f2, b: 0x6aa8d8, fog: 0xf0f8ff, sky: 0x4a78c0, mount: 0x8aa8d0, col: ['#ffffff', '#5a8ac8'], bush: 0x4a8a8a },
-    bgm: { key: 2, tempo: 158 },
+    bgm: { key: 2, tempo: 158, song: 'classical' },
     boss: { type: 'serpent', hp: 520, escape: 0 },
   },
   {
@@ -77,7 +77,7 @@ export const STAGES = [
     waves: [['moai', 2.5], ['ptero', 1.5], ['fighter', 0.8]],
     obstacles: { column: 2, rock: 2, bush: 1, lane: 0.3 },
     palette: { a: 0xbfae94, b: 0x6a5a48, fog: 0xd8ccb8, sky: 0x7a6a8a, mount: 0x6a5a5a, col: ['#efe6d8', '#7a5a3a'], bush: 0x6a7a4a },
-    bgm: { key: 3, tempo: 160 },
+    bgm: { key: 3, tempo: 160, song: 'reggae' },
     boss: { type: 'twin', hp: 640, escape: 0 },
   },
   {
@@ -85,7 +85,7 @@ export const STAGES = [
     waves: [['mech', 3], ['fighter', 1.5]],
     obstacles: { column: 3, rock: 0.5, lane: 0.33 },
     palette: { a: 0x9a9aa0, b: 0x303438, fog: 0x9aa0a8, sky: 0x202838, mount: 0x40444c, col: ['#d8dce4', '#202428'], bush: 0x4a5a4a },
-    bgm: { key: 3, tempo: 164 },
+    bgm: { key: 3, tempo: 164, song: 'grunge' },
     boss: { type: 'squad', hp: 0, escape: 30 },
   },
   {
@@ -93,7 +93,7 @@ export const STAGES = [
     waves: [['gremlin', 2], ['pill', 2], ['fighter', 1]],
     obstacles: { mushroom: 3, bush: 1.5, rock: 1, lane: 0.3 },
     palette: { a: 0xb4dd6a, b: 0x7a7a2a, fog: 0xd8ecc0, sky: 0x5a8a6a, mount: 0x4a6a5a, col: ['#f0ffe0', '#6a9a2a'], bush: 0x3a8a3a },
-    bgm: { key: 4, tempo: 160 },
+    bgm: { key: 4, tempo: 160, song: 'alternative' },
     boss: { type: 'swarm', hp: 0, escape: 30 },
   },
   {
@@ -101,7 +101,7 @@ export const STAGES = [
     waves: [['ptero', 2], ['moai', 1.2], ['gremlin', 1]],
     obstacles: { column: 2.5, rock: 1.5, tree: 1, lane: 0.32 },
     palette: { a: 0xf3a986, b: 0x7a3a5a, fog: 0xf8c8a8, sky: 0x4a2a6a, mount: 0x6a3a5a, col: ['#fff0e8', '#a03a5a'], bush: 0x7a5a3a },
-    bgm: { key: 4, tempo: 162 },
+    bgm: { key: 4, tempo: 162, song: 'classical' },
     boss: { type: 'serpent', hp: 760, escape: 0 },
   },
   {
@@ -115,7 +115,7 @@ export const STAGES = [
     waves: [['fighter', 2.5], ['gunship', 1.5]],
     obstacles: { column: 2, rock: 1.5, lane: 0.3 },
     palette: { a: 0xd6e4f2, b: 0x3a5a8a, fog: 0xe0ecf8, sky: 0x1a3a7a, mount: 0x3a5a7a, col: ['#ffffff', '#2a4a8a'], bush: 0x3a6a8a },
-    bgm: { key: 5, tempo: 162 },
+    bgm: { key: 5, tempo: 162, song: 'pops' },
     boss: { type: 'swarm', hp: 0, escape: 32 },
   },
   {
@@ -123,7 +123,7 @@ export const STAGES = [
     waves: [['gremlin', 2], ['fighter', 1.5], ['moai', 1]],
     obstacles: { column: 2.5, rock: 1.5, mushroom: 1, lane: 0.33 },
     palette: { a: 0x6a5a8a, b: 0x2a2040, fog: 0x3a2a50, sky: 0x0a0418, mount: 0x2a1a3a, col: ['#c8b8e8', '#3a2058'], bush: 0x5a3a7a },
-    bgm: { key: 5, tempo: 166 },
+    bgm: { key: 5, tempo: 166, song: 'metal' },
     boss: { type: 'twin', hp: 820, escape: 0 },
   },
   {
@@ -131,7 +131,7 @@ export const STAGES = [
     waves: [['fighter', 2], ['mech', 1.2], ['moai', 1], ['ptero', 1], ['pill', 1]],
     obstacles: { rock: 2, column: 2, tree: 1, lane: 0.33 },
     palette: { a: 0xd8583a, b: 0x401818, fog: 0x8a5040, sky: 0x300808, mount: 0x501818, col: ['#ffd8c8', '#601010'], bush: 0x6a3a1a },
-    bgm: { key: 6, tempo: 166 },
+    bgm: { key: 6, tempo: 166, song: 'grunge' },
     boss: { type: 'serpent', hp: 900, escape: 0 },
   },
   {
@@ -139,7 +139,7 @@ export const STAGES = [
     waves: [['gunship', 2], ['mech', 1.5], ['fighter', 1]],
     obstacles: { column: 2.5, rock: 1, lane: 0.33 },
     palette: { a: 0x7a8298, b: 0x202838, fog: 0x505870, sky: 0x101828, mount: 0x283040, col: ['#e0e4ee', '#283040'], bush: 0x3a4a5a },
-    bgm: { key: 6, tempo: 168 },
+    bgm: { key: 6, tempo: 168, song: 'jazz' },
     boss: { type: 'squad', hp: 0, escape: 34 },
   },
   {
@@ -147,7 +147,7 @@ export const STAGES = [
     waves: [['fighter', 1.5], ['gremlin', 1.2], ['pill', 1], ['moai', 1], ['ptero', 1], ['mech', 0.8], ['gunship', 0.8]],
     obstacles: { column: 3, rock: 2, tree: 1, lane: 0.36 },
     palette: { a: 0xebe3d3, b: 0x404040, fog: 0xc8c0b0, sky: 0x282018, mount: 0x4a4038, col: ['#ffffff', '#202020'], bush: 0x5a5a4a },
-    bgm: { key: 7, tempo: 170 },
+    bgm: { key: 7, tempo: 170, song: 'rock' },
     boss: { type: 'twin', hp: 1000, escape: 0 },
   },
   {
