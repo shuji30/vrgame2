@@ -74,6 +74,7 @@ export class CalibrationUI {
         if (k === 'enabled') this.ffb.setEnabled(el.checked);
         else if (el.tagName === 'SELECT') { this.ffb.stop(); this.ffb.settings[k] = el.value; this.renderFFBStatus(); }
         else this.ffb.settings[k] = el.type === 'checkbox' ? el.checked : Number(el.value);
+        if (k === 'telemetry') this.renderFFBStatus();
         this.ffb.save();
         this.syncLabels();
       });
@@ -154,6 +155,18 @@ export class CalibrationUI {
       : st.connected
         ? `ブリッジ接続中 — ${st.error || 'FFB デバイスなし'}`
         : 'FFB の出力先がありません（下の「USB 機器を追加」でハンコンを追加するか、デバイスブリッジを起動してください）';
+    const sim = $(this.root, '[data-simhub-status]');
+    if (sim) {
+      const tel = st.telemetry;
+      sim.className = st.connected && tel && this.ffb.settings.telemetry ? 'ok' : 'ng';
+      sim.textContent = !st.connected
+        ? 'デバイスブリッジが起動していません'
+        : !tel
+          ? 'このブリッジはテレメトリに対応していません（新しいデバイスブリッジをダウンロードしてください。--no-telemetry で起動している場合は外してください）'
+          : !this.ffb.settings.telemetry
+            ? 'オフ'
+            : `送信先: udp://${tel.host}:${tel.port}（Forza Data Out ${tel.format === 'fm2023' ? 'Motorsport 2023 形式' : 'Dash 形式'}）`;
+    }
     const prof = $(this.root, '[data-ffb-profile]');
     if (prof) {
       const w = this.ffb.settings.wheel;

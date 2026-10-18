@@ -178,7 +178,16 @@ async function main() {
   try {
     await run('ssh', [...sshArgs, target, remote], tar.stdout);
   } finally {
-    rmSync(verDir, { recursive: true, force: true });
+    // ssh が失敗したときは tar がまだファイルを開いているので、止めてから消す（消せなくても元のエラーを優先して出す）
+    if (tar.exitCode === null) {
+      tar.kill();
+      await new Promise((r) => tar.once('exit', r));
+    }
+    try {
+      rmSync(verDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    } catch (e) {
+      console.warn(`一時フォルダを消せませんでした（あとで手動で消してください）: ${verDir} (${e.code || e.message})`);
+    }
   }
   console.log(`バージョン: ${version.deployed}${version.commit ? ` (${version.commit})` : ''}`);
 

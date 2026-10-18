@@ -7,6 +7,9 @@
 PC 用ドライバーが入っていれば Fanatec / Thrustmaster / CAMMUS / Logitech / MOZA /
 Simagic など一般的な FFB ハンコンで動く。
 
+さらに、ゲームから届くテレメトリ（車の動き・回転数・ラップなど）を Forza の Data Out 形式の UDP に
+して SimHub へ送る（モーションシート・バスシェイカー・ダッシュボード用。SimHub では Forza として受ける）。
+
 安全のため:
   - 出力は --max（既定 0.8）で頭打ち
   - 1 ティックあたりの変化量を制限（ダイレクトドライブで急に振られないように）
@@ -23,6 +26,8 @@ import ctypes
 import json
 import math
 import os
+import socket
+import struct
 import sys
 import time
 
@@ -60,10 +65,110 @@ WHEEL_HINTS = ("wheel", "fanatec", "thrustmaster", "cammus", "logitech", "moza",
 TICK = 1 / 200
 WATCHDOG = 0.25
 INPUT_INTERVAL = 1 / 125
+# テレメトリが途切れたら「レース中でない」パケットを送って SimHub のモーションを止める
+TELEMETRY_TIMEOUT = 0.5
+
+# Forza Data Out のパケット（リトルエンディアン）。Sled 232 バイト + Dash 79 バイト = 311 バイト（FM7 の Dash 形式）。
+# fm2023 はさらにタイヤ摩耗 4 つとコース番号を足した 331 バイト（Forza Motorsport 2023）
+SLED = struct.Struct("<iIfff" + "fff" * 3 + "fff" + "ffff" * 3 + "iiii" + "ffff" * 5 + "iiiii")
+DASH = struct.Struct("<fff" + "fff" + "ffff" + "fffffff" + "H" + "BBBBBB" + "bbb")
+FM2023 = struct.Struct("<ffffi")
+FORMATS = {"dash": SLED.size + DASH.size, "fm2023": SLED.size + DASH.size + FM2023.size}
 
 
 def clamp(v, a, b):
     return max(a, min(b, v))
+
+
+def num(v, default=0.0):
+    """数値に直す（NaN・無限大・不正な値は default）"""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return default
+    return v if math.isfinite(v) else default
+
+
+def vec(m, key, n):
+    v = m.get(key)
+    if not isinstance(v, (list, tuple)):
+        v = []
+    return [num(v[i]) if i < len(v) else 0.0 for i in range(n)]
+
+
+def forza_packet(m, fmt="dash", on=None):
+    """ゲームのテレメトリ（games/turbo-kart/src/core/telemetry.js）を Forza Data Out のパケットにする"""
+    def i32(v):
+        return int(clamp(num(v), -2**31, 2**31 - 1))
+
+    def u8(v):
+        return int(clamp(round(num(v)), 0, 255))
+
+    def s8(v):
+        return int(clamp(round(num(v)), -127, 127))
+    race_on = (1 if num(m.get("on")) > 0 else 0) if on is None else on
+    sled = SLED.pack(
+        race_on, int(time.monotonic() * 1000) & 0xFFFFFFFF,
+        num(m.get("rpmMax")), num(m.get("rpmIdle")), num(m.get("rpm")),
+        *vec(m, "accel", 3), *vec(m, "vel", 3), *vec(m, "angVel", 3),
+        num(m.get("yaw")), num(m.get("pitch")), num(m.get("roll")),
+        *vec(m, "susp", 4), *vec(m, "slipRatio", 4), *vec(m, "wheelSpeed", 4),
+        *[i32(v) for v in vec(m, "rumbleStrip", 4)],
+        0.0, 0.0, 0.0, 0.0,  # 水たまりの深さ（無し）
+        *vec(m, "surfaceRumble", 4), *vec(m, "slipAngle", 4), *vec(m, "combinedSlip", 4), *vec(m, "suspMeters", 4),
+        i32(m.get("car")), i32(m.get("carClass")), i32(m.get("pi")), i32(m.get("drivetrain")), i32(m.get("cylinders")))
+    dash = DASH.pack(
+        *vec(m, "pos", 3),
+        num(m.get("speed")), num(m.get("power")), num(m.get("torque")),
+        180.0, 180.0, 180.0, 180.0,  # タイヤ温度（°F。ゲームでは計算していないので適温の一定値）
+        num(m.get("boost")), 1.0,  # 燃料は常に満タン
+        num(m.get("dist")), num(m.get("bestLap")), num(m.get("lastLap")), num(m.get("curLap")), num(m.get("raceTime")),
+        int(clamp(num(m.get("lap")), 0, 65535)), u8(m.get("position")),
+        u8(m.get("throttle")), u8(m.get("brake")), u8(m.get("clutch")), u8(m.get("handbrake")), u8(m.get("gear")),
+        s8(m.get("steer")), 0, 0)
+    if fmt == "fm2023":
+        return sled + dash + FM2023.pack(0.0, 0.0, 0.0, 0.0, 0)
+    return sled + dash
+
+
+class TelemetrySender:
+    """テレメトリを UDP で SimHub へ送る"""
+
+    def __init__(self, host, port, fmt):
+        self.addr = (host, port)
+        self.fmt = fmt
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.last = None
+        self.last_at = 0.0
+        self.off_sent = 0
+        self.count = 0
+
+    def send(self, m):
+        self.last = m
+        self.last_at = time.monotonic()
+        self.off_sent = 0
+        self._send(forza_packet(m, self.fmt))
+
+    def tick(self):
+        # ゲームが止まった（タブを閉じた・メニューへ戻った）ら、「レース中でない」を数回送る
+        if self.last is None or self.off_sent >= 5 or time.monotonic() - self.last_at < TELEMETRY_TIMEOUT:
+            return
+        self.off_sent += 1
+        self.last_at = time.monotonic() - TELEMETRY_TIMEOUT + 0.1
+        self._send(forza_packet(self.last, self.fmt, on=0))
+
+    def _send(self, pkt):
+        try:
+            self.sock.sendto(pkt, self.addr)
+            self.count += 1
+        except OSError:
+            pass  # 送り先が無くても気にしない（UDP）
+
+    def info(self):
+        return {"host": self.addr[0], "port": self.addr[1], "format": self.fmt}
+
+    def close(self):
+        self.sock.close()
 
 
 class MockHaptic:
@@ -203,6 +308,7 @@ class Bridge:
         self.joysticks = {}  # instance id -> (handle, name)
         self.last_input = 0.0
         self.last_payload = None
+        self.telemetry = None if args.no_telemetry else TelemetrySender(args.telemetry_host, args.telemetry_port, args.telemetry_format)
         if args.mock:
             self.dev = MockHaptic()
             self.devices = [{"index": 0, "name": self.dev.name, "haptic": True, "features": self.dev.features}]
@@ -343,7 +449,8 @@ class Bridge:
 
     def status(self):
         return json.dumps({"t": "status", "devices": self.devices,
-                           "selected": self.dev.name if self.dev else None, "error": self.error})
+                           "selected": self.dev.name if self.dev else None, "error": self.error,
+                           "telemetry": self.telemetry.info() if self.telemetry else None})
 
     async def broadcast(self):
         msg = self.status()
@@ -370,6 +477,9 @@ class Bridge:
                         c=clamp(float(m.get("c", 0)), -1, 1), d=clamp(float(m.get("d", 0)), 0, 1),
                         s=clamp(float(m.get("s", 0)), 0, 1), r=clamp(float(m.get("r", 0)), 0, 1),
                         hz=clamp(int(m.get("hz", 0)), 0, 200))
+                elif t == "telemetry":
+                    if self.telemetry:
+                        self.telemetry.send(m)
                 elif t == "stop":
                     self.last_msg = 0
                 elif t == "test":
@@ -392,6 +502,8 @@ class Bridge:
             print(f"  ゲームが切断しました ({len(self.clients)})")
 
     def tick(self):
+        if self.telemetry:
+            self.telemetry.tick()
         if not self.dev:
             return
         now = time.monotonic()
@@ -430,6 +542,8 @@ class Bridge:
             await asyncio.sleep(TICK)
 
     def close(self):
+        if self.telemetry:
+            self.telemetry.close()
         if self.dev:
             self.dev.close()
         for js, _ in self.joysticks.values():
@@ -446,6 +560,9 @@ async def main_async(args):
     print(f"デバイスブリッジ起動: ws://127.0.0.1:{args.port}  (FFB 最大出力 {args.max:.0%})")
     for jid, (_, name) in sorted(bridge.joysticks.items()):
         print(f"  入力デバイス: {name}")
+    if bridge.telemetry:
+        print(f"  SimHub へテレメトリを送信: udp://{args.telemetry_host}:{args.telemetry_port}"
+              f"（Forza Data Out {FORMATS[args.telemetry_format]} バイト）")
     print("  接続を許可するゲームの URL: " + ", ".join(origins))
     try:
         async with serve(bridge.handler, "127.0.0.1", args.port, origins=origins):
@@ -470,6 +587,11 @@ def main():
     p.add_argument("--mock", action="store_true", help="ハンコン無しで動作確認")
     p.add_argument("--no-ffb", action="store_true", help="FFB を出さず入力の中継だけ行う")
     p.add_argument("--list", action="store_true", help="デバイス一覧を表示して終了")
+    p.add_argument("--telemetry-port", type=int, default=5300, help="SimHub へテレメトリを送る UDP ポート（既定 5300）")
+    p.add_argument("--telemetry-host", default="127.0.0.1", help="SimHub が動いている PC（既定 127.0.0.1 = この PC）")
+    p.add_argument("--telemetry-format", choices=sorted(FORMATS), default="dash",
+                   help="dash = Forza Motorsport 7 の Dash 形式（既定）、fm2023 = Forza Motorsport (2023)")
+    p.add_argument("--no-telemetry", action="store_true", help="SimHub へテレメトリを送らない")
     args = p.parse_args()
     args.max = clamp(args.max, 0.05, 1.0)
     if args.list:

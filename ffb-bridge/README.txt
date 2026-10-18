@@ -17,6 +17,14 @@ Windows 10 / 11 の PC で使います。Python などのインストールは�
    「右へ」「左へ」のテストボタンで力が出るか確かめてください。
    逆に回るときは「力の向きを反転」をオンにします。
 
+■ SimHub（モーションシート・バスシェイカー・ダッシュボード）
+ブリッジは、ゲームの車の動き・回転数・ギア・ラップタイムなどを Forza の形式で SimHub へ送ります。
+1. ブリッジを起動したまま SimHub を開き、ゲームに「Forza Motorsport 7」を選ぶ
+2. 「Game config」で UDP のポートを 5300 にする
+3. ゲームでレースを始めると、モーション・ShakeIt・ダッシュボードが動きます
+ポートを変えるときは start.bat --telemetry-port 番号、SimHub が別の PC にあるときは
+start.bat --telemetry-host その PC の IP アドレス で起動してください。送らないときは --no-telemetry。
+
 ■ 毎回起動するのが面倒なとき
 「install-autostart.bat」を 1 回だけダブルクリックすると、Windows にログオンしたとき
 自動で（最小化して）起動するようになります。やめるときは「uninstall-autostart.bat」。

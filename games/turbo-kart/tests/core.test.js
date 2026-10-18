@@ -201,9 +201,12 @@ test('物理: H シフターを割り当てていても、触れていなけれ�
 
 test('FFB: 「力の向きを反転」はレース・テスト・リセットのどの経路でも出力直前に効く', async () => {
   globalThis.localStorage ||= { getItem: () => null, setItem: () => {} };
-  globalThis.WebSocket ||= class { constructor() { throw new Error('no ws in test'); } };
+  // Node には WebSocket が標準で入っているので必ず差し替える（本物だとブリッジへの再接続が続き、テストが終わらない）
+  const RealWS = globalThis.WebSocket;
+  globalThis.WebSocket = class { constructor() { throw new Error('no ws in test'); } };
   const { FFBBridge } = await import('../src/ffb.js');
   const b = new FFBBridge();
+  globalThis.WebSocket = RealWS;
   const sent = [];
   b.send = (m) => sent.push(m);
   b.settings.invert = false;

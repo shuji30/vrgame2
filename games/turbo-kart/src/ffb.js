@@ -13,7 +13,8 @@ export class FFBBridge {
   constructor() {
     // output: 'bridge'（既定。どのハンコンでも同じ出方）| 'auto'（WebHID の FFB 対応機器があればそれ、なければブリッジ）| 'webhid'
     // maxForce: WebHID で出すときの上限（ブリッジは --max で制限）
-    this.settings = { ...FFB_DEFAULTS, enabled: true, url: URL_DEFAULT, device: null, output: 'bridge', maxForce: 0.6 };
+    // telemetry: SimHub など向けのテレメトリをブリッジへ送る（ブリッジが Forza 形式の UDP にして送る）
+    this.settings = { ...FFB_DEFAULTS, enabled: true, url: URL_DEFAULT, device: null, output: 'bridge', maxForce: 0.6, telemetry: true };
     this.hid = null;
     try {
       Object.assign(this.settings, JSON.parse(localStorage.getItem(STORE) || '{}'));
@@ -32,6 +33,7 @@ export class FFBBridge {
     this.profileListeners = new Set();
     this.settings.profiles ||= {};
     this.lastSend = 0;
+    this.lastTelemetry = 0;
     this.retry = null;
     // 入力の中継にも使うので、FFB を切っていても接続は保つ
     this.connect();
@@ -127,6 +129,8 @@ export class FFBBridge {
           this.status.devices = m.devices || [];
           this.status.selected = m.selected || null;
           this.status.error = m.error || null;
+          // 送り先（{ host, port, format }）。古いブリッジは送らない（null）
+          this.status.telemetry = m.telemetry || null;
           this.emit();
         }
       } catch {
@@ -223,6 +227,16 @@ export class FFBBridge {
     if (now - this.lastSend < 15) return;
     this.lastSend = now;
     this.send({ t: 'ffb', c: round(out.constant), d: round(out.damper), s: round(out.spring), r: round(out.rumble), hz: Math.round(out.rumbleHz || 0) });
+  }
+
+  // テレメトリ（core/telemetry.js の値）。FFB のオン・オフとは関係なく送る。
+  // 間引きは 10ms（72 / 90Hz の VR ではフレームごと、120Hz 以上では 1 つおき）
+  telemetry(data) {
+    if (!this.settings.telemetry || !this.status.telemetry) return;
+    const now = performance.now();
+    if (now - this.lastTelemetry < 10) return;
+    this.lastTelemetry = now;
+    this.send({ t: 'telemetry', ...data });
   }
 
   stop() {

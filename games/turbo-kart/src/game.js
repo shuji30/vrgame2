@@ -5,6 +5,7 @@ import { TRACKS } from './core/tracks.js';
 import { Race, NPC_NAMES, KART_COLORS, MAX_KARTS } from './core/race.js';
 import { forwardSpeed } from './core/physics.js';
 import { FFBModel } from './core/ffbmodel.js';
+import { Telemetry } from './core/telemetry.js';
 import { buildWorld } from './scene/world.js';
 import { KartModel } from './scene/kartmodel.js';
 import { CarModel } from './scene/carmodel.js';
@@ -72,6 +73,7 @@ export class Game {
     this.renderer = renderer;
     this.input = input;
     this.ffb = ffb;
+    this.telemetry = new Telemetry();
     this.ui = ui;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(75, 16 / 9, 0.05, 1500);
@@ -211,6 +213,7 @@ export class Game {
     this.input.lockDeg = this.race.spec.real ? this.race.spec.lockDeg || null : null;
     this.screenFx?.clear();
     this.me = playerIndex >= 0 ? this.race.karts[playerIndex] : null;
+    this.telemetry.reset();
     this.snapshot();
     this.acc = 0;
     this.lastCount = null;
@@ -664,6 +667,9 @@ export class Game {
       } else if (this.state !== 'paused') {
         this.ffb.update({ constant: 0, damper: 0.2 * this.ffb.settings.gain, spring: 0.3 * this.ffb.settings.gain, rumble: 0, rumbleHz: 0 });
       }
+      // SimHub 向けテレメトリ（モーション・振動・ダッシュボード）。走っている間だけ「レース中」にする
+      const driving = this.state === 'race' && race.state === 'racing' && !me.finished && !this.opts.attract;
+      this.ffb.telemetry(this.telemetry.compute(me, race, dt, driving));
       this.audio.update(me.kart, Math.abs(forwardSpeed(me.kart)), me.input.throttle || 0, this.state === 'race' || this.state === 'results', this.opts.vehicle || 'kart');
       this.updateDebug(inp);
       this.ui.ffbStatus?.(this.ffb.describe());

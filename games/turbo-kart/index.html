@@ -409,6 +409,18 @@
             <button data-test="center">センタリング</button><button data-test="rumble">振動</button>
           </div>
           <p class="note">⚠ ダイレクトドライブは強力です。テストはハンドルから手を離さず、周囲に物がない状態で。強さは低めから上げてください。</p>
+          <h2>SimHub（モーション・振動・ダッシュボード）</h2>
+          <p data-simhub-status class="ng"></p>
+          <label><input type="checkbox" data-ffb="telemetry"> SimHub へテレメトリを送る（デバイスブリッジ経由）</label>
+          <details class="bridge-help">
+            <summary>SimHub の設定</summary>
+            <ol>
+              <li>デバイスブリッジを起動したまま、SimHub でゲームに <b>Forza Motorsport 7</b> を選ぶ</li>
+              <li>「Game config」で UDP のポートを <b>5300</b> にする（ブリッジの既定。変えるときは <code>start.bat --telemetry-port 番号</code>）</li>
+              <li>レースを始めると、モーション・ShakeIt（バスシェイカー）・ダッシュボード・シフトライトが動きます</li>
+            </ol>
+            <p class="muted">SimHub 上の車名は表示されません（Forza の車として扱われます）。揺れの向きが逆のときは SimHub 側で反転してください。</p>
+          </details>
         </div>
       </div>
 

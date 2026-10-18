@@ -4,6 +4,17 @@ PC で動かす小さな常駐プログラムです。ブラウザだけでは�
 
 1. **FFB（フォースフィードバック）の出力**：ゲームが計算した力を、SDL2 経由でハンコンへ出力します。DirectInput の FFB を使うので、メーカーの PC 用ドライバーが入っていれば **Fanatec / Thrustmaster / CAMMUS / Logitech / MOZA / Simagic** など一般的な FFB ハンコンで動きます。
 2. **入力の中継**：ブラウザの Gamepad API は同時に 4 台までしか扱えません。VR ヘッドセット（Pimax など）に枠を取られると、ホイールベースやペダルが見えなくなります。ブリッジはすべてのジョイスティック（ホイールベース・ペダル・USB サイドブレーキ・H シフター）を読み、ゲームへ送ります。
+3. **SimHub へのテレメトリ送信**：ゲームの車の動き（加速度・角速度・姿勢・サスペンション・タイヤの滑り・路面）、回転数・ギア・速度、ラップタイム・順位を、Forza の Data Out 形式の UDP にして SimHub へ送ります。モーションシート・ShakeIt（バスシェイカー）・ダッシュボード・シフトライト・風が動きます。
+
+## SimHub の設定
+
+1. ブリッジを起動したまま SimHub を開き、ゲームに **Forza Motorsport 7** を選ぶ
+2. 「Game config」で UDP のポートを **5300** にする（ブリッジの既定）
+3. TURBO KART VR でレースを始める（「ハンコン / FFB 設定」の SimHub 欄に送信先が出ていれば送っています）
+
+- 送るのはレース中だけです。メニュー・ポーズ・ゴール後は「レース中でない」を送るので、モーションは止まります。
+- SimHub の車名は表示されません（Forza の車として扱われます）。揺れの向きが逆のときは SimHub 側で反転してください。
+- ゲーム内で FFB を切っていてもテレメトリは送ります。止めたいときはゲームの設定でオフにするか、ブリッジを `--no-telemetry` で起動します。
 
 ## 使い方
 
@@ -22,6 +33,10 @@ start.bat --device Fanatec   :: FFB を出すデバイスを名前で指定
 start.bat --no-ffb           :: 入力の中継だけ行い、FFB は出さない
 start.bat --list             :: 認識しているデバイスの一覧
 start.bat --allow-origin https://example.com   :: 接続を許可するゲームの URL を追加
+start.bat --telemetry-port 5300       :: SimHub へ送る UDP ポート（既定 5300）
+start.bat --telemetry-host 192.168.1.20   :: SimHub が別の PC で動いているとき
+start.bat --telemetry-format fm2023   :: Forza Motorsport (2023) 形式（331 バイト）で送る。既定は FM7 の Dash 形式（311 バイト）
+start.bat --no-telemetry              :: SimHub へ送らない
 ```
 
 ## 安全のための仕組み
