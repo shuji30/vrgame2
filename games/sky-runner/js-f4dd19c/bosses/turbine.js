@@ -108,6 +108,7 @@ export const TURBINE_KINDS = {
     update(c, e, dt, scroll, ctx, p) {
       const b = e.body;
       if (b.dead) { e.dead = true; return; }
+      e.noHit = p.z > ctx.player.z + 1; // プレイヤーよりうしろにいる間は当たらない (見えない所から当たらないように)
       const spin = e.state === 'hold' ? 4 : 14;
       e.mesh.rotation.z += dt * spin * e.sx;
       if (e.state === 'hold') {
@@ -122,8 +123,8 @@ export const TURBINE_KINDS = {
           e.state = 'throw';
           e.u = 0;
           e.from.copy(p);
-          // プレイヤーのいた所の 7 m 手前で止まる (うしろへは回り込まない)
-          e.to.copy(ctx.player).add(_b.subVectors(p, ctx.player).normalize().multiplyScalar(7));
+          // プレイヤーのいた所を 14 m 通り過ぎてから戻る (うしろにいる間は当たらない)
+          e.to.copy(ctx.player).add(_b.subVectors(ctx.player, p).normalize().multiplyScalar(14));
         }
       } else if (e.state === 'throw') {
         e.u += dt / 1.6; // VR で怖すぎないよう、ゆっくり

@@ -104,7 +104,7 @@ export const STAGES = [
     obstacles: { column: 2, arch: 1.5, rock: 1, lane: 0.32 },
     palette: { a: 0xf3a986, b: 0x7a3a5a, fog: 0xf8c8a8, sky: 0x4a2a6a, mount: 0x6a3a5a, col: ['#fff0e8', '#a03a5a'], bush: 0x7a5a3a },
     bgm: { key: 4, tempo: 162, song: 'classical' },
-    boss: { type: 'phantom', hp: 380, escape: 0 },
+    boss: { type: 'phantom', hp: 320, escape: 0 },
   },
   {
     name: 'NEON YARD', kind: 'bonus', length: 20, speed: 42, diff: 1, density: 0,
@@ -126,7 +126,7 @@ export const STAGES = [
     obstacles: { column: 2, crystal: 1.5, mushroom: 0.8, lane: 0.33 },
     palette: { a: 0x6a5a8a, b: 0x2a2040, fog: 0x3a2a50, sky: 0x0a0418, mount: 0x2a1a3a, col: ['#c8b8e8', '#3a2058'], bush: 0x5a3a7a },
     bgm: { key: 5, tempo: 166, song: 'metal' },
-    boss: { type: 'mantis', hp: 380, escape: 0 },
+    boss: { type: 'mantis', hp: 320, escape: 0 },
   },
   {
     name: 'CRIMSON WASTE', kind: 'normal', length: 55, speed: 49, diff: 7, density: 1.4,

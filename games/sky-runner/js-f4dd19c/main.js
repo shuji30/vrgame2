@@ -44,6 +44,11 @@ const BONUS_LEN = 20;      // ボーナスステージの長さ (s)
 const BONUS_TREE = 500;    // 木 1 本の点数
 const LIFE_MAX = 100;      // ライフ。0 になると残機が 1 減り、満タンに戻る
 const HEAL = 35;           // 回復アイテム 1 個で戻るライフ
+const HARD_HEAL = 20;      // 難しいモードの回復量
+// 全面クリアしたか (ごほうび: タイトルの ★、サウンドテストの 2 曲、難しいモード)
+let cleared = false;
+try { cleared = localStorage.getItem('skyrunner.cleared') === '1'; } catch (_) { /* 保存なし */ }
+const hardMode = () => cleared && settings.hard;
 const OBSTACLE_DAMAGE = 20;
 const RING_BONUS = 500; // 浮遊リングをくぐったときの点
 
@@ -53,7 +58,7 @@ try { progress = Math.max(1, Math.min(18, Number(localStorage.getItem('skyrunner
 try { hiScore = Number(localStorage.getItem('skyrunner.hi')) || 0; } catch (_) { /* 保存なし */ }
 
 // ---- 設定 (localStorage に保存)
-const settings = { scale: 1.0, autoReturn: true, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true, autoFire: true };
+const settings = { scale: 1.0, autoReturn: true, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true, autoFire: true, hard: false };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('skyrunner.settings') || '{}')); } catch (_) { /* 保存なし */ }
 // 開発用: ?player=ship|human&view=1st|3rd で上書きする
 for (const key of ['player', 'view', 'mode']) {
@@ -214,7 +219,8 @@ function applyStage(n, first = false) {
   S.rushIndex = pendingRush ?? Math.max(0, Number(new URLSearchParams(location.search).get('rush')) || 0);
   pendingRush = null;
   const st = stageAt(n);
-  combat.level = st.diff;
+  combat.hard = hardMode();
+  combat.level = st.diff + (combat.hard ? 2 : 0); // 難しいモードは 2 段強く
   combat.density = st.density;
   combat.waveTable = st.waves;
   world.applyTheme(st.palette);
@@ -274,6 +280,12 @@ const sndButton = (name, desc, onClick) => {
   return b;
 };
 for (const m of BGM_LIST) {
+  if (m.locked && !cleared) { // 全面クリアするまでは名前を伏せる
+    const b = sndButton('？？？', '全面クリアで解放', () => {});
+    b.disabled = true;
+    document.getElementById('bgmList').append(b);
+    continue;
+  }
   const b = sndButton(m.name, m.desc, () => {
     const again = previewing === m.id;
     stopPreview();
@@ -299,7 +311,7 @@ function saveSunCheckpoint() {
 const sunIndex = () => STAGES[STAGE_COUNT - 1].rush.findIndex((r) => r.type === 'sun');
 
 const showHiScore = () => {
-  document.getElementById('hiscore').textContent = String(hiScore);
+  document.getElementById('hiscore').textContent = cleared ? `★ ALL CLEAR   ${hiScore}` : String(hiScore);
   const btn = document.getElementById('btnContinue');
   btn.hidden = progress <= 1;
   btn.querySelector('small').textContent = progress === STAGE_COUNT && sunCheckpoint ? '最終ボスの前から' : `STAGE ${progress} から`;
@@ -444,12 +456,12 @@ const BOSS_INFO = {
   mine: ['浮遊鉱山', '壊せない。耐えろ、出撃口を壊せ'],
   colossus: ['磁鉄の巨像', '電極を先に壊せ'],
   sun: ['プリズムの太陽', '最後の戦い'],
-  crown: ['氷晶の冠', '赤い印につららが落ちる。つららを壊せば雨が減る'],
-  worm: ['砂岩の大蛇', '茶色い印から飛び出す。頭だけを狙え'],
-  turbine: ['双子の回転刃', '赤く光った刃が飛んでくる。真ん中の核を撃て'],
-  phantom: ['水晶の亡霊', '本物には影がある。目が水色のものを撃て'],
-  laserwing: ['光翼の母船', '赤い線の高さから離れろ。翼の先を壊せば光線が止まる'],
-  mantis: ['硝子のカマキリ', '斬撃は上下によけろ。振り終わりに光る腹を撃て'],
+  crown: ['氷晶の冠', '赤い印をよけろ。つららを壊せば雨が減る'],
+  worm: ['砂岩の大蛇', '頭だけが弱点。進む先を狙え'],
+  turbine: ['双子の回転刃', '刃は戻ってくる。真ん中の核を撃て'],
+  phantom: ['水晶の亡霊', '目が水色の本物を撃て。分身は紫'],
+  laserwing: ['光翼の母船', '光線は上下によけろ。翼の先を壊せ'],
+  mantis: ['硝子のカマキリ', '斬撃をよけたら、光る腹を撃て'],
   whale: ['溶岩の結晶鯨', '浮上したら背中の潮吹き穴を撃て'],
 };
 let bossSeen = new Set();
@@ -477,7 +489,7 @@ function updateStage(dt) {
     S.phase = 'boss';
     S.phaseT = 0;
     const def = st.kind === 'rush' ? st.rush[S.rushIndex] : st.boss;
-    combat.level = def.diff ?? st.diff;
+    combat.level = (def.diff ?? st.diff) + (combat.hard ? 2 : 0);
     combat.spawnBoss(def);
     setBGMMode(def.type === 'sun' ? 'finale' : 'boss'); // 最終ボスは専用の曲
   } else if (S.phase === 'boss' && (combat.bossDefeated || combat.bossEscaped)) {
@@ -682,8 +694,9 @@ function onPickup(type) {
     combat.score += 2000;
     showMsg('LIFE FULL', 'BONUS 2000', 1.2);
   } else {
-    S.life = Math.min(LIFE_MAX, S.life + HEAL);
-    showMsg('RECOVER!', `LIFE +${HEAL}`, 1.2);
+    const heal = hardMode() ? HARD_HEAL : HEAL;
+    S.life = Math.min(LIFE_MAX, S.life + heal);
+    showMsg('RECOVER!', `LIFE +${heal}`, 1.2);
   }
   sfx.heal();
   input.rumble(0.3, 100);
@@ -955,7 +968,7 @@ function update(dt) {
     life: Math.max(0, Math.round(S.life)),
     lifeMax: LIFE_MAX,
     blink: S.life < LIFE_MAX * 0.3 && Math.floor(performance.now() / 250) % 2 === 0,
-    stageNo: S.stage, stageCount: STAGE_COUNT,
+    stageNo: S.stage, stageCount: STAGE_COUNT, hard: combat.hard,
     // ボスラッシュの間は、何体目かも出す
     stageName: stageAt(S.stage).kind === 'rush' && ['warning', 'boss'].includes(S.phase) ? `${stageAt(S.stage).name}  BOSS ${S.rushIndex + 1}/${stageAt(S.stage).rush.length}` : stageAt(S.stage).name,
     hi: Math.max(hiScore, combat.score),
@@ -1027,7 +1040,14 @@ chkReturn.checked = settings.autoReturn;
 const selVignette = document.getElementById('vignette');
 selVignette.value = settings.vignette;
 selVignette.addEventListener('change', () => { settings.vignette = selVignette.value; saveSettings(); });
-for (const key of ['bgm', 'engine', 'invertY', 'vrGentle', 'autoFire']) {
+// 難しいモード: 全面クリアするまで選べない
+{
+  const hard = document.getElementById('hard');
+  hard.disabled = !cleared;
+  hard.closest('label').classList.toggle('locked', !cleared);
+  if (!cleared) settings.hard = false;
+}
+for (const key of ['bgm', 'engine', 'invertY', 'vrGentle', 'autoFire', 'hard']) {
   const el = document.getElementById(key);
   el.checked = settings[key];
   el.addEventListener('change', () => { settings[key] = el.checked; saveSettings(); applyAudioSettings(); });

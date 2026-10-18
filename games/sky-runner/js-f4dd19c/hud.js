@@ -53,7 +53,7 @@ export class Hud {
       // 今の面は大きく (何面目か分かるように)。名前は横に小さく
       const stageLabel = `STAGE ${d.stageNo}/${d.stageCount}`;
       text(g, stageLabel, 24, 94, 34, '#ffe14a');
-      text(g, d.stageName, 24 + g.measureText(stageLabel).width + 14, 94, 22, '#ffe9a0');
+      text(g, d.stageName + (d.hard ? '  HARD' : ''), 24 + g.measureText(stageLabel).width + 14, 94, 22, d.hard ? '#ff8a8a' : '#ffe9a0');
       text(g, `HI ${d.hi}   VIEW ${d.view}   DIST ${d.dist} m`, 24, 124, 20, '#cfe8ff');
 
       // 残機 (三角の印)
