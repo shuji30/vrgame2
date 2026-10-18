@@ -405,10 +405,32 @@ function nextStage() {
 function allClear() {
   S.phase = 'ending';
   S.phaseT = 0;
-  showMsg('ALL CLEAR!!', `CONGRATULATIONS!  SCORE ${combat.score}`, 8);
+  S.endingStep = -1;
+  showMsg('ALL CLEAR!!', `CONGRATULATIONS!  SCORE ${combat.score}`, 5);
   sfx.clear();
   say('Congratulations');
   setBGMMode('ending', { key: 0, tempo: 152 }); // エンディングの曲 (ステージのテンポの影響を受けない)
+  combat.clearHostiles();
+  try { localStorage.setItem('skyrunner.cleared', '1'); } catch (_) { /* 保存不可 */ } // クリアのごほうび用
+}
+
+// エンディング (約 90 秒): 1〜18 面の景色を順に通り過ぎ、面の名前とボスの名前を出す。最後に点数の内訳。5 秒たったら飛ばせる
+const ENDING_START = 5, ENDING_PER = 4.4;
+const ENDING_LEN = ENDING_START + STAGE_COUNT * ENDING_PER + 6;
+function updateEnding() {
+  const i = Math.floor((S.phaseT - ENDING_START) / ENDING_PER);
+  if (S.phaseT >= ENDING_START && i < STAGE_COUNT && i !== S.endingStep) {
+    S.endingStep = i;
+    const st = STAGES[i];
+    world.applyTheme(st.palette);
+    world.setObstacles(st.obstacles);
+    world.setCeiling(false); // 天井は出さない (景色を見せる)
+    const boss = st.kind === 'bonus' ? 'BONUS STAGE' : st.kind === 'rush' ? 'BOSS RUSH → ' + BOSS_INFO.sun[0] : BOSS_INFO[st.boss?.type]?.[0] || '';
+    showMsg(`STAGE ${i + 1}  ${st.name}`, boss, ENDING_PER - 0.4);
+  } else if (i >= STAGE_COUNT && S.endingStep < STAGE_COUNT) {
+    S.endingStep = STAGE_COUNT;
+    showMsg('THANK YOU FOR PLAYING', `SCORE ${combat.score}   ENEMIES ${combat.kills}   HITS ${S.hits}`, 6);
+  }
 }
 
 // ボスの名前と、倒し方のひとこと (初めて会ったときだけ WARNING の 2 行目に出す)
@@ -481,8 +503,9 @@ function updateStage(dt) {
     }
   } else if (S.phase === 'clear' && S.phaseT > 5) {
     nextStage();
-  } else if (S.phase === 'ending' && S.phaseT > 8) {
-    gameOver(true);
+  } else if (S.phase === 'ending') {
+    updateEnding();
+    if (S.phaseT > ENDING_LEN) gameOver(true);
   } else if (S.phase === 'bonus' && S.phaseT > BONUS_LEN) {
     S.phase = 'bonusEnd';
     S.phaseT = 0;
@@ -727,7 +750,7 @@ function updateCombat(dt, speed, a) {
 
   // 機関砲: 人間の一人称 VR は手のコントローラーから、それ以外は機体の銃口から
   // 自動で撃つ (設定): プレイ中は撃ちっぱなし (ボーナスステージ・ポーズ中は撃たない)
-  const auto = settings.autoFire && S.mode === 'play' && !S.paused && !['bonus', 'bonusEnd'].includes(S.phase);
+  const auto = settings.autoFire && S.mode === 'play' && !S.paused && !['bonus', 'bonusEnd', 'ending'].includes(S.phase);
   let guns = [], firing = a.fire || auto;
   if (humanVR) {
     a.handFire.forEach((h, i) => { if (h.fire) guns.push(controllerRay(h.controller, handAims[i % 2])); });
@@ -745,7 +768,7 @@ function updateCombat(dt, speed, a) {
   combat.update({
     dt, scroll: side ? speed * SIDE_SCROLL : speed, world, side, planeX: side ? 0 : null,
     spawn: S.mode === 'play' && S.ready >= 1 && S.phase === 'normal',
-    active: S.mode === 'play' && S.ready >= 1 && !['clear', 'bonus', 'bonusEnd'].includes(S.phase),
+    active: S.mode === 'play' && S.ready >= 1 && !['clear', 'bonus', 'bonusEnd', 'ending'].includes(S.phase),
     player: P, playerR: avatar.radius, eye: eyeW,
     aimOrigin, aimDir, guns, firing,
     missile: a.missile, missileOrigin: avatar.center(kind, missileOrigin),
@@ -781,7 +804,8 @@ function update(dt) {
       else if (a.confirm || (a.fire && a.source === 'touch')) startPlay(); // タッチは射撃ボタンでもう一度
     }
   } else {
-    if (a.pause) togglePause(!S.paused);
+    if (S.phase === 'ending' && S.phaseT > ENDING_START && (a.confirm || a.pause)) gameOver(true); // エンディングを飛ばす
+    else if (a.pause) togglePause(!S.paused);
     else if (S.paused && a.back) toTitle();
     else if (S.paused && a.confirm) togglePause(false);
 
@@ -952,7 +976,7 @@ window.__debugKill = () => { S.lives = 1; S.invuln = 0; onHit(999); };
 window.__enemies = () => combat.enemies.map((e) => [e.kind, ...e.mesh.position.toArray().map((v) => Math.round(v * 10) / 10)]); // 開発用: 敵の位置
 // 開発用: 自動テストから状態を読む
 window.__debugState = () => ({
-  gameMode: settings.mode, bonusCount: S.bonusCount, destroyed: avatar.destroyed, shipVisible: avatar.models.ship?.obj.visible, overT: S.overT, frame: renderer.info.render.frame, mode: S.mode, py: S.py, version: document.getElementById('version').textContent, phase: S.phase, stage: S.stage, lives: S.lives, boss: combat.bossRatio, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,
+  gameMode: settings.mode, msg: S.msg, bonusCount: S.bonusCount, destroyed: avatar.destroyed, shipVisible: avatar.models.ship?.obj.visible, overT: S.overT, frame: renderer.info.render.frame, mode: S.mode, py: S.py, version: document.getElementById('version').textContent, phase: S.phase, stage: S.stage, lives: S.lives, boss: combat.bossRatio, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,
   shots: combat.shots.length, missiles: combat.missiles.length, stock: combat.missileStock, locks: combat.locks.length, hits: S.hits,
 });
 

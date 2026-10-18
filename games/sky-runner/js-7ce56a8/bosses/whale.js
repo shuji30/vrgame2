@@ -24,7 +24,7 @@ function mat(color, emissive, extra = {}) {
 export function spawnWhale(c, def) {
   const side = c.sideMode;
   const k = side ? 0.6 : 1.3;
-  const holeHp = Math.round((def.hp || 360) / 3);
+  const holeHp = Math.round((def.hp || 300) / 3);
   const bodyM = mat(0x24182a, 0x000000);
   const lavaM = mat(0xff8a30, 0xc03a00);
   const g = new THREE.Group();
@@ -52,7 +52,8 @@ export function spawnWhale(c, def) {
   g.scale.setScalar(k);
   const grp = { type: 'whale', t: 0, escape: Infinity, total: 1, kills: 0, leaving: false, bonus: 11000 };
   const w = {
-    kind: 'whale', mesh: g, mats: [bodyM, lavaM], r: 6 * k, hp: 1, score: 0, t: 0, flash: 0, fireT: Infinity, k,
+    // 当たりは小さめ (背中の潮吹き穴を覆わないように)
+    kind: 'whale', mesh: g, mats: [bodyM, lavaM], r: 4 * k, hp: 1, score: 0, t: 0, flash: 0, fireT: Infinity, k,
     state: 'under', timer: 2, x: c.lastPlayer?.x ?? 0, z: c.holdZ(-55), rise: 0, marker: null, holes: [], holeHp, bossGroup: grp, noLock: true,
   };
   grp.ratio = () => Math.max(0, w.holes.reduce((s, h) => s + Math.max(0, h.dead ? 0 : h.hp), 0) / (holeHp * 3));
@@ -82,7 +83,7 @@ export const WHALE_KINDS = {
       e.timer -= dt;
       // 潮吹き穴が全部壊れたら倒れる
       if (e.holes.every((h) => h.dead)) { c.damage(e, 1); return; }
-      const hz = c.holdZ(-55);
+      const hz = c.holdZ(-48);
       if (e.state === 'under') {
         e.rise = Math.max(0, e.rise - dt * 1.2);
         if (e.timer <= 0) {
@@ -110,7 +111,7 @@ export const WHALE_KINDS = {
         if (e.timer <= 0) { e.state = 'under'; e.timer = rand(1.6, 2.4); for (const h of e.holes) h.fireT = Infinity; }
       }
       // 浮上の高さ: 潜っている間は地面の下、浮上すると背中が地面の上に出る
-      const y = THREE.MathUtils.lerp(-30, 4 * e.k, e.rise);
+      const y = THREE.MathUtils.lerp(-30, (ctx.side ? 4 : 7) * e.k, e.rise); // 3D は高めに浮上 (自機の陰に隠れないように)
       p.set(e.x, y + Math.sin(e.t * 1.5) * 0.4 * e.rise, e.z);
       e.mesh.rotation.z = Math.sin(e.t * 0.8) * 0.08;
       e.mesh.rotation.y = ctx.side ? Math.PI / 2 : 0; // 横スクロールは横向き
@@ -130,10 +131,11 @@ export const WHALE_KINDS = {
     update(c, e, dt, scroll, ctx, p) {
       const w = e.whale;
       if (w.dead) { e.dead = true; return; }
-      const off = (e.slot - 1) * 6 * w.k;
+      // 背中に横に並べる (3D は x 方向、横スクロールは z 方向。どれも手前から撃てる)
+      const off = (e.slot - 1) * 4.5 * w.k;
       const wp = w.mesh.position;
-      if (ctx.side) p.set(wp.x, wp.y + 4.4 * w.k, wp.z + off);
-      else p.set(wp.x, wp.y + 4.4 * w.k, wp.z + off);
+      if (ctx.side) p.set(wp.x, wp.y + 4.6 * w.k, wp.z + off);
+      else p.set(wp.x + off, wp.y + 4.6 * w.k, wp.z + 3 * w.k);
       e.noLock = w.rise < 0.8;
       e.mats[0].userData.base.setHex(w.rise > 0.8 ? 0xff6a10 : 0x301000); // 浮上して光っている間だけ撃てる
       e.mesh.rotation.y += dt * 3;

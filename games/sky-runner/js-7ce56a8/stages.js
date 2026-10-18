@@ -80,7 +80,7 @@ export const STAGES = [
     obstacles: { column: 1.5, rock: 1.5, arch: 1, lane: 0.3 },
     palette: { a: 0xbfae94, b: 0x6a5a48, fog: 0xd8ccb8, sky: 0x7a6a8a, mount: 0x6a5a5a, col: ['#efe6d8', '#7a5a3a'], bush: 0x6a7a4a },
     bgm: { key: 3, tempo: 160, song: 'reggae' },
-    boss: { type: 'worm', hp: 320, escape: 0 },
+    boss: { type: 'worm', hp: 240, escape: 0 },
   },
   {
     name: 'IRON TUNNEL', kind: 'normal', length: 38, speed: 49, diff: 6, density: 1.2, ceiling: true,
@@ -134,7 +134,7 @@ export const STAGES = [
     obstacles: { rock: 2, spike: 1.5, column: 1.5, lane: 0.33 },
     palette: { a: 0xd8583a, b: 0x401818, fog: 0x8a5040, sky: 0x300808, mount: 0x501818, col: ['#ffd8c8', '#601010'], bush: 0x6a3a1a },
     bgm: { key: 6, tempo: 166, song: 'grunge' },
-    boss: { type: 'whale', hp: 360, escape: 0 },
+    boss: { type: 'whale', hp: 300, escape: 0 },
   },
   {
     name: 'STORM DECK', kind: 'normal', length: 50, speed: 50, diff: 7, density: 1.4,
