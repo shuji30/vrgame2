@@ -1512,7 +1512,9 @@ export class Combat {
       // 照準の近くに敵がいれば、その敵へ向ける (エイムアシスト)
       let near = this.nearestInCone(g.aimOrigin, g.aimDir, 0.08);
       if (near?.noAssist) near = null; // ミラーコアの核は、見えている所を狙って撃つ (中心へ曲げると鏡に当たる)
+      // 動いている敵は、弾が届くまでに進む分だけ先を狙う (先読み)
       const aimAt = near ? near.mesh.position.clone() : g.aimOrigin.clone().addScaledVector(g.aimDir, 90);
+      if (near?.vel) aimAt.addScaledVector(near.vel, g.origin.distanceTo(aimAt) / GUN_SPEED);
       this.fireGun(g.origin, aimAt, ctx.gunStyle);
       sfx.shot();
     }

@@ -84,12 +84,12 @@ export const WORM_KINDS = {
             e.to.set(0, -4, -6);
             if (e.dir < 0) [e.from.z, e.to.z] = [e.to.z, e.from.z];
           } else {
-            const span = rand(26, 36);
+            const span = rand(16, 24);
             e.from.set(P.x - e.dir * span, -4, z);
             e.to.set(P.x + e.dir * span, -4, z + rand(-6, 6));
           }
           e.apex = ctx.side ? 15 : rand(11, 16);
-          e.dur = Math.max(1.6, 2.4 - (c.level - 1) * 0.08);
+          e.dur = Math.max(2.4, 2.9 - (c.level - 1) * 0.05); // 弾が届くよう、ゆっくり跳ぶ
           e.marker = new THREE.Mesh(GEO.marker, new THREE.MeshBasicMaterial({ color: 0x8a5a20, transparent: true, opacity: 0.8, depthWrite: false }));
           e.marker.position.set(e.from.x, 0.08, e.from.z);
           c.scene.add(e.marker);
@@ -112,12 +112,15 @@ export const WORM_KINDS = {
         // 弧を描いて飛ぶ (放物線)
         e.u += dt / e.dur;
         const u = Math.min(1, e.u);
+        e.vel = e.vel || new THREE.Vector3();
+        const px = p.x, py = p.y, pz = p.z;
         p.lerpVectors(e.from, e.to, u);
         p.y = -4 + (e.apex + 4) * 4 * u * (1 - u);
         // 進む向きに頭を向ける
         _a.lerpVectors(e.from, e.to, Math.min(1, u + 0.02));
         _a.y = -4 + (e.apex + 4) * 4 * Math.min(1, u + 0.02) * (1 - Math.min(1, u + 0.02));
         if (u < 1) e.mesh.lookAt(_a);
+        e.vel.set(p.x - px, p.y - py, p.z - pz).divideScalar(Math.max(dt, 1e-3)); // エイムアシストの先読みに使う
         e.path.unshift(p.clone());
         if (e.path.length > 200) e.path.length = 200;
         if (!e.fired && u > 0.45) {
