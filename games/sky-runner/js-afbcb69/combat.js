@@ -19,6 +19,7 @@ const GEODE_Y = 1.6; // 晶洞岩の中心の高さ (モデルの原点は足元
 const FIGHTER_SCALE = 1.6, GUNSHIP_SCALE = 1.4, MOAI_SCALE = 1.7, GREMLIN_SCALE = 2.6, MECH_SCALE = 1.4, PILL_SCALE = 1.6, BOSS_SCALE = 2.2, PTERO_SCALE = 1.5;
 const REMOVE_Z = 40;
 const SMALL_KINDS = new Set(['gremlin', 'pillpart', 'dart', 'bat', 'satellite']); // 体当たりのダメージが 15 の小さい敵 (ほかは 25)
+const HEAL_HALF = new Set(['worm', 'phantom', 'mantis', 'whale']); // 体力が半分で回復を 1 個出す長めのボス
 
 const GUN_SPEED = 230;      // 機関砲の弾速 (m/s)
 const LOCK_ANGLE = 0.14;    // この角度 (rad, 約8度) の中に入った敵をロックする
@@ -453,6 +454,7 @@ export class Combat {
     this.scene.remove(o.mesh);
     if (o.shadow) this.scene.remove(o.shadow);
     if (o.marker) this.scene.remove(o.marker); // 地面の予告の印 (氷晶の冠のつららなど)
+    if (o.beam) EXTRA[o.kind]?.endBeam?.(this, o); // 光翼の光線 (面が変わったときも片付ける)
     if (o.mats) o.mats.forEach((m) => m.dispose());
   }
 
@@ -993,6 +995,14 @@ export class Combat {
         if (e.kind === 'mech') { e.group.regroup = false; e.group.phase = 'retreat'; }
       }
     }
+    // 長いボスの途中で 1 回だけ回復 (体力が半分を切ったとき)
+    if (g.ratio && !g.healed && HEAL_HALF.has(g.type) && g.ratio() < 0.5) {
+      g.healed = true;
+      const P = this.lastPlayer || new THREE.Vector3();
+      this.spawnItem(new THREE.Vector3(P.x, Math.max(3, P.y), -60));
+    }
+    // 倒すまで進めないボスでも、180 秒で逃げた扱いにする (面が止まらない保険)
+    if (g.escape === Infinity && !g.endure && g.t > 180) for (const e of alive) e.dead = true;
     // 保険: 逃げ始めて 8 秒たっても残っていたら消す (どのボスでも面が止まらないように)
     if (g.leaving && g.t > g.escape + 8) for (const e of alive) e.dead = true;
     if ((alive.length === 0 || (g.leaving && g.t > g.escape + 8)) && g.t > 1) {
@@ -1182,7 +1192,7 @@ export class Combat {
   fireBullet(from, at, spread = 0, type = 'orb', hue = null) {
     const dir = _d.subVectors(at, from).normalize();
     if (spread) dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), spread);
-    let m, speed = 34, r = 0.45;
+    let m, speed = 34 * (this.hard ? 1.35 : 1), r = 0.45; // 難しいモードは敵の弾が速い
     let mats = null;
     if (type === 'fireball') {
       m = new THREE.Mesh(GEO.fireball, MAT.fireballCore);

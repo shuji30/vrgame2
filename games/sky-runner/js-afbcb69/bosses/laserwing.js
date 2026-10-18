@@ -77,16 +77,19 @@ function startBeam(c, em, ctx) {
   c.scene.add(line, beam);
   const sweep = rand(26, 34) * (em.sx > 0 ? -1 : 1); // 翼の外から内へ薙ぐ
   em.beam = {
-    line, beam, t: 0, warn: 1.0, dur: 1.2, hit: false, y: P.y, x: P.x, z: P.z,
-    // 横スクロールは高さで薙ぐ
-    from: ctx.side ? new THREE.Vector3(0, P.y + 12, P.z) : new THREE.Vector3(P.x - sweep, P.y, P.z),
-    to: ctx.side ? new THREE.Vector3(0, Math.max(1, P.y - 12), P.z) : new THREE.Vector3(P.x + sweep, P.y, P.z),
+    line, beam, t: 0, warn: 1.0, dur: ctx.side ? 0.6 : 1.2, hit: false, y: P.y, x: P.x, z: P.z,
+    // 横スクロールは薙がずに、プレイヤーの高さの横一文字の光線 (上下によける)
+    from: ctx.side ? new THREE.Vector3(0, P.y, P.z + 40) : new THREE.Vector3(P.x - sweep, P.y, P.z),
+    to: ctx.side ? new THREE.Vector3(0, P.y, P.z + 40) : new THREE.Vector3(P.x + sweep, P.y, P.z),
   };
 }
 
 function endBeam(c, em) {
   if (!em.beam) return;
   c.scene.remove(em.beam.line, em.beam.beam);
+  em.beam.line.geometry.dispose();
+  em.beam.line.material.dispose();
+  em.beam.beam.material.dispose(); // 円柱の形は共有なので捨てない
   em.beam = null;
 }
 
@@ -121,6 +124,7 @@ export const LASERWING_KINDS = {
   },
 
   emitter: {
+    endBeam, // combat.remove から呼ぶ
     big: true,
     sideAbs: true,
     update(c, e, dt, scroll, ctx, p) {
@@ -147,12 +151,14 @@ export const LASERWING_KINDS = {
         B.line.visible = Math.floor(B.t * 12) % 2 === 0;
         e.mats[0].userData.base.setHex(0xff3020);
       } else {
-        B.line.visible = false;
         B.beam.visible = true;
         B.beam.position.copy(p);
         B.beam.lookAt(end);
         const len = p.distanceTo(end);
-        B.beam.scale.set(1.1, 1.1, len);
+        // VR で目の横を太い光が通らないよう、太い光線はプレイヤーの 6 m 手前までにし、その先は細い線だけ
+        const dz = dir.z > 0.05 ? (ctx.player.z - 6 - p.z) / dir.z : len;
+        B.beam.scale.set(1.1, 1.1, THREE.MathUtils.clamp(dz, 1, len));
+        B.line.visible = dz < len;
         // 当たり: 光線の線分とプレイヤーの距離 (1 回の光線で 1 回だけ)
         if (!B.hit && segDist(ctx.player, p, end) < 1.1 + ctx.playerR) {
           B.hit = true;

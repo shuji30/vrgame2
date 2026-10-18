@@ -56,7 +56,7 @@ export function spawnMantis(c, def) {
   const grp = { type: 'mantis', t: 0, escape: Infinity, total: 1, kills: 0, leaving: false, bonus: 10000 };
   const body = {
     kind: 'mantis', mesh: g, mats: [glassM, darkM, gemM, ...arms.map((a) => a.blade.material)], r: 4 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 3,
-    k, arms, gemM, belly, x: c.lastPlayer?.x ?? 0, z: SPAWN_Z, state: 'idle', timer: 2.5, open: 0, turn: 0, bossGroup: grp, noAssist: true,
+    k, arms, gemM, belly, x: c.lastPlayer?.x ?? 0, z: SPAWN_Z, state: 'idle', timer: 2.5, open: 0, turn: 0, bossGroup: grp, // 盾のある間はアシストが選ばない (開いている間だけ効く)
   };
   grp.ratio = () => Math.max(0, body.hp / body.maxHp);
   c.bossGroup = grp;
@@ -75,7 +75,7 @@ function launchWave(c, body, ctx, dy) {
   const from = body.mesh.position.clone();
   const y = THREE.MathUtils.clamp(P.y + dy, 1, (c.ceilingY ?? 40) - 2);
   from.y = y;
-  const w = { kind: 'slashwave', mesh, mats: [m], r: 0.1, hp: Infinity, score: 0, t: 0, flash: 0, fireT: Infinity, noLock: true, vz: 42, y, hit: false, half: ctx.side ? 5 : 11 };
+  const w = { kind: 'slashwave', mesh, mats: [m], r: 0.1, hp: Infinity, score: 0, t: 0, flash: 0, fireT: Infinity, noLock: true, vz: 42, y, hit: false, R: 10 * (ctx.side ? 0.5 : 1) };
   mesh.position.copy(from);
   c.addEnemy(w, 0);
   w.shadow.visible = false;
@@ -139,8 +139,11 @@ export const MANTIS_KINDS = {
       p.z += e.vz * dt;
       p.y = e.y;
       const P = ctx.player;
-      const crossed = (z0 - P.z) * (p.z - P.z) <= 0;
-      if (!e.hit && crossed && Math.abs(P.y - e.y) < 1.8 + ctx.playerR && (ctx.side || Math.abs(P.x - p.x) < e.half)) {
+      // 見た目の三日月 (プレイヤーの方へふくらむ弧) の、プレイヤーの横の位置での先端が、プレイヤーを越えたら当たり
+      const u = ctx.side ? 0 : (P.x - p.x) / e.R;
+      const bulge = Math.abs(u) < 1 ? e.R * Math.sqrt(1 - u * u) : -Infinity;
+      const crossed = (z0 + bulge - P.z) * (p.z + bulge - P.z) <= 0;
+      if (!e.hit && crossed && Math.abs(P.y - e.y) < 1.8 + ctx.playerR) {
         e.hit = true;
         ctx.onPlayerHit(20);
       }

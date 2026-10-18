@@ -19,9 +19,11 @@ function mat(color, emissive, extra = {}) {
   return m;
 }
 
-function makeGhost(k, eyeColor) {
-  const bodyM = mat(0xd8e8ff, 0x3a3a8a);
-  const cloakM = mat(0xb8c8ff, 0x2a2a6a, { side: THREE.DoubleSide, opacity: 0.6 });
+// decoy: 分身は薄く (本物と見分けやすく)
+function makeGhost(k, eyeColor, decoy = false) {
+  const op = decoy ? [0.55, 0.35] : [0.85, 0.6];
+  const bodyM = mat(0xd8e8ff, 0x3a3a8a, { opacity: op[0] });
+  const cloakM = mat(0xb8c8ff, 0x2a2a6a, { side: THREE.DoubleSide, opacity: op[1] });
   const eyeM = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: eyeColor, transparent: true }); // 目の色は発光で (被弾の光り方を共通にするため)
   eyeM.userData.base = eyeM.emissive.clone();
   const g = new THREE.Group();
@@ -33,11 +35,11 @@ function makeGhost(k, eyeColor) {
   for (const sx of [-1, 1]) {
     const eye = new THREE.Mesh(GEO.eye, eyeM);
     eye.position.set(sx * 0.9, 1.2, 2.4);
-    eye.scale.setScalar(1.6);
+    eye.scale.setScalar(2.6); // VR でも見分けられる大きさ
     g.add(eye);
   }
   g.scale.setScalar(k);
-  return { mesh: g, mats: [bodyM, cloakM, eyeM] };
+  return { mesh: g, mats: [bodyM, cloakM, eyeM], op };
 }
 
 export function spawnPhantom(c, def) {
@@ -48,7 +50,7 @@ export function spawnPhantom(c, def) {
   const grp = { type: 'phantom', t: 0, escape: Infinity, total: 1, kills: 0, leaving: false, bonus: 10000 };
   const ph = {
     kind: 'phantom', ...made, r: 3.6 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 2, k,
-    state: 'enter', timer: 0, fade: 1, z: SPAWN_Z, slots: [], at: new THREE.Vector3(0, 10, SPAWN_Z), decoys: [], bossGroup: grp, noAssist: true,
+    state: 'enter', timer: 0, fade: 1, z: SPAWN_Z, slots: [], at: new THREE.Vector3(0, 10, SPAWN_Z), decoys: [], bossGroup: grp,
   };
   grp.ratio = () => Math.max(0, ph.hp / ph.maxHp);
   c.bossGroup = grp;
@@ -69,8 +71,8 @@ function pickSlots(c, ctx, k) {
 
 function setFade(e, f) {
   e.fade = f;
-  e.mats[0].opacity = 0.85 * f;
-  e.mats[1].opacity = 0.6 * f;
+  e.mats[0].opacity = e.op[0] * f;
+  e.mats[1].opacity = e.op[1] * f;
   e.mats[2].opacity = f;
 }
 
@@ -85,7 +87,7 @@ export const PHANTOM_KINDS = {
         // 最初は奥から近づいてくる
         e.z = Math.min(c.holdZ(-50), e.z + (scroll * 0.4 + 30) * dt);
         p.set(ctx.side ? 0 : ctx.player.x, 10, e.z);
-        if (e.z >= c.holdZ(-50)) { e.state = 'show'; e.timer = 3; }
+        if (e.z >= c.holdZ(-50)) { e.state = 'show'; e.timer = 3; e.at.copy(p); } // 近づいた所から始める (一瞬で飛ばない)
       } else if (e.state === 'show') {
         p.copy(e.at).add(new THREE.Vector3(0, Math.sin(e.t * 1.6) * 0.8, 0));
         if (e.timer <= 0) { e.state = 'out'; e.timer = 0.5; }
@@ -102,8 +104,9 @@ export const PHANTOM_KINDS = {
           // 分身: 体力が減るほど増える (2 → 3 体)
           const n = e.hp < e.maxHp * 0.6 ? 3 : 2;
           for (let i = 1; i <= n; i++) {
-            const made = makeGhost(e.k, 0xc060ff);
-            const d = { kind: 'decoy', ...made, r: 3.4 * e.k, hp: 1, score: 50, t: 0, flash: 0, fireT: rand(0.8, 1.6), at: slots[i].clone(), fade: 0, owner: e, noItem: true };
+            const made = makeGhost(e.k, 0xc060ff, true);
+            // 分身にはエイムアシストを効かせない
+            const d = { kind: 'decoy', noAssist: true, ...made, r: 3.4 * e.k, hp: 1, score: 50, t: 0, flash: 0, fireT: rand(0.8, 1.6), at: slots[i].clone(), fade: 0, owner: e, noItem: true };
             d.mesh.position.copy(d.at);
             setFade(d, 0);
             c.addEnemy(d, 0);
@@ -120,6 +123,15 @@ export const PHANTOM_KINDS = {
         if (e.timer <= 0) { e.state = 'show'; e.timer = Math.max(2.6, 4 - (c.level - 1) * 0.1); }
       }
       e.shadow.visible = e.state !== 'out' || e.fade > 0.2;
+      // 本物の足元に水色の光の輪 (影とは別の手がかり)
+      if (!e.ring) {
+        e.ring = new THREE.Mesh(new THREE.RingGeometry(2.6, 3.2, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x60f0ff, transparent: true, depthWrite: false }));
+        c.scene.add(e.ring);
+        e.marker = e.ring; // 片付けは combat.remove に任せる
+      }
+      e.ring.position.set(p.x, 0.1, p.z);
+      e.ring.material.opacity = 0.7 * e.fade;
+      e.ring.visible = p.y > -10;
       e.noLock = e.fade < 0.6;
       e.mesh.lookAt(ctx.player.x, ctx.player.y, ctx.player.z + 30);
     },
