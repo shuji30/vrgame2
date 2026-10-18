@@ -52,7 +52,8 @@ export function spawnWhale(c, def) {
   g.scale.setScalar(k);
   const grp = { type: 'whale', t: 0, escape: Infinity, total: 1, kills: 0, leaving: false, bonus: 11000 };
   const w = {
-    kind: 'whale', mesh: g, mats: [bodyM, lavaM], r: 4 * k, hp: 1, // 当たりは小さめ (背中の潮吹き穴を覆わないように) score: 0, t: 0, flash: 0, fireT: Infinity, k,
+    // 当たりは小さめ (背中の潮吹き穴を覆わないように)
+    kind: 'whale', mesh: g, mats: [bodyM, lavaM], r: 4 * k, hp: 1, score: 0, t: 0, flash: 0, fireT: Infinity, k,
     state: 'under', timer: 2, x: c.lastPlayer?.x ?? 0, z: c.holdZ(-55), rise: 0, marker: null, holes: [], holeHp, bossGroup: grp, noLock: true,
   };
   grp.ratio = () => Math.max(0, w.holes.reduce((s, h) => s + Math.max(0, h.dead ? 0 : h.hp), 0) / (holeHp * 3));

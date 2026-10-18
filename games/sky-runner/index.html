@@ -92,6 +92,10 @@
   .stage-select { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
     background: rgba(0, 0, 0, 0.35); color: #fff; font-family: var(--logo); font-size: 15px; letter-spacing: 0.06em; }
   .stage-select option { background: #1a2238; color: #fff; }
+  .settings label .lock-note { display: none; color: rgba(255, 255, 255, 0.55); }
+  .settings label.locked { opacity: 0.55; }
+  .settings label.locked .lock-note { display: inline; }
+  .snd-list button:disabled { opacity: 0.45; cursor: default; }
   .sound { padding: 0 12px 12px; }
   .sound .sub { margin: 6px 0; font-size: 12px; letter-spacing: 0.15em; color: var(--sun); }
   .sound .sub small { margin-left: 8px; letter-spacing: 0; color: rgba(255, 255, 255, 0.6); }
@@ -245,6 +249,7 @@
         </label>
         <label><input type="checkbox" id="vrGentle"> VR では上下の動きを控えめに</label>
         <label><input type="checkbox" id="autoFire"> 機関砲を自動で撃つ (撃ちっぱなし)</label>
+        <label><input type="checkbox" id="hard"> 難しいモード (敵の弾が速く、敵が強く、回復が少ない) <small class="lock-note">全面クリアで解放</small></label>
         <label><input type="checkbox" id="autoReturn"> スティックを離すと基準速度に戻る</label>
         <label><input type="checkbox" id="invertY"> 上下反転 (前に倒すと下がる)</label>
         <label><input type="checkbox" id="bgm"> BGM</label>
@@ -353,7 +358,7 @@
     <button class="tbtn fire" data-hold="fire" aria-label="射撃">FIRE</button>
   </div>
 </div>
-<script type="module" src="./js-7ce56a8/main.js"></script>
+<script type="module" src="./js-1cf0e96/main.js"></script>
 <script>
   // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
   if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {

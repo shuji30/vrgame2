@@ -45,12 +45,15 @@ export class Hud {
     g.clearRect(0, 0, 1024, 512);
 
     if (d.play) {
-      text(g, `SCORE ${d.score}`, 24, 52, 38);
-      if (d.mult > 1.05) text(g, `x${d.mult.toFixed(1)}`, 24 + g.measureText(`SCORE ${d.score}`).width + 16, 52, 30, '#ffe680');
+      // 点数: 桁が増えても右の LIFE に重ならないよう、幅 280 に収まる大きさにする
+      g.font = `bold 38px ${FONT}`;
+      const scoreSize = Math.min(38, Math.floor(38 * 280 / Math.max(1, g.measureText(`SCORE ${d.score}`).width)));
+      text(g, `SCORE ${d.score}`, 24, 52, scoreSize);
+      if (d.mult > 1.05) text(g, `x${d.mult.toFixed(1)}`, 24, 150, 26, '#ffe680'); // 倍率は下の行に
       // 今の面は大きく (何面目か分かるように)。名前は横に小さく
       const stageLabel = `STAGE ${d.stageNo}/${d.stageCount}`;
       text(g, stageLabel, 24, 94, 34, '#ffe14a');
-      text(g, d.stageName, 24 + g.measureText(stageLabel).width + 14, 94, 22, '#ffe9a0');
+      text(g, d.stageName + (d.hard ? '  HARD' : ''), 24 + g.measureText(stageLabel).width + 14, 94, 22, d.hard ? '#ff8a8a' : '#ffe9a0');
       text(g, `HI ${d.hi}   VIEW ${d.view}   DIST ${d.dist} m`, 24, 124, 20, '#cfe8ff');
 
       // 残機 (三角の印)

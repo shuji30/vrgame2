@@ -1182,7 +1182,7 @@ export class Combat {
   fireBullet(from, at, spread = 0, type = 'orb', hue = null) {
     const dir = _d.subVectors(at, from).normalize();
     if (spread) dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), spread);
-    let m, speed = 34, r = 0.45;
+    let m, speed = 34 * (this.hard ? 1.35 : 1), r = 0.45; // 難しいモードは敵の弾が速い
     let mats = null;
     if (type === 'fireball') {
       m = new THREE.Mesh(GEO.fireball, MAT.fireballCore);

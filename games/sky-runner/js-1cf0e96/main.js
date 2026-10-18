@@ -44,6 +44,11 @@ const BONUS_LEN = 20;      // ボーナスステージの長さ (s)
 const BONUS_TREE = 500;    // 木 1 本の点数
 const LIFE_MAX = 100;      // ライフ。0 になると残機が 1 減り、満タンに戻る
 const HEAL = 35;           // 回復アイテム 1 個で戻るライフ
+const HARD_HEAL = 20;      // 難しいモードの回復量
+// 全面クリアしたか (ごほうび: タイトルの ★、サウンドテストの 2 曲、難しいモード)
+let cleared = false;
+try { cleared = localStorage.getItem('skyrunner.cleared') === '1'; } catch (_) { /* 保存なし */ }
+const hardMode = () => cleared && settings.hard;
 const OBSTACLE_DAMAGE = 20;
 const RING_BONUS = 500; // 浮遊リングをくぐったときの点
 
@@ -53,7 +58,7 @@ try { progress = Math.max(1, Math.min(18, Number(localStorage.getItem('skyrunner
 try { hiScore = Number(localStorage.getItem('skyrunner.hi')) || 0; } catch (_) { /* 保存なし */ }
 
 // ---- 設定 (localStorage に保存)
-const settings = { scale: 1.0, autoReturn: true, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true, autoFire: true };
+const settings = { scale: 1.0, autoReturn: true, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true, autoFire: true, hard: false };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('skyrunner.settings') || '{}')); } catch (_) { /* 保存なし */ }
 // 開発用: ?player=ship|human&view=1st|3rd で上書きする
 for (const key of ['player', 'view', 'mode']) {
@@ -214,7 +219,8 @@ function applyStage(n, first = false) {
   S.rushIndex = pendingRush ?? Math.max(0, Number(new URLSearchParams(location.search).get('rush')) || 0);
   pendingRush = null;
   const st = stageAt(n);
-  combat.level = st.diff;
+  combat.hard = hardMode();
+  combat.level = st.diff + (combat.hard ? 2 : 0); // 難しいモードは 2 段強く
   combat.density = st.density;
   combat.waveTable = st.waves;
   world.applyTheme(st.palette);
@@ -274,6 +280,12 @@ const sndButton = (name, desc, onClick) => {
   return b;
 };
 for (const m of BGM_LIST) {
+  if (m.locked && !cleared) { // 全面クリアするまでは名前を伏せる
+    const b = sndButton('？？？', '全面クリアで解放', () => {});
+    b.disabled = true;
+    document.getElementById('bgmList').append(b);
+    continue;
+  }
   const b = sndButton(m.name, m.desc, () => {
     const again = previewing === m.id;
     stopPreview();
@@ -299,7 +311,7 @@ function saveSunCheckpoint() {
 const sunIndex = () => STAGES[STAGE_COUNT - 1].rush.findIndex((r) => r.type === 'sun');
 
 const showHiScore = () => {
-  document.getElementById('hiscore').textContent = String(hiScore);
+  document.getElementById('hiscore').textContent = cleared ? `★ ALL CLEAR   ${hiScore}` : String(hiScore);
   const btn = document.getElementById('btnContinue');
   btn.hidden = progress <= 1;
   btn.querySelector('small').textContent = progress === STAGE_COUNT && sunCheckpoint ? '最終ボスの前から' : `STAGE ${progress} から`;
@@ -405,10 +417,32 @@ function nextStage() {
 function allClear() {
   S.phase = 'ending';
   S.phaseT = 0;
-  showMsg('ALL CLEAR!!', `CONGRATULATIONS!  SCORE ${combat.score}`, 8);
+  S.endingStep = -1;
+  showMsg('ALL CLEAR!!', `CONGRATULATIONS!  SCORE ${combat.score}`, 5);
   sfx.clear();
   say('Congratulations');
   setBGMMode('ending', { key: 0, tempo: 152 }); // エンディングの曲 (ステージのテンポの影響を受けない)
+  combat.clearHostiles();
+  try { localStorage.setItem('skyrunner.cleared', '1'); } catch (_) { /* 保存不可 */ } // クリアのごほうび用
+}
+
+// エンディング (約 90 秒): 1〜18 面の景色を順に通り過ぎ、面の名前とボスの名前を出す。最後に点数の内訳。5 秒たったら飛ばせる
+const ENDING_START = 5, ENDING_PER = 4.4;
+const ENDING_LEN = ENDING_START + STAGE_COUNT * ENDING_PER + 6;
+function updateEnding() {
+  const i = Math.floor((S.phaseT - ENDING_START) / ENDING_PER);
+  if (S.phaseT >= ENDING_START && i < STAGE_COUNT && i !== S.endingStep) {
+    S.endingStep = i;
+    const st = STAGES[i];
+    world.applyTheme(st.palette);
+    world.setObstacles(st.obstacles);
+    world.setCeiling(false); // 天井は出さない (景色を見せる)
+    const boss = st.kind === 'bonus' ? 'BONUS STAGE' : st.kind === 'rush' ? 'BOSS RUSH → ' + BOSS_INFO.sun[0] : BOSS_INFO[st.boss?.type]?.[0] || '';
+    showMsg(`STAGE ${i + 1}  ${st.name}`, boss, ENDING_PER - 0.4);
+  } else if (i >= STAGE_COUNT && S.endingStep < STAGE_COUNT) {
+    S.endingStep = STAGE_COUNT;
+    showMsg('THANK YOU FOR PLAYING', `SCORE ${combat.score}   ENEMIES ${combat.kills}   HITS ${S.hits}`, 6);
+  }
 }
 
 // ボスの名前と、倒し方のひとこと (初めて会ったときだけ WARNING の 2 行目に出す)
@@ -455,7 +489,7 @@ function updateStage(dt) {
     S.phase = 'boss';
     S.phaseT = 0;
     const def = st.kind === 'rush' ? st.rush[S.rushIndex] : st.boss;
-    combat.level = def.diff ?? st.diff;
+    combat.level = (def.diff ?? st.diff) + (combat.hard ? 2 : 0);
     combat.spawnBoss(def);
     setBGMMode(def.type === 'sun' ? 'finale' : 'boss'); // 最終ボスは専用の曲
   } else if (S.phase === 'boss' && (combat.bossDefeated || combat.bossEscaped)) {
@@ -481,8 +515,9 @@ function updateStage(dt) {
     }
   } else if (S.phase === 'clear' && S.phaseT > 5) {
     nextStage();
-  } else if (S.phase === 'ending' && S.phaseT > 8) {
-    gameOver(true);
+  } else if (S.phase === 'ending') {
+    updateEnding();
+    if (S.phaseT > ENDING_LEN) gameOver(true);
   } else if (S.phase === 'bonus' && S.phaseT > BONUS_LEN) {
     S.phase = 'bonusEnd';
     S.phaseT = 0;
@@ -659,8 +694,9 @@ function onPickup(type) {
     combat.score += 2000;
     showMsg('LIFE FULL', 'BONUS 2000', 1.2);
   } else {
-    S.life = Math.min(LIFE_MAX, S.life + HEAL);
-    showMsg('RECOVER!', `LIFE +${HEAL}`, 1.2);
+    const heal = hardMode() ? HARD_HEAL : HEAL;
+    S.life = Math.min(LIFE_MAX, S.life + heal);
+    showMsg('RECOVER!', `LIFE +${heal}`, 1.2);
   }
   sfx.heal();
   input.rumble(0.3, 100);
@@ -727,7 +763,7 @@ function updateCombat(dt, speed, a) {
 
   // 機関砲: 人間の一人称 VR は手のコントローラーから、それ以外は機体の銃口から
   // 自動で撃つ (設定): プレイ中は撃ちっぱなし (ボーナスステージ・ポーズ中は撃たない)
-  const auto = settings.autoFire && S.mode === 'play' && !S.paused && !['bonus', 'bonusEnd'].includes(S.phase);
+  const auto = settings.autoFire && S.mode === 'play' && !S.paused && !['bonus', 'bonusEnd', 'ending'].includes(S.phase);
   let guns = [], firing = a.fire || auto;
   if (humanVR) {
     a.handFire.forEach((h, i) => { if (h.fire) guns.push(controllerRay(h.controller, handAims[i % 2])); });
@@ -745,7 +781,7 @@ function updateCombat(dt, speed, a) {
   combat.update({
     dt, scroll: side ? speed * SIDE_SCROLL : speed, world, side, planeX: side ? 0 : null,
     spawn: S.mode === 'play' && S.ready >= 1 && S.phase === 'normal',
-    active: S.mode === 'play' && S.ready >= 1 && !['clear', 'bonus', 'bonusEnd'].includes(S.phase),
+    active: S.mode === 'play' && S.ready >= 1 && !['clear', 'bonus', 'bonusEnd', 'ending'].includes(S.phase),
     player: P, playerR: avatar.radius, eye: eyeW,
     aimOrigin, aimDir, guns, firing,
     missile: a.missile, missileOrigin: avatar.center(kind, missileOrigin),
@@ -781,7 +817,8 @@ function update(dt) {
       else if (a.confirm || (a.fire && a.source === 'touch')) startPlay(); // タッチは射撃ボタンでもう一度
     }
   } else {
-    if (a.pause) togglePause(!S.paused);
+    if (S.phase === 'ending' && S.phaseT > ENDING_START && (a.confirm || a.pause)) gameOver(true); // エンディングを飛ばす
+    else if (a.pause) togglePause(!S.paused);
     else if (S.paused && a.back) toTitle();
     else if (S.paused && a.confirm) togglePause(false);
 
@@ -931,7 +968,7 @@ function update(dt) {
     life: Math.max(0, Math.round(S.life)),
     lifeMax: LIFE_MAX,
     blink: S.life < LIFE_MAX * 0.3 && Math.floor(performance.now() / 250) % 2 === 0,
-    stageNo: S.stage, stageCount: STAGE_COUNT,
+    stageNo: S.stage, stageCount: STAGE_COUNT, hard: combat.hard,
     // ボスラッシュの間は、何体目かも出す
     stageName: stageAt(S.stage).kind === 'rush' && ['warning', 'boss'].includes(S.phase) ? `${stageAt(S.stage).name}  BOSS ${S.rushIndex + 1}/${stageAt(S.stage).rush.length}` : stageAt(S.stage).name,
     hi: Math.max(hiScore, combat.score),
@@ -952,7 +989,7 @@ window.__debugKill = () => { S.lives = 1; S.invuln = 0; onHit(999); };
 window.__enemies = () => combat.enemies.map((e) => [e.kind, ...e.mesh.position.toArray().map((v) => Math.round(v * 10) / 10)]); // 開発用: 敵の位置
 // 開発用: 自動テストから状態を読む
 window.__debugState = () => ({
-  gameMode: settings.mode, bonusCount: S.bonusCount, destroyed: avatar.destroyed, shipVisible: avatar.models.ship?.obj.visible, overT: S.overT, frame: renderer.info.render.frame, mode: S.mode, py: S.py, version: document.getElementById('version').textContent, phase: S.phase, stage: S.stage, lives: S.lives, boss: combat.bossRatio, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,
+  gameMode: settings.mode, msg: S.msg, bonusCount: S.bonusCount, destroyed: avatar.destroyed, shipVisible: avatar.models.ship?.obj.visible, overT: S.overT, frame: renderer.info.render.frame, mode: S.mode, py: S.py, version: document.getElementById('version').textContent, phase: S.phase, stage: S.stage, lives: S.lives, boss: combat.bossRatio, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,
   shots: combat.shots.length, missiles: combat.missiles.length, stock: combat.missileStock, locks: combat.locks.length, hits: S.hits,
 });
 
@@ -1003,7 +1040,14 @@ chkReturn.checked = settings.autoReturn;
 const selVignette = document.getElementById('vignette');
 selVignette.value = settings.vignette;
 selVignette.addEventListener('change', () => { settings.vignette = selVignette.value; saveSettings(); });
-for (const key of ['bgm', 'engine', 'invertY', 'vrGentle', 'autoFire']) {
+// 難しいモード: 全面クリアするまで選べない
+{
+  const hard = document.getElementById('hard');
+  hard.disabled = !cleared;
+  hard.closest('label').classList.toggle('locked', !cleared);
+  if (!cleared) settings.hard = false;
+}
+for (const key of ['bgm', 'engine', 'invertY', 'vrGentle', 'autoFire', 'hard']) {
   const el = document.getElementById(key);
   el.checked = settings[key];
   el.addEventListener('change', () => { settings[key] = el.checked; saveSettings(); applyAudioSettings(); });
