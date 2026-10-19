@@ -1,4 +1,4 @@
-// スマートフォン向けのタッチ操作: 左半分は仮想スティック (指を置いた所が中心)、右下に射撃・ミサイル・加速・減速、右上に視点・ポーズ
+// スマートフォン向けのタッチ操作: 左半分は仮想スティック (指を置いた所が中心)、右下に射撃・ミサイル、右上に視点・ポーズ
 export const isTouchDevice = () => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
 const STICK_R = 60; // スティックを倒しきる距離 (px)
@@ -8,7 +8,6 @@ export class TouchControls {
     this.root = root;
     this.move = { x: 0, y: 0 };
     this.fire = false;
-    this.throttle = 0;
     this.edges = new Set(); // 押した瞬間: 'missile' | 'view' | 'pause'
     this.used = false;      // 一度でもタッチで操作したか
     this.stickId = null;
@@ -47,7 +46,7 @@ export class TouchControls {
     pad.addEventListener('pointerup', endStick);
     pad.addEventListener('pointercancel', endStick);
 
-    // ボタン: 押している間 (射撃・加速・減速) と、押した瞬間 (ミサイル・視点・ポーズ)
+    // ボタン: 押している間 (射撃) と、押した瞬間 (ミサイル・視点・ポーズ)
     for (const btn of root.querySelectorAll('[data-hold], [data-tap]')) {
       btn.addEventListener('pointerdown', (e) => {
         btn.setPointerCapture(e.pointerId);
@@ -55,15 +54,12 @@ export class TouchControls {
         this.used = true;
         if (btn.dataset.tap) this.edges.add(btn.dataset.tap);
         if (btn.dataset.hold === 'fire') this.fire = true;
-        if (btn.dataset.hold === 'accel') this.throttle = 1;
-        if (btn.dataset.hold === 'brake') this.throttle = -1;
         if (navigator.vibrate) navigator.vibrate(10);
         e.preventDefault();
       });
       const up = () => {
         btn.classList.remove('on');
         if (btn.dataset.hold === 'fire') this.fire = false;
-        if (btn.dataset.hold === 'accel' || btn.dataset.hold === 'brake') this.throttle = 0;
       };
       btn.addEventListener('pointerup', up);
       btn.addEventListener('pointercancel', up);
@@ -87,7 +83,6 @@ export class TouchControls {
     this.root.hidden = !on;
     if (!on) {
       this.fire = false;
-      this.throttle = 0;
       this.move.x = this.move.y = 0;
       this.stickId = null;
       this.stickBase.hidden = true;

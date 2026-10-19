@@ -895,6 +895,7 @@ function update(dt) {
     const o = world.hitTest(P, avatar.radius * 0.7); // 障害物には少し小さめの当たりで (かすっただけでは当たらない)
     if (o && o.kind === 'bush' && settings.player === 'human') stumble();
     else if (o) onHit(OBSTACLE_DAMAGE);
+    if (o && ['tree', 'bush', 'mushroom', 'crystal'].includes(o.kind)) world.knockDown(o); // ぶつかった木などは、すり抜けずに倒れる
   }
   // ライフが少ないときは警告音
   if (play && running && S.life < LIFE_MAX * 0.3 && (S.lowLifeT -= dt) <= 0) {
