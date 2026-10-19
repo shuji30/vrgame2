@@ -429,6 +429,7 @@ function movePlayer(dt, a) {
 function nextStage() {
   if (S.stage >= STAGE_COUNT) return allClear();
   applyStage(S.stage + 1);
+  startBGM(); // STAGE CLEAR で止めた曲を、次の面の曲で始める
 }
 
 // 全 18 面クリア
@@ -535,7 +536,13 @@ function updateStage(dt) {
       S.phase = 'clear';
       showMsg('STAGE CLEAR!', escaped ? '敵は逃げ去った' : `BOSS BONUS ${combat.lastBossBonus}`, 4.5);
       sfx.clear();
-      setBGMMode('rock', st.bgm);
+      // もとの面には戻さない: 曲は止め、障害物は出さず、景色は次の面の色へ移していく
+      stopBGM();
+      if (S.stage < STAGE_COUNT) {
+        const nx = stageAt(S.stage + 1);
+        world.fadeTheme(nx.palette, 3);
+        world.setCeiling(nx.ceiling);
+      }
     }
   } else if (S.phase === 'clear' && S.phaseT > 5) {
     nextStage();
@@ -1000,7 +1007,7 @@ function update(dt) {
   P.copy(avatar.hitPoint);
   world.side = side;
   // ボス戦 (WARNING から撃破まで) は障害物を出さない
-  world.update(dt, side ? speed * SIDE_SCROLL : speed, P, running && !(play && (S.phase === 'warning' || S.phase === 'boss')));
+  world.update(dt, side ? speed * SIDE_SCROLL : speed, P, running && !(play && ['warning', 'boss', 'clear'].includes(S.phase)));
 
   if (play && running) updateRide(dt);
   world.reach = yMax() + 1.6; // 今飛べる高さ (これより低い柱は飛び越えられる高さで出す)
