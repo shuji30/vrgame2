@@ -17,15 +17,15 @@ function makePanel(w, h, cw, ch) {
 
 const FONT = '"Segoe UI", "Hiragino Sans", "Meiryo", sans-serif';
 
-function text(g, s, x, y, size, color = '#fff', align = 'left') {
+function text(g, s, x, y, size, color = '#fff', align = 'left', maxWidth = undefined) {
   g.font = `bold ${size}px ${FONT}`;
   g.textAlign = align;
   g.lineJoin = 'round';
   g.lineWidth = Math.max(4, size * 0.14);
   g.strokeStyle = 'rgba(0,0,0,0.75)';
-  g.strokeText(s, x, y);
+  g.strokeText(s, x, y, maxWidth);
   g.fillStyle = color;
-  g.fillText(s, x, y);
+  g.fillText(s, x, y, maxWidth);
 }
 
 export class Hud {
@@ -121,7 +121,8 @@ export class Hud {
     }
 
     if (d.msg) text(g, d.msg, 512, 236, 70, '#ffe14a', 'center');
-    if (d.sub) text(g, d.sub, 512, 296, 30, '#fff', 'center');
+    // 2 行目は改行で何行かに分けられる (ゲームオーバーの面・点数・名前の入力)。長い行は横に縮める
+    if (d.sub) d.sub.split('\n').forEach((line, k) => text(g, line, 512, 296 + k * 40, 30, '#fff', 'center', 1000));
     if (d.hint) {
       g.globalAlpha = 0.85;
       text(g, d.hint, 512, 492, 21, '#fff', 'center');
