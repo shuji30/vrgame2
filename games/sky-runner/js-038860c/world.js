@@ -4,6 +4,10 @@ import * as THREE from 'three';
 export const FOG_NEAR = 70;
 export const FOG_FAR = 210;
 const SPAWN_Z = -210;
+// 天井のある面: 霧を遠くして奥行きを広げ、天井を手前で終わらせて、奥に地平線と空が少しだけ見えるようにする
+const CEIL_FOG = [90, 300];
+const CEIL_END = -270;      // 天井の奥の端 (霧が濃いところで終わるので、端の線は目立たない)
+const CEIL_SPAWN_Z = -300;  // 霧が遠いぶん、障害物も遠くから出す (急に現れて見えないように)
 const SPAWN_SPACING = 14;   // 何 m 進むごとに障害物を出すか (速度に関係なく密度が一定になる。巨大なので間隔は広め)
 const REMOVE_Z = 40;        // 後ろを振り返っても急に消えて見えないよう、少し後ろまで残す
 const CHECKER = 8;          // 市松模様の1マス (m)
@@ -112,11 +116,11 @@ export class World {
     scene.add(ground);
     // 天井 (天井のある面だけ表示)。床と同じ模様を、下向きに貼る
     // (床と同じ uniforms を共有するので、色と模様の流れも床と一緒に変わる)
-    this.ceiling = new THREE.Mesh(ground.geometry, new THREE.ShaderMaterial({
+    this.ceiling = new THREE.Mesh(new THREE.PlaneGeometry(1400, 40 - CEIL_END), new THREE.ShaderMaterial({
       uniforms: this.groundUni, vertexShader: groundVert, fragmentShader: groundFrag, side: THREE.DoubleSide,
     }));
     this.ceiling.rotation.x = Math.PI / 2;
-    this.ceiling.position.set(0, CEIL_Y, -450);
+    this.ceiling.position.set(0, CEIL_Y, (40 + CEIL_END) / 2); // 手前 (うしろ 40 m) から CEIL_END まで
     this.ceiling.visible = false;
     scene.add(this.ceiling);
 
@@ -239,6 +243,11 @@ export class World {
   // 天井のある面: 床と同じ模様の天井を、上に重ねる
   setCeiling(on) {
     this.ceiling.visible = !!on;
+    const [near, far] = on ? CEIL_FOG : [FOG_NEAR, FOG_FAR];
+    this.groundUni.fogNear.value = near;
+    this.groundUni.fogFar.value = far;
+    this.scene.fog.near = near;
+    this.scene.fog.far = far;
   }
 
   addShadow(o, r) {
@@ -503,7 +512,7 @@ export class World {
     if (spawn) {
       this.spawnAcc += d;
       const bonus = this.mode === 'bonus';
-      const spawnZ = this.side ? -70 : SPAWN_Z; // 横スクロールは画面の右端のすぐ外に出す
+      const spawnZ = this.side ? -70 : this.ceiling.visible ? CEIL_SPAWN_Z : SPAWN_Z; // 横スクロールは画面の右端のすぐ外に出す
       const spacing = bonus ? 5 : SPAWN_SPACING;
       while (this.spawnAcc > spacing) {
         this.spawnAcc -= spacing;
