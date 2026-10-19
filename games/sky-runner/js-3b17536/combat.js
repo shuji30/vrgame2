@@ -1456,7 +1456,7 @@ export class Combat {
           EXTRA[e.kind].fire(this, e, ctx, p, lv);
         }
       }
-      if (!e.dead && p.distanceTo(ctx.player) < e.r + ctx.playerR) {
+      if (!e.dead && !e.noHit && p.distanceTo(ctx.player) < e.r + ctx.playerR) { // noHit: 今は当たらない (うしろにいる回転刃など)
         ctx.onPlayerHit(e.kind === 'boss' ? 30 : e.dmg ?? (SMALL_KINDS.has(e.kind) ? 15 : 25)); // 小さい敵の体当たりは軽め
         // 体当たりしてくる敵は、ぶつかったら自分も爆発する
         if (e.kind === 'gremlin' || e.kind === 'pillpart' || e.kind === 'pill' || EXTRA[e.kind]?.kamikaze) {

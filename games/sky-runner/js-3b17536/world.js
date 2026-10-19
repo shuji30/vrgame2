@@ -244,7 +244,9 @@ export class World {
     const kind = force || this.pickKind();
     const roll = kind ? { column: 0, bush: 0.5, tree: 0.9 }[kind] ?? -1 : Math.random();
     const reach = this.reach || 20; // 今のプレイヤーが飛べる高さ (これより低い柱は飛び越えられる)
-    const tallH = (lo, hi) => Math.min(Math.random() < 0.5 ? rand(0.45, 0.75) * reach : rand(lo, hi), this.ceiling.visible ? CEIL_Y - 0.6 : Infinity);
+    // 横スクロールのプレイヤーの平面 (x = 0) では横によけられないので、上に 5 m 以上の隙間を残す
+    const top = this.side && x === 0 ? reach - 5 : Infinity;
+    const tallH = (lo, hi) => Math.min(Math.random() < 0.5 ? rand(0.45, 0.75) * reach : rand(lo, hi), this.ceiling.visible ? CEIL_Y - 0.6 : Infinity, top - 1);
     const size = lane ? 0.7 : 1; // 進路上のものは小さめに
     let o;
     if (kind === 'rock') {
@@ -366,7 +368,7 @@ export class World {
       g.add(b);
       o = { kind: 'bush', group: g, r, cy: r * 0.6, breakable: true, parts: [{ c: 'sph', r: r * 0.85, y: r * 0.6 }] };
     } else {
-      const h = rand(9, 22) * size;
+      const h = Math.min(rand(9, 22) * size, top);
       const trunk = new THREE.Mesh(this.geo.trunk, this.mat.trunk);
       trunk.scale.set(h / 7, h * 0.45, h / 7);
       trunk.position.y = h * 0.225;

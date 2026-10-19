@@ -74,6 +74,28 @@ export function spawnWhale(c, def) {
   c.bossDefeated = false;
 }
 
+const G = 22; // 火の玉にかかる重さ (m/s²)
+
+function lobLava(c, from, ctx) {
+  const P = ctx.player;
+  const target = new THREE.Vector3(ctx.side ? 0 : P.x + rand(-3, 3), P.y, P.z + (ctx.side ? rand(-3, 3) : 0));
+  const T = rand(1.5, 1.9); // 落ちてくるまでの時間 (見上げてよける間)
+  // 放物線: T 秒後に target に届く初速
+  const vel = new THREE.Vector3().subVectors(target, from).divideScalar(T);
+  vel.y += 0.5 * G * T;
+  const m = new THREE.MeshStandardMaterial({ color: 0xffd36a, emissive: 0xff5a10, flatShading: true });
+  m.userData.base = m.emissive.clone();
+  const mesh = new THREE.Mesh(GEO.hole, m);
+  mesh.scale.setScalar(1.4);
+  mesh.position.copy(from);
+  const marker = new THREE.Mesh(GEO.marker, new THREE.MeshBasicMaterial({ color: 0xff7a20, transparent: true, opacity: 0.7, depthWrite: false }));
+  marker.scale.setScalar(0.5);
+  marker.position.set(target.x, 0.08, target.z);
+  c.scene.add(marker);
+  const e = { kind: 'lavaball', mesh, mats: [m], r: 1.6, hp: 2, score: 100, t: 0, flash: 0, fireT: Infinity, vel, marker, dmg: 12, noItem: true };
+  c.addEnemy(e, 0.8);
+}
+
 export const WHALE_KINDS = {
   whale: {
     big: true,
@@ -123,6 +145,19 @@ export const WHALE_KINDS = {
     },
   },
 
+  // 噴き上げた火の玉: 放物線で上から落ちてくる (撃ち落とせる)。地面に着いたら砕ける
+  lavaball: {
+    kamikaze: true,
+    sideAbs: true,
+    update(c, e, dt, scroll, ctx, p) {
+      e.vel.y -= G * dt;
+      p.addScaledVector(e.vel, dt);
+      e.marker.material.opacity = 0.35 + 0.4 * Math.abs(Math.sin(e.t * 10));
+      e.mesh.rotation.x += dt * 5;
+      if (p.y < 0.5 || e.t > 4) { e.dead = true; c.explode(p, false); }
+    },
+  },
+
   // 潮吹き穴 (弱点): 背中に並ぶ。浮上している間だけ撃てて、火の玉を噴き上げる
   blowhole: {
     big: true,
@@ -143,8 +178,8 @@ export const WHALE_KINDS = {
     fire(c, e, ctx, p) {
       e.fireT = rand(0.7, 1.0);
       if (e.whale.rise < 0.8) return;
-      // 火の玉を高く噴き上げて、プレイヤーのいる所へ落とす
-      c.fireBullet(p.clone().add(new THREE.Vector3(0, 2, 0)), ctx.player, rand(-0.08, 0.08), 'fireball');
+      // 火の玉を高く噴き上げて、プレイヤーのいる所へ上から落とす (落ちる所の地面に印)
+      lobLava(c, p.clone().add(new THREE.Vector3(0, 2, 0)), ctx);
     },
   },
 };
