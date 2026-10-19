@@ -25,20 +25,28 @@ const GEO = {
   orb: new THREE.SphereGeometry(1, 12, 10),
 };
 GEO.batWing.computeVertexNormals();
-// 二十面体の 20 枚の面 (開くときに 1 枚ずつ外へ広がる)。面ごとに、中心を原点にした三角形と、外向きの向き
+// 二十面体の 20 枚の面 (開くときに 1 枚ずつ外へ広がる)。面ごとに、中心を原点にした厚い三角の板と、外向きの向き
 GEO.icoFaces = (() => {
   const pos = new THREE.IcosahedronGeometry(1, 0).toNonIndexed().attributes.position;
   const faces = [];
   for (let f = 0; f < pos.count; f += 3) {
     const v = [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(pos, f + k));
     const c = v[0].clone().add(v[1]).add(v[2]).divideScalar(3);
-    const geo = new THREE.BufferGeometry().setFromPoints(v.map((p) => p.clone().sub(c)));
+    // 外の面と、内側へ 22% 縮めた面をつないで、厚みのある装甲板にする
+    const o = v.map((p) => p.clone().sub(c));
+    const i = v.map((p) => p.clone().multiplyScalar(0.78).sub(c));
+    const tris = [o[0], o[1], o[2], i[0], i[2], i[1]];
+    for (let k = 0; k < 3; k++) {
+      const n = (k + 1) % 3;
+      tris.push(o[k], i[k], i[n], o[k], i[n], o[n]);
+    }
+    const geo = new THREE.BufferGeometry().setFromPoints(tris);
     geo.computeVertexNormals();
     faces.push({ geo, c });
   }
   return faces;
 })();
-GEO.icoCore = new THREE.IcosahedronGeometry(0.55, 1);
+GEO.icoCore = new THREE.IcosahedronGeometry(0.72, 1);
 
 // 被弾で白く光らせるため、マテリアルは敵ごとに作る (元の発光色を覚えておく)
 function mat(color, emissive = 0x000000, extra = {}) {
@@ -247,34 +255,36 @@ export const EXTRA = {
   },
 
   // ---- 結晶の二十面体 (PRISM ICOSA): 天井のある面で、床と天井を転がってくる。
-  // 途中で止まって 20 枚の面が花のように開き、中の赤い核からミサイルを 2 発撃つ。閉じている間は弾を跳ね返し、開いている間だけ壊せる。
+  // 途中で止まって 20 枚のパネルが少し浮き上がって開き、中の赤い核からミサイルを 2 発撃つ。閉じている間は弾を跳ね返し、開いている間だけ壊せる (パネルは少しだけ開く)。
   // 閉じたら、また転がってプレイヤーへ向かってくる (よけるか、開いている間に壊す)
   icosa: {
-    kamikaze: true,
+    kamikaze: true, heavy: true, big: true,
     spawn(c, px) {
-      const n = 3;
-      const xs = [-1, 0, 1].map((k) => px + k * rand(8, 11) + rand(-2, 2));
-      const top = Math.random() < 0.5; // 床と天井を交互に (真ん中だけ反対側)
+      // 大きくて重い: 直径 約 12 m。2〜3 個が、床と天井を交互に、横に間をあけて転がってくる (間をすり抜ける)
+      const n = Math.random() < 0.5 ? 2 : 3;
+      const gap = rand(17, 20);
+      const xs = Array.from({ length: n }, (_, k) => px + (k - (n - 1) / 2) * gap + rand(-1.5, 1.5));
+      const top = Math.random() < 0.5;
       for (let k = 0; k < n; k++) {
-        const shell = mat(0xc8b8ff, 0x302080, { metalness: 0.4, roughness: 0.15 });
+        const shell = mat(0x4a4258, 0x120c22, { metalness: 0.85, roughness: 0.35, side: THREE.DoubleSide }); // 鈍く光る黒鉄の装甲
         const core = mat(0xff5060, 0xff2040);
         const parts = GEO.icoFaces.map((f) => [f.geo, shell, (m) => { m.position.copy(f.c); m.userData.c = f.c; }]);
         parts.push([GEO.icoCore, core, (m) => { m.name = 'core'; m.scale.setScalar(0.01); }]);
-        const R = 2.2 * K;
-        const ceil = k === 1 ? !top : top;
-        const e = { kind: 'icosa', ...build(parts), r: R, R, hp: 3 + Math.ceil(c.level / 2), score: 700, t: 0, flash: 0, fireT: Infinity, dmg: 20,
-          ceil, x: xs[k], z: SPAWN_Z - k * 14, state: 'roll', open: 0, holdT: 0, shots: 0, holdZ: c.holdZ(rand(-95, -75) - k * 6) };
+        const R = 3.4 * K;
+        const ceil = k % 2 ? !top : top;
+        const e = { kind: 'icosa', ...build(parts), r: R * 0.9, R, hp: 6 + c.level, score: 1200, t: 0, flash: 0, fireT: Infinity, dmg: 25,
+          ceil, x: xs[k], z: SPAWN_Z - k * 16, state: 'roll', open: 0, holdT: 0, shots: 0, holdZ: c.holdZ(rand(-85, -72) - k * 8) };
         e.core = e.mesh.getObjectByName('core');
         e.mesh.scale.setScalar(R);
         e.mesh.position.set(e.x, ceil ? CEIL_Y - R : R, e.z);
-        c.addEnemy(e, 1.6 * K);
+        c.addEnemy(e, 2.8 * K);
       }
     },
     shielded: (e) => e.open < 0.7,
     update(c, e, dt, scroll, ctx, p) {
       const z0 = e.z;
       if (e.state === 'roll') {
-        e.z += (scroll + 14) * dt;
+        e.z += (scroll + 9) * dt; // 重いので、ゆっくり転がる
         if (e.z >= e.holdZ) { e.z = e.holdZ; e.state = 'stop'; e.holdT = 0; }
       } else if (e.state === 'stop') {
         // 止まって (地面に対しては、うしろへ転がって) 開き、撃ち、閉じる
@@ -283,7 +293,7 @@ export const EXTRA = {
         if (e.holdT > 0.75 && e.fireT === Infinity && e.shots === 0) e.fireT = 0;
         if (e.holdT > 3) e.state = 'charge';
       } else {
-        e.z += (scroll + 18) * dt; // また転がってくる
+        e.z += (scroll + 12) * dt; // また転がってくる
       }
       p.set(e.x, e.ceil ? CEIL_Y - e.R : e.R, e.z);
       // 転がる: 地面に対する速さの分だけ回す (天井では逆向き)
@@ -291,7 +301,7 @@ export const EXTRA = {
       if (e.open < 0.05) e.mesh.rotation.x += (ground / e.R) * dt * (e.ceil ? -1 : 1); // 開いている間は回さない
       for (const m of e.mesh.children) {
         if (m === e.core) continue;
-        m.position.copy(m.userData.c).multiplyScalar(1 + e.open * 0.9);
+        m.position.copy(m.userData.c).multiplyScalar(1 + e.open * 0.15); // パネルは少しだけ開き、すき間から赤い核の光がのぞく
       }
       e.core.scale.setScalar(Math.max(0.01, e.open));
     },
