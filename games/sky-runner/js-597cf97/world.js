@@ -188,6 +188,7 @@ export class World {
 
   // i: THEMES の番号、またはステージ表のパレット (オブジェクト)
   applyTheme(i) {
+    this.fade = null;
     const th = typeof i === 'object' ? i : THEMES[i % THEMES.length];
     this.theme = th;
     const fog = new THREE.Color(th.fog);
@@ -208,6 +209,18 @@ export class World {
     // 水晶はステージの空の色を明るくした色、ほのかに光らせる
     this.mat.crystal.color.setHex(th.crystal ?? th.sky).lerp(new THREE.Color(0xffffff), 0.45);
     this.mat.crystal.emissive.setHex(th.crystal ?? th.sky).multiplyScalar(0.25);
+  }
+
+  // 色を time 秒かけて移す (エンディング用。VR で視野全体の明るさが急に跳ばないように)。
+  // 地面・霧・空・遠景の色だけを混ぜ、障害物の色はすぐに変える
+  fadeTheme(i, time = 1.2) {
+    const cols = () => [this.groundUni.cA.value, this.groundUni.cB.value, this.groundUni.fogC.value, this.scene.fog.color,
+      this.skyUni.bottom.value, this.skyUni.top.value, this.mountMat.color];
+    const from = cols().map((c) => c.clone());
+    this.applyTheme(i);
+    const to = cols().map((c) => c.clone());
+    cols().forEach((c, k) => c.copy(from[k]));
+    this.fade = { cols, from, to, t: 0, time };
   }
 
   // ステージごとの障害物の出方 ({ column, bush, tree, rock, mushroom, lane })
@@ -454,6 +467,13 @@ export class World {
   }
 
   update(dt, speed, camPos, spawn) {
+    if (this.fade) {
+      const f = this.fade;
+      f.t = Math.min(f.time, f.t + dt);
+      const k = f.t / f.time;
+      f.cols().forEach((c, n) => c.lerpColors(f.from[n], f.to[n], k));
+      if (k >= 1) this.fade = null;
+    }
     const d = speed * dt;
     this.offset = (this.offset + d) % (CHECKER * 2);
     this.groundUni.uOff.value = this.offset;

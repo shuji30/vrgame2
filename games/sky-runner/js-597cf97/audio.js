@@ -945,6 +945,7 @@ export const BGM_LIST = [
   ...['classical', 'jazz', 'pops', 'alternative', 'bossa', 'reggae', 'metal', 'grunge'].map((id) => ({ id, name: GENRE_NAMES[id][0], desc: GENRE_NAMES[id][1] })),
   { id: 'boss', name: 'PRISM MENACE', desc: 'ボス戦 / 不協和音' },
   { id: 'bonus', name: 'CRYSTAL SLED PARTY', desc: 'ボーナスステージ / ポップ' },
+  { id: 'gameover', name: GENRE_NAMES.gameover[0], desc: GENRE_NAMES.gameover[1] },
   // 全面クリアで解放
   { id: 'finale', name: GENRE_NAMES.finale[0], desc: GENRE_NAMES.finale[1], locked: true },
   { id: 'ending', name: GENRE_NAMES.ending[0], desc: GENRE_NAMES.ending[1], locked: true },
