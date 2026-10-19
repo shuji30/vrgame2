@@ -118,6 +118,7 @@ export const CROWN_KINDS = {
   icefall: {
     kamikaze: true,
     sideAbs: true,
+    shielded: (e) => e.landed, // 柱になったら壊れない
     update(c, e, dt, scroll, ctx, p) {
       const mk = e.marker;
       mk.position.z += scroll * dt; // 印は地面と一緒に流れる
@@ -131,11 +132,25 @@ export const CROWN_KINDS = {
         p.set(THREE.MathUtils.lerp(e.from.x, mk.position.x, e.fall), THREE.MathUtils.lerp(e.from.y, 2.5, k), THREE.MathUtils.lerp(e.from.z, mk.position.z, e.fall));
         if (e.fall >= 1) {
           e.landed = true;
+          e.grow = 0;
+          e.r = 0.01; // 柱になったら、下の縦の線で当たりを見る
+          e.noLock = true;
+          e.mesh.rotation.x = Math.PI; // 先を上に向ける
           c.scene.remove(mk);
           c.explode(_a.set(p.x, 0.5, p.z), false);
         }
       } else {
         p.z += scroll * dt; // 地面に刺さって流れてくる
+        // 0.3 秒かけて高さ約 8 m の氷の柱に伸びる (高く飛んでも、よけるには 9 m 以上いる)
+        e.grow = Math.min(1, e.grow + dt / 0.3);
+        const h = 2.5 + 5.5 * e.grow;
+        e.mesh.scale.set(1.2, 1.2 * h / 2.5, 1.2);
+        p.y = h / 2;
+        const P = ctx.player;
+        if (!e.hit && Math.hypot(P.x - p.x, P.z - p.z) < 1.2 + ctx.playerR && P.y < h + ctx.playerR) {
+          e.hit = true;
+          ctx.onPlayerHit(15);
+        }
       }
       if (p.z > 30) e.dead = true;
     },

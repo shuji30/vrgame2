@@ -90,7 +90,7 @@ export const WORM_KINDS = {
           }
           e.apex = ctx.side ? 15 : rand(11, 16);
           e.dur = Math.max(2.4, 2.9 - (c.level - 1) * 0.05); // 弾が届くよう、ゆっくり跳ぶ
-          e.marker = new THREE.Mesh(GEO.marker, new THREE.MeshBasicMaterial({ color: 0x8a5a20, transparent: true, opacity: 0.8, depthWrite: false }));
+          e.marker = new THREE.Mesh(GEO.marker, new THREE.MeshBasicMaterial({ color: 0xff8a30, transparent: true, opacity: 0.8, depthWrite: false }));
           e.marker.position.set(e.from.x, 0.08, e.from.z);
           c.scene.add(e.marker);
           e.state = 'warn';

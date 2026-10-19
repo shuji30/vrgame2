@@ -174,8 +174,6 @@
   #touch .tpad { position: absolute; right: 0; bottom: 0; width: 230px; height: 230px; }
   #touch .fire { right: 18px; bottom: 18px; width: 96px; height: 96px; background: rgba(255, 90, 40, 0.5); }
   #touch .missile { right: 124px; bottom: 34px; width: 70px; height: 70px; }
-  #touch .accel { right: 34px; bottom: 128px; width: 56px; height: 56px; }
-  #touch .brake { right: 100px; bottom: 112px; width: 50px; height: 50px; }
   #touch .tbtns { position: absolute; right: 12px; top: calc(12px + env(safe-area-inset-top, 0px)); display: flex; gap: 8px; }
   #touch .small { position: static; width: 52px; height: 40px; border-radius: 10px; font-size: 13px; }
   canvas { touch-action: none; }
@@ -353,12 +351,10 @@
   </div>
   <div class="tpad">
     <button class="tbtn missile" data-tap="missile" aria-label="ミサイル">MSL</button>
-    <button class="tbtn accel" data-hold="accel" aria-label="加速">▲</button>
-    <button class="tbtn brake" data-hold="brake" aria-label="減速">▼</button>
     <button class="tbtn fire" data-hold="fire" aria-label="射撃">FIRE</button>
   </div>
 </div>
-<script type="module" src="./js-f4dd19c/main.js"></script>
+<script type="module" src="./js-71d9ddd/main.js"></script>
 <script>
   // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
   if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {
