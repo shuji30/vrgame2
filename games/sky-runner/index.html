@@ -97,8 +97,10 @@
   .settings label.locked .lock-note { display: inline; }
   .snd-list button:disabled { opacity: 0.45; cursor: default; }
   .sound { padding: 0 12px 12px; }
-  .sound .sub { margin: 6px 0; font-size: 12px; letter-spacing: 0.15em; color: var(--sun); }
+  .sound .sub, .ranking .sub { margin: 6px 0; font-size: 12px; letter-spacing: 0.15em; color: var(--sun); }
   .sound .sub small { margin-left: 8px; letter-spacing: 0; color: rgba(255, 255, 255, 0.6); }
+  .ranking { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; padding: 0 12px 12px; }
+  .ranking ol { margin: 0; padding-left: 26px; font-family: var(--logo); font-size: 13px; line-height: 1.7; font-variant-numeric: tabular-nums; white-space: pre; }
   .snd-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
   .snd-list button { text-align: left; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line);
     background: rgba(255, 255, 255, 0.06); color: #fff; cursor: pointer; font-family: var(--logo); font-size: 13px; }
@@ -306,6 +308,13 @@
         <p class="note">VR の最中は、ブラウザからハンコンが見えなくなることがあります。PC で <b>ffb-bridge</b> (TURBO KART VR と同じデバイスブリッジ) を起動しておくと、VR の最中もブリッジ経由で読めます。割り当てはブリッジ接続中に行うのがおすすめです。FFB の最大出力はブリッジの <code>--max</code> で頭打ちになります。</p>
       </div>
     </details>
+    <details id="ranking">
+      <summary>オンラインランキング (1 面から通したときの点)</summary>
+      <div class="ranking">
+        <div><p class="sub">ふつう</p><ol id="rankNormal"></ol></div>
+        <div><p class="sub">難しいモード</p><ol id="rankHard"></ol></div>
+      </div>
+    </details>
     <details id="soundTest">
       <summary>サウンドテスト (BGM・効果音)</summary>
       <div class="sound">
@@ -352,7 +361,7 @@
     <button class="tbtn fire" data-hold="fire" aria-label="射撃">FIRE</button>
   </div>
 </div>
-<script type="module" src="./js-597cf97/main.js"></script>
+<script type="module" src="./js-65249d0/main.js"></script>
 <script>
   // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
   if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {

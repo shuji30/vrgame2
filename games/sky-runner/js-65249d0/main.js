@@ -13,6 +13,7 @@ import { WheelInput } from './wheel/devices.js';
 import { WheelPanel } from './wheel/calibration.js';
 import { THEMES } from './world.js';
 import { VERSION, loadBuildInfo } from './version.js';
+import { RANK_CHARS, fetchTop, submitScore } from './ranking.js';
 import { BGM_LIST, SE_LIST, captureAudioStream, initAudio, previewBGM, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, toggleMute } from './audio.js';
 
 // ---- 定数
@@ -23,11 +24,10 @@ const WHEEL_X_BOOST = 1.6; // ハンコンは切る角度が小さくなりが�
 const moveX = (a) => MOVE_X * (a.source === 'wheel' ? WHEEL_X_BOOST : 1);
 const MOVE_Y = 12;
 const SPEED = {
-  base: 40,                // 基準速度 (m/s)
-  min: 0.5, max: 1.5,      // アクセル/ブレーキの範囲 (基準に対する倍率)
-  accel: 0.6,              // 倍率の変化の上限 (/s)。急な加減速は酔いやすいので抑える
-  ret: 0.25,               // 自動で 1.0 倍に戻る速さ (/s)
+  base: 40,                // 基準速度 (m/s)。速さは面ごとに固定 (加速・減速はない)
+  ret: 0.25,               // MISS やつまずきで落ちた倍率が 1.0 倍に戻る速さ (/s)
 };
+const HARD_MULT = 1.2;     // 難しいモードの点の倍率
 // 横スクロール: カメラ (リグ) を +X 側の空中に置いて -X 向きにし、プレイヤーは x = 0 の平面を飛ぶ。
 // 画面の右 = 前 (-Z)。プレイヤーは画面の左寄り (z = +12) から始まる
 const SIDE_CAM = new THREE.Vector3(26, 8.5, -8);
@@ -52,13 +52,18 @@ const hardMode = () => cleared && settings.hard;
 const OBSTACLE_DAMAGE = 20;
 const RING_BONUS = 500; // 浮遊リングをくぐったときの点
 
-let hiScore = 0;
+// ハイスコアは、ふつうと難しいモードで分ける
+let hiScore = 0, hiHard = 0;
+const hiNow = () => (hardMode() ? hiHard : hiScore);
 let progress = 1; // 到達した面 (タイトルの CONTINUE で、そこから始められる)
 try { progress = Math.max(1, Math.min(18, Number(localStorage.getItem('skyrunner.progress')) || 1)); } catch (_) { /* 保存なし */ }
-try { hiScore = Number(localStorage.getItem('skyrunner.hi')) || 0; } catch (_) { /* 保存なし */ }
+try {
+  hiScore = Number(localStorage.getItem('skyrunner.hi')) || 0;
+  hiHard = Number(localStorage.getItem('skyrunner.hiHard')) || 0;
+} catch (_) { /* 保存なし */ }
 
 // ---- 設定 (localStorage に保存)
-const settings = { scale: 1.0, autoReturn: true, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true, autoFire: true, hard: false };
+const settings = { scale: 1.0, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true, autoFire: true, hard: false };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('skyrunner.settings') || '{}')); } catch (_) { /* 保存なし */ }
 // 開発用: ?player=ship|human&view=1st|3rd で上書きする
 for (const key of ['player', 'view', 'mode']) {
@@ -158,7 +163,7 @@ const S = {
   extendIdx: 0,
   overT: 0,
   paused: false,
-  factor: 1,            // アクセル/ブレーキの倍率
+  factor: 1,            // 速さの倍率 (MISS やつまずきで一時的に落ちる)
   ready: 0,             // 開始時の加速 (0..1)
   dist: 0,
   hits: 0,
@@ -187,7 +192,7 @@ function startPlay(stageNo) {
   S.fromStart = stageNo === 1;
   initAudio();
   Object.assign(S, {
-    mode: 'play', paused: false, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0, pz: SIDE_Z_START, vz: 0,
+    mode: 'play', paused: false, entry: null, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0, pz: SIDE_Z_START, vz: 0,
     stage: 1, phase: 'normal', phaseT: 0, stageT: 0, baseSpeed: SPEED.base, lives: LIVES, life: LIFE_MAX, lowLifeT: 0, extendIdx: 0, overT: 0, slowT: 0,
   });
   if (isSide()) S.py = 8; // 横スクロールは画面の中ほどの高さから
@@ -221,6 +226,8 @@ function applyStage(n, first = false) {
   const st = stageAt(n);
   combat.hard = hardMode();
   combat.level = st.diff + (combat.hard ? 2 : 0); // 難しいモードは 2 段強く
+  combat.bonusLevel = st.diff; // 撃破ボーナスは難しいモードでも面の強さのまま (点全体に HARD_MULT をかける)
+  combat.mult = combat.hard ? HARD_MULT : 1;
   combat.density = st.density;
   combat.waveTable = st.waves;
   world.applyTheme(st.palette);
@@ -279,24 +286,31 @@ const sndButton = (name, desc, onClick) => {
   b.addEventListener('click', onClick);
   return b;
 };
-for (const m of BGM_LIST) {
-  if (m.locked && !cleared) { // 全面クリアするまでは名前を伏せる
-    const b = sndButton('？？？', '全面クリアで解放', () => {});
-    b.disabled = true;
-    document.getElementById('bgmList').append(b);
-    continue;
+// 曲の一覧 (全面クリアしたら作り直して、伏せていた曲を出す)
+function buildBgmList() {
+  const list = document.getElementById('bgmList');
+  list.replaceChildren();
+  bgmButtons.length = 0;
+  for (const m of BGM_LIST) {
+    if (m.locked && !cleared) { // 全面クリアするまでは名前を伏せる
+      const b = sndButton('？？？', '全面クリアで解放', () => {});
+      b.disabled = true;
+      list.append(b);
+      continue;
+    }
+    const b = sndButton(m.name, m.desc, () => {
+      const again = previewing === m.id;
+      stopPreview();
+      if (again) return;
+      previewing = m.id;
+      previewBGM(m.id);
+      b.classList.add('playing');
+    });
+    bgmButtons.push(b);
+    list.append(b);
   }
-  const b = sndButton(m.name, m.desc, () => {
-    const again = previewing === m.id;
-    stopPreview();
-    if (again) return;
-    previewing = m.id;
-    previewBGM(m.id);
-    b.classList.add('playing');
-  });
-  bgmButtons.push(b);
-  document.getElementById('bgmList').append(b);
 }
+buildBgmList();
 for (const e of SE_LIST) document.getElementById('seList').append(sndButton(e.name, e.desc, () => { initAudio(); e.play(); }));
 document.getElementById('soundTest').addEventListener('toggle', (ev) => { if (!ev.target.open) stopPreview(); });
 
@@ -311,7 +325,9 @@ function saveSunCheckpoint() {
 const sunIndex = () => STAGES[STAGE_COUNT - 1].rush.findIndex((r) => r.type === 'sun');
 
 const showHiScore = () => {
-  document.getElementById('hiscore').textContent = cleared ? `★ ALL CLEAR   ${hiScore}` : String(hiScore);
+  // 難しいモードを選んでいるときは、難しいモードのハイスコアを出す
+  const hi = hardMode() ? `HARD ${hiHard}` : String(hiScore);
+  document.getElementById('hiscore').textContent = cleared ? `★ ALL CLEAR   ${hi}` : hi;
   const btn = document.getElementById('btnContinue');
   btn.hidden = progress <= 1;
   btn.querySelector('small').textContent = progress === STAGE_COUNT && sunCheckpoint ? '最終ボスの前から' : `STAGE ${progress} から`;
@@ -424,6 +440,12 @@ function allClear() {
   setBGMMode('ending', { key: 0, tempo: 152 }); // エンディングの曲 (ステージのテンポの影響を受けない)
   combat.clearHostiles();
   try { localStorage.setItem('skyrunner.cleared', '1'); } catch (_) { /* 保存不可 */ } // クリアのごほうび用
+  // 読み込み直さなくても、タイトルに戻ったらごほうびが出るように
+  if (!cleared) {
+    cleared = true;
+    buildBgmList();
+    unlockHard();
+  }
 }
 
 // エンディング (約 90 秒): 1〜18 面の景色を順に通り過ぎ、面の名前とボスの名前を出す。最後に点数の内訳。5 秒たったら飛ばせる
@@ -434,7 +456,7 @@ function updateEnding() {
   if (S.phaseT >= ENDING_START && i < STAGE_COUNT && i !== S.endingStep) {
     S.endingStep = i;
     const st = STAGES[i];
-    world.applyTheme(st.palette);
+    world.fadeTheme(st.palette); // 色は 1.2 秒かけて移す
     world.setObstacles(st.obstacles);
     world.setCeiling(false); // 天井は出さない (景色を見せる)
     const boss = st.kind === 'bonus' ? 'BONUS STAGE' : st.kind === 'rush' ? 'BOSS RUSH → ' + BOSS_INFO.sun[0] : BOSS_INFO[st.boss?.type]?.[0] || '';
@@ -601,15 +623,103 @@ function gameOver(cleared = false) {
     playerExplosion(true);
   }
   S.paused = false;
-  setBGMMode(false);
-  stopBGM();
-  if (S.fromStart && combat.score > hiScore) { // ハイスコアは 1 面から通したときだけ
-    hiScore = combat.score;
-    try { localStorage.setItem('skyrunner.hi', String(hiScore)); } catch (_) { /* 保存不可 */ }
+  if (cleared) {
+    setBGMMode(false);
+    stopBGM();
+  } else {
+    setBGMMode('gameover', { key: 0, tempo: 152 }); // 子守唄 (ステージのキーとテンポの影響を受けない)
   }
-  showMsg(cleared ? 'CONGRATULATIONS!' : 'GAME OVER', `SCORE ${combat.score}   HI ${hiScore}`, Infinity);
+  if (S.fromStart && combat.score > hiNow()) { // ハイスコアは 1 面から通したときだけ
+    if (combat.hard) hiHard = combat.score;
+    else hiScore = combat.score;
+    try { localStorage.setItem(combat.hard ? 'skyrunner.hiHard' : 'skyrunner.hi', String(combat.score)); } catch (_) { /* 保存不可 */ }
+  }
+  showMsg(cleared ? 'CONGRATULATIONS!' : 'GAME OVER', `SCORE ${combat.score}   ${combat.hard ? 'HARD HI' : 'HI'} ${hiNow()}`, Infinity);
   if (!cleared) say('Game over');
+  // オンラインのランキング: 1 面から通したときだけ、イニシャルを入れて送る
+  S.entry = S.fromStart && combat.score > 0 ? {
+    state: 'input', pos: 0, chars: [...lastInitials()].map((c) => Math.max(0, RANK_CHARS.indexOf(c))),
+    base: S.sub, score: combat.score, mode: combat.hard ? 'hard' : 'normal', stage: S.stage, cleared,
+  } : null;
 }
+
+// ---- ランキングのイニシャル入力 (上下で文字を変え、決定 / 右で次の文字、左で戻る。キーボードは文字を直接打てる)
+const lastInitials = () => {
+  try { return localStorage.getItem('skyrunner.initials') || 'AAA'; } catch (_) { return 'AAA'; }
+};
+const nav = { x: 0, y: 0, t: 0 };
+// スティックを倒した瞬間と、倒し続けている間の繰り返しを、-1 / 0 / +1 で返す
+function navStep(axis, v, dt) {
+  const d = v > 0.6 ? 1 : v < -0.6 ? -1 : 0;
+  if (d !== nav[axis]) {
+    nav[axis] = d;
+    nav.t = 0.4;
+    return d;
+  }
+  if (d && (nav.t -= dt) <= 0) {
+    nav.t = 0.15;
+    return d;
+  }
+  return 0;
+}
+function entryText(e) {
+  if (e.state === 'sending') return '送信中…';
+  if (e.state === 'done') return `ONLINE RANK ${e.rank} / ${e.total}  (${e.mode === 'hard' ? '難しいモード' : 'ふつう'})`;
+  if (e.state === 'error') return 'ランキングに送れませんでした';
+  if (e.state === 'skipped') return '';
+  return 'NAME  ' + e.chars.map((c, i) => (i === e.pos ? `[${RANK_CHARS[c]}]` : ` ${RANK_CHARS[c]} `)).join('');
+}
+function updateEntry(dt, a) {
+  const e = S.entry;
+  const wheel = a.source === 'wheel'; // ハンコンは上下がないので、ハンドルの左右で文字を変える
+  const typing = e.typed && a.source === 'kb'; // 文字を打ったあとは WASD を移動として読まない
+  const up = typing ? 0 : navStep('y', wheel ? a.move.x : a.move.y + (a.lift || 0), dt);
+  const side = wheel || typing ? 0 : navStep('x', a.move.x, dt);
+  if (up) e.chars[e.pos] = (e.chars[e.pos] + up + RANK_CHARS.length) % RANK_CHARS.length; // 上 (ハンドルは右) で次の文字
+  if (side < 0) e.pos = Math.max(0, e.pos - 1);
+  if (a.back) e.state = 'skipped';
+  else if (side > 0 || a.confirm || (a.fire && a.source === 'touch' && !e.touchHeld)) nextEntryChar();
+  e.touchHeld = a.fire && a.source === 'touch';
+}
+function nextEntryChar() {
+  const e = S.entry;
+  if (e.pos < 2) { e.pos++; return; }
+  const name = e.chars.map((c) => RANK_CHARS[c]).join('');
+  try { localStorage.setItem('skyrunner.initials', name); } catch (_) { /* 保存不可 */ }
+  e.state = 'sending';
+  submitScore({ name, score: e.score, mode: e.mode, stage: e.stage, cleared: e.cleared, player: settings.player, version: VERSION })
+    .then(({ rank, total }) => { Object.assign(e, { state: 'done', rank, total }); loadRanking(); })
+    .catch((err) => { console.warn(err); e.state = 'error'; });
+}
+addEventListener('keydown', (ev) => {
+  const e = S.entry;
+  if (S.mode !== 'over' || e?.state !== 'input' || S.overT <= 2 || ev.repeat) return;
+  const k = ev.key.toUpperCase();
+  if (k.length === 1 && RANK_CHARS.includes(k)) {
+    e.chars[e.pos] = RANK_CHARS.indexOf(k);
+    e.typed = true;
+    nextEntryChar();
+  }
+});
+
+// タイトルのランキング (ふつう / 難しいモード、上位 10 件)
+async function loadRanking() {
+  for (const mode of ['normal', 'hard']) {
+    const el = document.getElementById(mode === 'hard' ? 'rankHard' : 'rankNormal');
+    try {
+      const rows = await fetchTop(mode);
+      el.replaceChildren(...rows.map((r) => {
+        const li = document.createElement('li');
+        li.textContent = `${r.name}  ${r.score}  ${r.cleared ? '★ ALL CLEAR' : `STAGE ${r.stage}`}`;
+        return li;
+      }));
+      if (!rows.length) el.textContent = 'まだ記録がありません';
+    } catch (_) {
+      el.textContent = '読み込めませんでした';
+    }
+  }
+}
+document.getElementById('ranking').addEventListener('toggle', (ev) => { if (ev.target.open) loadRanking(); });
 
 // damage: 減らすライフの量
 function moveSide(dt, a) {
@@ -709,7 +819,16 @@ loadBuildInfo().then((text) => {
   document.getElementById('version').textContent = text;
 });
 
+const ENTRY_HINT = {
+  xr: 'ランキングに名前を: 左スティック上下で文字、トリガーで次へ   A: 送らない',
+  pad: 'ランキングに名前を: 上下で文字、A で次へ   B: 送らない',
+  kb: 'ランキングに名前を: 英数字を打つ (または ↑↓ と Enter)   Backspace: 送らない',
+  mouse: 'ランキングに名前を: 英数字を打つ (または ↑↓ と Enter)   Backspace: 送らない',
+  touch: 'ランキングに名前を: スティック上下で文字、FIRE で次へ',
+  wheel: 'ランキングに名前を: ハンドルで文字、機関砲のボタンで次へ   タイトルへのボタン: 送らない',
+};
 const RETRY_HINT = {
+  touch: 'FIRE: もう一度',
   xr: 'トリガー: もう一度   A: タイトルへ',
   pad: 'A / START: もう一度   B: タイトルへ',
   kb: 'Space / Enter: もう一度   Backspace: タイトルへ',
@@ -812,12 +931,15 @@ function update(dt) {
       S.boomT = 0.12;
       playerExplosion(Math.random() < 0.5);
     }
-    if (S.overT > 2) {
+    if (S.entry) S.sub = [S.entry.base, entryText(S.entry)].filter(Boolean).join('   ');
+    if (S.overT > 2 && S.entry?.state === 'input') updateEntry(dt, a);
+    else if (S.overT > 2 && S.entry?.state !== 'sending') {
       if (a.back) toTitle();
       else if (a.confirm || (a.fire && a.source === 'touch')) startPlay(); // タッチは射撃ボタンでもう一度
     }
   } else {
-    if (S.phase === 'ending' && S.phaseT > ENDING_START && (a.confirm || a.pause)) gameOver(true); // エンディングを飛ばす
+    // エンディングを飛ばすのはポーズのボタンだけ (決定は機関砲と同じボタンなので、撃ち続けていた人がうっかり飛ばさないように)
+    if (S.phase === 'ending') { if (S.phaseT > ENDING_START && a.pause) gameOver(true); }
     else if (a.pause) togglePause(!S.paused);
     else if (S.paused && a.back) toTitle();
     else if (S.paused && a.confirm) togglePause(false);
@@ -839,9 +961,7 @@ function update(dt) {
         showMsg('RECENTER', '', 0.8);
       }
 
-      if (Math.abs(a.throttle) > 0.01) S.factor += a.throttle * SPEED.accel * dt;
-      else if (settings.autoReturn) S.factor = approach(S.factor, 1, SPEED.ret * dt);
-      S.factor = clamp(S.factor, SPEED.min, SPEED.max);
+      S.factor = approach(S.factor, 1, SPEED.ret * dt);
 
       S.ready = Math.min(1, S.ready + dt / READY_TIME);
       // 基準速度は、面が変わっても 3 秒ほどかけて移る。MISS やつまずきの減速も、急には落とさない
@@ -851,7 +971,6 @@ function update(dt) {
         S.factor = approach(S.factor, Math.min(S.factor, S.slowTo), 1.2 * dt);
       }
       speed = S.baseSpeed * S.factor * ease(S.ready);
-      combat.mult = 1 + Math.max(0, S.factor - 1) * 0.6; // 1.5 倍速でスコア 1.3 倍
       updateStage(dt);
       movePlayer(dt, a);
       S.dist += speed * dt;
@@ -955,7 +1074,6 @@ function update(dt) {
     play,
     dist: Math.floor(S.dist),
     hits: S.hits,
-    factor: Math.round(S.factor * 100) / 100,
     kmh: Math.round(speed * 3.6),
     view: `${settings.player === 'ship' ? 'SHIP' : 'HUMAN'} ${isSide() ? 'SIDE' : settings.view.toUpperCase()}`,
     score: combat.score,
@@ -964,15 +1082,16 @@ function update(dt) {
     locks: combat.locks.length,
     msg: S.paused ? 'PAUSE' : S.msg,
     sub: S.paused ? (a.source === 'pad' ? 'START: 再開   B: タイトルへ' : a.source === 'xr' ? 'X/トリガー: 再開   A: タイトルへ' : a.source === 'wheel' ? 'ポーズ / 機関砲のボタン: 再開   タイトルへのボタン: タイトルへ' : 'Esc/クリック: 再開   Backspace: タイトルへ') : S.sub,
-    hint: S.paused ? buildInfo : S.mode === 'over' && S.overT > 2 ? RETRY_HINT[a.source] : '', // プレイ中は操作方法を出さない
+    hint: S.paused ? buildInfo : S.mode === 'over' && S.overT > 2 ? (S.entry?.state === 'input' ? ENTRY_HINT[a.source] || ENTRY_HINT.kb : S.entry?.state === 'sending' ? '' : RETRY_HINT[a.source]) : '', // プレイ中は操作方法を出さない
     lives: S.lives,
     life: Math.max(0, Math.round(S.life)),
     lifeMax: LIFE_MAX,
     blink: S.life < LIFE_MAX * 0.3 && Math.floor(performance.now() / 250) % 2 === 0,
-    stageNo: S.stage, stageCount: STAGE_COUNT, hard: combat.hard,
+    // エンディング中は、いま通り過ぎている面を出す
+    stageNo: S.phase === 'ending' && S.endingStep >= 0 && S.endingStep < STAGE_COUNT ? S.endingStep + 1 : S.stage, stageCount: STAGE_COUNT, hard: combat.hard,
     // ボスラッシュの間は、何体目かも出す
-    stageName: stageAt(S.stage).kind === 'rush' && ['warning', 'boss'].includes(S.phase) ? `${stageAt(S.stage).name}  BOSS ${S.rushIndex + 1}/${stageAt(S.stage).rush.length}` : stageAt(S.stage).name,
-    hi: Math.max(hiScore, combat.score),
+    stageName: S.phase === 'ending' && S.endingStep >= 0 && S.endingStep < STAGE_COUNT ? STAGES[S.endingStep].name : stageAt(S.stage).kind === 'rush' && ['warning', 'boss'].includes(S.phase) ? `${stageAt(S.stage).name}  BOSS ${S.rushIndex + 1}/${stageAt(S.stage).rush.length}` : stageAt(S.stage).name,
+    hi: Math.max(hiNow(), combat.score),
     mult: Math.round(combat.mult * 10) / 10,
     boss: combat.bossRatio === null ? null : Math.round(combat.bossRatio * 100) / 100,
     bonus: S.phase === 'bonus' ? { count: S.bonusCount, left: Math.max(0, Math.ceil(BONUS_LEN - S.phaseT)) } : null,
@@ -987,8 +1106,11 @@ window.__audioStream = () => captureAudioStream();
 // 開発用: 自動テストからすぐ撃墜させる
 window.__debugPx = () => S.px;
 window.__debugKill = () => { S.lives = 1; S.invuln = 0; onHit(999); };
+window.__debugScore = (n) => { combat.score = n; }; // 開発用: 点を決める (ランキングの確認)
+window.__debugClear = () => allClear(); // 開発用: すぐ全面クリアにする (エンディングとごほうびの確認)
 window.__enemies = () => combat.enemies.map((e) => [e.kind, ...e.mesh.position.toArray().map((v) => Math.round(v * 10) / 10)]); // 開発用: 敵の位置
 // 開発用: 自動テストから状態を読む
+window.__debugSub = () => `${S.sub}  ${JSON.stringify(S.entry)}`; // 開発用: ゲームオーバーの 2 行目とランキングの入力
 window.__debugState = () => ({
   gameMode: settings.mode, msg: S.msg, bonusCount: S.bonusCount, destroyed: avatar.destroyed, shipVisible: avatar.models.ship?.obj.visible, overT: S.overT, frame: renderer.info.render.frame, mode: S.mode, py: S.py, version: document.getElementById('version').textContent, phase: S.phase, stage: S.stage, lives: S.lives, boss: combat.bossRatio, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,
   shots: combat.shots.length, missiles: combat.missiles.length, stock: combat.missileStock, locks: combat.locks.length, hits: S.hits,
@@ -1012,7 +1134,6 @@ addEventListener('resize', () => {
 const btnVR = document.getElementById('btnVR');
 const btnDesk = document.getElementById('btnDesk');
 const selScale = document.getElementById('scale');
-const chkReturn = document.getElementById('autoReturn');
 const status = document.getElementById('status');
 const padStatus = document.getElementById('pads');
 
@@ -1037,27 +1158,26 @@ modeInputs.forEach((el) => el.addEventListener('change', () => setMode(el.value)
 playerInputs.forEach((el) => el.addEventListener('change', () => setPlayer(el.value)));
 showHiScore();
 selScale.value = String(settings.scale);
-chkReturn.checked = settings.autoReturn;
 const selVignette = document.getElementById('vignette');
 selVignette.value = settings.vignette;
 selVignette.addEventListener('change', () => { settings.vignette = selVignette.value; saveSettings(); });
 // 難しいモード: 全面クリアするまで選べない
-{
+function unlockHard() {
   const hard = document.getElementById('hard');
   hard.disabled = !cleared;
   hard.closest('label').classList.toggle('locked', !cleared);
   if (!cleared) settings.hard = false;
 }
+unlockHard();
 for (const key of ['bgm', 'engine', 'invertY', 'vrGentle', 'autoFire', 'hard']) {
   const el = document.getElementById(key);
   el.checked = settings[key];
-  el.addEventListener('change', () => { settings[key] = el.checked; saveSettings(); applyAudioSettings(); });
+  el.addEventListener('change', () => { settings[key] = el.checked; saveSettings(); applyAudioSettings(); showHiScore(); });
 }
 addEventListener('keydown', (e) => {
-  if (e.code === 'KeyM' && !e.repeat) showMsg(toggleMute() ? 'SOUND OFF' : 'SOUND ON', '', 1);
+  if (e.code === 'KeyM' && !e.repeat && S.entry?.state !== 'input') showMsg(toggleMute() ? 'SOUND OFF' : 'SOUND ON', '', 1);
 });
 selScale.addEventListener('change', () => { settings.scale = Number(selScale.value); saveSettings(); });
-chkReturn.addEventListener('change', () => { settings.autoReturn = chkReturn.checked; saveSettings(); });
 btnDesk.addEventListener('click', () => startPlay(selectedStage)); // クリックの情報をステージ番号と取り違えないように
 document.getElementById('btnContinue').addEventListener('click', () => {
   if (progress === STAGE_COUNT && sunCheckpoint) pendingRush = sunIndex(); // 最終ボスの前から

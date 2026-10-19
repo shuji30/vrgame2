@@ -409,7 +409,8 @@ export class Combat {
     this.bossEscaped = false;
     this.ceilingY = Infinity; // 天井のある面では、空を飛ぶ敵とボスの高さの上限
     this.lastBossBonus = 0;
-    this.mult = 1;           // スコア倍率 (速く飛ぶほど上がる)
+    this.mult = 1;           // スコア倍率 (難しいモードで上がる)
+    this.bonusLevel = 1;     // 撃破ボーナスにかける面の強さ (難しいモードの +2 を含まない)
     this.boss = null;
     this.bossDefeated = false;
     this.announce = '';      // 画面に出したい知らせ (main.js が読んで消す)
@@ -1009,7 +1010,7 @@ export class Combat {
       this.bossGroup = null;
       if (g.kills >= g.total || g.endure) { // endure: 耐えきれば撃破扱い (壊せない母艦)
         this.bossDefeated = true;
-        this.lastBossBonus = Math.round((g.bonus ?? 5000) * this.level * this.mult);
+        this.lastBossBonus = Math.round((g.bonus ?? 5000) * this.bonusLevel * this.mult);
         this.score += this.lastBossBonus;
       } else {
         this.bossEscaped = true;
@@ -1260,7 +1261,7 @@ export class Combat {
       sfx.hit();
       if (b.hp <= 0) {
         b.dying = 0;
-        this.lastBossBonus = Math.round(10000 * this.level * this.mult);
+        this.lastBossBonus = Math.round(10000 * this.bonusLevel * this.mult);
         this.score += this.lastBossBonus;
         this.kills++;
         sfx.explode(true);
