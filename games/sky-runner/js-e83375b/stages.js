@@ -46,7 +46,7 @@ export const STAGES = [
   },
   {
     name: 'STEEL CANYON', kind: 'normal', length: 40, speed: 46, diff: 3, density: 1.0, ceiling: true,
-    waves: [['mech', 3], ['turret', 1.5], ['fighter', 1]],
+    waves: [['mech', 3], ['icosa', 2.5], ['turret', 1.5], ['fighter', 1]],
     obstacles: { column: 2.5, monolith: 1.2, lane: 0.3 },
     palette: { a: 0xcfd3dc, b: 0x5a6070, fog: 0xd8dce8, sky: 0x4a5a80, mount: 0x5a6478, col: ['#e8ecf4', '#3a4458'], bush: 0x6a7a6a },
     bgm: { key: 1, tempo: 158, song: 'metal' },
@@ -84,7 +84,7 @@ export const STAGES = [
   },
   {
     name: 'IRON TUNNEL', kind: 'normal', length: 38, speed: 49, diff: 6, density: 1.2, ceiling: true,
-    waves: [['mech', 2.5], ['orbiter', 1.5], ['fighter', 1]],
+    waves: [['mech', 2.5], ['icosa', 2.5], ['orbiter', 1.5], ['fighter', 1]],
     obstacles: { column: 2.5, monolith: 1, lane: 0.33 },
     palette: { a: 0x9a9aa0, b: 0x303438, fog: 0x9aa0a8, sky: 0x202838, mount: 0x40444c, col: ['#d8dce4', '#202428'], bush: 0x4a5a4a },
     bgm: { key: 3, tempo: 164, song: 'grunge' },
@@ -122,7 +122,7 @@ export const STAGES = [
   },
   {
     name: 'SHADOW HALL', kind: 'normal', length: 45, speed: 48, diff: 6, density: 1.3, ceiling: true,
-    waves: [['bat', 2], ['gremlin', 2], ['turret', 1]],
+    waves: [['bat', 2], ['icosa', 2], ['gremlin', 2], ['turret', 1]],
     obstacles: { column: 2, crystal: 1.5, mushroom: 0.8, lane: 0.33 },
     palette: { a: 0x6a5a8a, b: 0x2a2040, fog: 0x3a2a50, sky: 0x0a0418, mount: 0x2a1a3a, col: ['#c8b8e8', '#3a2058'], bush: 0x5a3a7a },
     bgm: { key: 5, tempo: 166, song: 'metal' },
