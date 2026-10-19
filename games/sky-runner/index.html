@@ -248,7 +248,6 @@
         <label><input type="checkbox" id="vrGentle"> VR では上下の動きを控えめに</label>
         <label><input type="checkbox" id="autoFire"> 機関砲を自動で撃つ (撃ちっぱなし)</label>
         <label><input type="checkbox" id="hard"> 難しいモード (敵の弾が速く、敵が強く、回復が少ない) <small class="lock-note">全面クリアで解放</small></label>
-        <label><input type="checkbox" id="autoReturn"> スティックを離すと基準速度に戻る</label>
         <label><input type="checkbox" id="invertY"> 上下反転 (前に倒すと下がる)</label>
         <label><input type="checkbox" id="bgm"> BGM</label>
         <label><input type="checkbox" id="engine"> エンジン音</label>
@@ -322,7 +321,6 @@
       <table>
         <tr><th></th><th>VR</th><th>パッド</th><th>キーボード/マウス</th></tr>
         <tr><td>移動</td><td>左スティック</td><td>左スティック/十字</td><td>マウス / WASD</td></tr>
-        <tr><td>加速/減速</td><td>右スティック前後</td><td>RT / LT</td><td>E・Shift / Q・Z</td></tr>
         <tr><td>機関砲</td><td>トリガー</td><td>A / RB</td><td>左クリック / Space</td></tr>
         <tr><td>ミサイル</td><td>右グリップ / A</td><td>X / LB</td><td>右クリック / F</td></tr>
         <tr><td>視点</td><td>B / Y</td><td>Y</td><td>V</td></tr>
@@ -330,7 +328,7 @@
         <tr><td>機体の選択</td><td>—</td><td>左右</td><td>クリック</td></tr>
         <tr><td>ポーズ</td><td>X</td><td>START</td><td>Esc</td></tr>
       </table>
-      <p class="note">ハンコン: ハンドルで左右、アクセル / ブレーキで加速 / 減速、クラッチの踏み込み量で高さ (2 ペダルの機種はパドルの右で上昇・左で下降)。機関砲・ミサイル・視点・ポーズのボタンは「ハンコン設定」で割り当てます。</p>
+      <p class="note">ハンコン: ハンドルで左右、クラッチの踏み込み量で高さ (2 ペダルの機種はパドルの右で上昇・左で下降)。機関砲・ミサイル・視点・ポーズのボタンは「ハンコン設定」で割り当てます。</p>
       </div>
     </details>
 
@@ -354,7 +352,7 @@
     <button class="tbtn fire" data-hold="fire" aria-label="射撃">FIRE</button>
   </div>
 </div>
-<script type="module" src="./js-1996e47/main.js"></script>
+<script type="module" src="./js-35122e8/main.js"></script>
 <script>
   // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
   if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {

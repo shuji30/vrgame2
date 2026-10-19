@@ -114,16 +114,8 @@ export class Hud {
       text(g, 'MISSILE', 24, 408, 22, '#fff');
       if (d.locks) text(g, `LOCK ${d.locks}`, 24 + d.missileMax * 22 + 16, 452, 34, '#ff4040');
 
-      // 速度計 (右側に縦置き): 0.5倍〜1.5倍で下から上へ伸びる。白い目盛りが基準速度 (1.0倍)
-      const sx = 968, sw = 30, sy0 = 140, sy1 = 400;
-      const t = (d.factor - 0.5) / 1.0;
-      g.fillStyle = 'rgba(0,0,0,0.5)';
-      g.fillRect(sx - 4, sy0 - 4, sw + 8, sy1 - sy0 + 8);
-      g.fillStyle = `hsl(${120 - t * 120}, 85%, 55%)`;
-      g.fillRect(sx, sy1 - (sy1 - sy0) * t, sw, (sy1 - sy0) * t);
-      g.fillStyle = '#fff';
-      g.fillRect(sx - 8, (sy0 + sy1) / 2 - 2, sw + 16, 4);
-      text(g, `x${d.factor.toFixed(2)}`, sx + sw, sy0 - 14, 26, '#ffe680', 'right');
+      // 速さ (右側)。速さは面ごとに決まっている
+      const sx = 968, sw = 30, sy1 = 400;
       text(g, `${d.kmh}`, sx + sw, sy1 + 36, 30, '#fff', 'right');
       text(g, 'km/h', sx + sw, sy1 + 62, 20, '#fff', 'right');
     }
