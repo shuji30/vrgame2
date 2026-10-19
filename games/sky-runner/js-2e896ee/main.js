@@ -25,6 +25,8 @@ const moveX = (a) => MOVE_X * (a.source === 'wheel' ? WHEEL_X_BOOST : 1);
 const MOVE_Y = 12;
 const SPEED = {
   base: 40,                // 基準速度 (m/s)。速さは面ごとに固定 (加速・減速はない)
+  max: 1.5,                // どの面も、ステージ表の速さのこの倍で飛ぶ (以前の加速いっぱいの速さ)
+  ceiling: 1.1,            // 天井のある面はさらに速く (原作の天井の面は速くて短い)
   ret: 0.25,               // MISS やつまずきで落ちた倍率が 1.0 倍に戻る速さ (/s)
 };
 const HARD_MULT = 1.2;     // 難しいモードの点の倍率
@@ -233,8 +235,8 @@ function applyStage(n, first = false) {
   world.applyTheme(st.palette);
   world.setObstacles(st.obstacles);
   world.setCeiling(st.ceiling);
-  S.baseTarget = st.speed;
-  if (first) S.baseSpeed = st.speed;
+  S.baseTarget = st.speed * SPEED.max * (st.ceiling ? SPEED.ceiling : 1);
+  if (first) S.baseSpeed = S.baseTarget;
   combat.ceilingY = st.ceiling ? CEIL_Y - 8 : Infinity;
   S.stageLen = DEV_STAGE_LEN || st.length;
   setBGMMode('rock', st.bgm);
@@ -634,7 +636,9 @@ function gameOver(cleared = false) {
     else hiScore = combat.score;
     try { localStorage.setItem(combat.hard ? 'skyrunner.hiHard' : 'skyrunner.hi', String(combat.score)); } catch (_) { /* 保存不可 */ }
   }
-  showMsg(cleared ? 'CONGRATULATIONS!' : 'GAME OVER', `SCORE ${combat.score}   ${combat.hard ? 'HARD HI' : 'HI'} ${hiNow()}`, Infinity);
+  // どの面まで行ったかも出す (全面クリアは ALL CLEAR)
+  const reached = cleared ? 'ALL CLEAR' : `STAGE ${S.stage}/${STAGE_COUNT} ${stageAt(S.stage).name}`;
+  showMsg(cleared ? 'CONGRATULATIONS!' : 'GAME OVER', `${reached}\nSCORE ${combat.score}   ${combat.hard ? 'HARD HI' : 'HI'} ${hiNow()}`, Infinity);
   if (!cleared) say('Game over');
   // オンラインのランキング: 1 面から通したときだけ、イニシャルを入れて送る
   S.entry = S.fromStart && combat.score > 0 ? {
@@ -931,7 +935,7 @@ function update(dt) {
       S.boomT = 0.12;
       playerExplosion(Math.random() < 0.5);
     }
-    if (S.entry) S.sub = [S.entry.base, entryText(S.entry)].filter(Boolean).join('   ');
+    if (S.entry) S.sub = [S.entry.base, entryText(S.entry)].filter(Boolean).join('\n');
     if (S.overT > 2 && S.entry?.state === 'input') updateEntry(dt, a);
     else if (S.overT > 2 && S.entry?.state !== 'sending') {
       if (a.back) toTitle();
@@ -1036,7 +1040,7 @@ function update(dt) {
   {
     const lvl = renderer.xr.isPresenting ? VIGNETTE_LEVELS[settings.vignette] ?? 0 : 0;
     const motion = play && running
-      ? THREE.MathUtils.clamp(Math.max(0, speed / SPEED.base - 0.85) * 1.6 + Math.abs(S.vy) / MOVE_Y * 0.7 + Math.abs(S.vx) / MOVE_X * 0.5 + Math.abs(S.vz) / MOVE_X * 0.3, 0, 1)
+      ? THREE.MathUtils.clamp(Math.max(0, speed / (SPEED.base * SPEED.max) - 0.85) * 1.6 + Math.abs(S.vy) / MOVE_Y * 0.7 + Math.abs(S.vx) / MOVE_X * 0.5 + Math.abs(S.vz) / MOVE_X * 0.3, 0, 1)
       : 0;
     vignette.update(dt, lvl * (0.25 + 0.75 * motion));
   }
@@ -1050,7 +1054,7 @@ function update(dt) {
     camera.rotation.z += ((side ? 0 : -S.vx * 0.012) - camera.rotation.z) * Math.min(1, dt * 6);
     // タイトル画面では少し左を向き、自機がメニューに隠れず右寄りに見えるようにする
     camera.rotation.y += ((S.mode === 'title' && innerWidth > 700 && !side ? 0.3 : 0) - camera.rotation.y) * Math.min(1, dt * 3);
-    const fov = (side ? 50 : 75) + (S.mode === 'play' ? (speed / SPEED.base - 1) * (side ? 6 : 14) : 0);
+    const fov = (side ? 50 : 75) + (S.mode === 'play' ? Math.min(0.6, speed / SPEED.base - 1) * (side ? 6 : 14) : 0);
     if (Math.abs(fov - camera.fov) > 0.01) {
       camera.fov += (fov - camera.fov) * Math.min(1, dt * 4);
       camera.updateProjectionMatrix();
@@ -1107,6 +1111,7 @@ window.__audioStream = () => captureAudioStream();
 window.__debugPx = () => S.px;
 window.__debugKill = () => { S.lives = 1; S.invuln = 0; onHit(999); };
 window.__debugScore = (n) => { combat.score = n; }; // 開発用: 点を決める (ランキングの確認)
+window.__obstacles = () => world.obstacles.map((o) => [o.kind, o.hang ? 'hang' : o.h, Math.round(o.group.position.x), Math.round(o.group.position.z)]); // 開発用: 障害物
 window.__debugClear = () => allClear(); // 開発用: すぐ全面クリアにする (エンディングとごほうびの確認)
 window.__enemies = () => combat.enemies.map((e) => [e.kind, ...e.mesh.position.toArray().map((v) => Math.round(v * 10) / 10)]); // 開発用: 敵の位置
 // 開発用: 自動テストから状態を読む

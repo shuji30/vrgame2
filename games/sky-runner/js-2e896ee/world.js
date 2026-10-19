@@ -360,6 +360,25 @@ export class World {
         parts.push({ c: 'sph', r: 0.7, y: cy + Math.sin(a) * R, dx: Math.cos(a) * R });
       }
       o = { kind: 'ring', group: g, r: R + 0.7, cy, R, h: cy + R, parts, mesh: m };
+    } else if (roll < 0.4 && this.ceiling.visible && !this.side && Math.random() < 0.65) {
+      // 天井のある面の柱: 床から天井までの柱 (横によける) と、天井から下がる柱 (下をくぐる)
+      const r = rand(1.8, 3.4) * (lane ? 0.75 : 1);
+      const hang = Math.random() < 0.45;
+      const h = hang ? rand(0.35, 0.6) * CEIL_Y : CEIL_Y;
+      const y0 = CEIL_Y - h;
+      const col = new THREE.Mesh(this.geo.column, this.mat.column);
+      col.scale.set(r, h, r);
+      col.position.y = y0 + h / 2;
+      g.add(col);
+      const parts = [{ c: 'cyl', r, y0, y1: CEIL_Y }];
+      if (hang) { // 下の端に笠を付けて、どこまで下がっているかを見やすくする
+        const cap = new THREE.Mesh(this.geo.cap, this.mat.cap);
+        cap.scale.set(r * 2.2, 0.9, r * 2.2);
+        cap.position.y = y0 - 0.45;
+        g.add(cap);
+        parts.push({ c: 'box', hx: r * 1.1, hz: r * 1.1, y0: y0 - 0.9, y1: y0 });
+      }
+      o = { kind: 'column', group: g, r, h: CEIL_Y, hang, parts };
     } else if (roll < 0.4) {
       // 巨大な柱: 半分ほどは飛び越えられる高さ、残りは横によけるしかない高さ
       const r = rand(1.8, 3.4) * (lane ? 0.75 : 1);
