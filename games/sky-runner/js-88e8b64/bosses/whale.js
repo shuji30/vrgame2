@@ -92,7 +92,7 @@ function lobLava(c, from, ctx) {
   marker.scale.setScalar(0.5);
   marker.position.set(target.x, 0.08, target.z);
   c.scene.add(marker);
-  const e = { kind: 'lavaball', mesh, mats: [m], r: 1.6, hp: 2, score: 100, t: 0, flash: 0, fireT: Infinity, vel, marker, dmg: 12, noItem: true };
+  const e = { kind: 'lavaball', mesh, mats: [m], r: 1.6, hp: 2, score: 100, t: 0, flash: 0, fireT: Infinity, vel, marker, dmg: 12, noItem: true, noLock: true }; // 火の玉にはロックしない (ミサイルは鯨と穴に)
   c.addEnemy(e, 0.8);
 }
 

@@ -171,6 +171,10 @@ export class DebugPanel {
     line('INPUT DEBUG  (I / Back / 右グリップ で閉じる)', '#7fffd4', 26);
     line(`fps ${info.fps.toFixed(0)}  xr ${info.xr}  refSpace ${info.refSpace}  fbScale ${info.scale}`);
     line(`${info.version || ''}   draw calls ${info.calls ?? '-'}   triangles ${info.tris ?? '-'}`);
+    if (info.perf?.length) {
+      line('HEAVIEST 5 s (面と場面ごと、fps の低い順)', '#ffd27f', 22);
+      for (const s of info.perf) line(`  ${s}`, '#fff', 20);
+    }
     const s = input.state;
     line(`source ${s.source}  move ${fmt(s.move.x)},${fmt(s.move.y)}  throttle ${fmt(s.throttle)}  alt ${s.altitude == null ? '-' : fmt(s.altitude)}  fire ${s.fire || s.handFire.some((h) => h.fire)}`);
     y += 8;

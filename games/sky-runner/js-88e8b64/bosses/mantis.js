@@ -156,7 +156,9 @@ export const MANTIS_KINDS = {
         e.hit = true;
         ctx.onPlayerHit(20);
       }
-      e.mats[0].opacity = 0.85 * Math.max(0, 1 - e.t / 3);
+      // 縦の三日月は、目の近く (6 m 以内) では薄くする (VR で目の前を大きな光がふさがないように)
+      const near = e.vert ? THREE.MathUtils.clamp(Math.abs(p.z - P.z) / 6, 0.15, 1) : 1;
+      e.mats[0].opacity = 0.85 * Math.max(0, 1 - e.t / 3) * near;
       if (p.z > 30 || e.t > 3) e.dead = true;
     },
   },

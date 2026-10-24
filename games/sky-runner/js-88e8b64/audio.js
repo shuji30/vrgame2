@@ -77,6 +77,40 @@ function noise(t, dur, vol, freq, bus, type = 'lowpass') {
 
 const now = () => ctx.currentTime;
 
+// 敵の出現音。音量は控えめ (数秒おきに鳴るので、曲や撃つ音のじゃまにならないように)
+const APPEAR = {
+  // 戦闘機: ジェットが遠くから近づく (高く上がるノイズと、下がる電子音)
+  fighter: (t) => { noise(t, 0.6, 0.25, 2400, sfxBus, 'bandpass'); osc('sawtooth', 900, t, 0.4, 0.05, sfxBus, 400); },
+  // 水晶の矢: 澄んだ音が 5 つ駆け上がる
+  dart: (t) => [84, 88, 91, 96, 100].forEach((m, i) => osc('sine', mtof(m), t + i * 0.05, 0.18, 0.07, sfxBus)),
+  // 結晶の小虫: 羽音のような細かい震え
+  gremlin: (t) => { for (let i = 0; i < 6; i++) osc('square', 1800 + i * 120, t + i * 0.04, 0.03, 0.04, sfxBus, 1400); },
+  // ダンゴムシ: 殻が転がる、ころころという低い音
+  pill: (t) => { for (let i = 0; i < 4; i++) osc('triangle', 220 - i * 25, t + i * 0.08, 0.07, 0.12, sfxBus, 150); },
+  // 晶洞岩: 地面から重い岩がせり上がる
+  moai: (t) => { noise(t, 0.8, 0.35, 260, sfxBus); osc('sine', 60, t, 0.8, 0.25, sfxBus, 90); },
+  // 建設ロボ: 機械の起動音 (ピッピッと上がる)
+  mech: (t) => [0, 0.12, 0.24].forEach((d, i) => osc('square', 330 * (1 + i * 0.5), t + d, 0.08, 0.06, sfxBus)),
+  // 翼竜: 遠くの鳴き声 (小さく)
+  ptero: (t) => osc('sawtooth', 1600, t, 0.5, 0.05, sfxBus, 700),
+  // ガンシップ: 低いエンジンのうなり
+  gunship: (t) => { osc('sawtooth', 55, t, 1.2, 0.15, sfxBus, 75); noise(t, 1.2, 0.2, 400, sfxBus); },
+  // ガラスのレンズ: きらきら回る和音
+  lens: (t) => [79, 83, 86, 91].forEach((m, i) => osc('triangle', mtof(m), t + i * 0.07, 0.4, 0.05, sfxBus)),
+  // 水晶塔: 地面を突き破る音
+  turret: (t) => { noise(t, 0.3, 0.4, 1200, sfxBus); osc('square', 120, t, 0.25, 0.1, sfxBus, 240); },
+  // 結晶コウモリ: 高い超音波のさえずり
+  bat: (t) => { for (let i = 0; i < 3; i++) osc('sine', 3200, t + i * 0.09, 0.05, 0.05, sfxBus, 2400); },
+  // 跳ねる結晶: ぽよんと跳ねる
+  bouncer: (t) => { osc('sine', 300, t, 0.15, 0.15, sfxBus, 700); osc('sine', 300, t + 0.18, 0.12, 0.1, sfxBus, 600); },
+  // 二十面体: 重い鉄の球が転がり出す、ごろごろという地響き
+  icosa: (t) => { noise(t, 1.4, 0.45, 180, sfxBus); osc('sine', 45, t, 1.4, 0.3, sfxBus, 35); osc('square', 90, t, 0.2, 0.06, sfxBus, 60); },
+  // マンモス: 重い足音が 3 つ近づいてくる
+  mammoth: (t) => [0, 0.32, 0.64].forEach((d, i) => { osc('sine', 70, t + d, 0.25, 0.18 + i * 0.06, sfxBus, 40); noise(t + d, 0.2, 0.15 + i * 0.05, 220, sfxBus); }),
+  // 衛星コア: 不思議な電子のうねり
+  orbiter: (t) => { osc('sine', 500, t, 0.7, 0.08, sfxBus, 1000); osc('sine', 750, t, 0.7, 0.05, sfxBus, 1500); },
+};
+
 export const sfx = {
   shot() {
     if (!ctx) return;
@@ -165,6 +199,52 @@ export const sfx = {
     noise(t, 1.7, 0.7, 700, sfxBus);
     noise(t, 1.5, 0.3, 2500, sfxBus, 'bandpass');
     osc('sawtooth', 70, t, 1.6, 0.25, sfxBus, 45);
+  },
+  // 敵が出てくるときの音 (敵の種類ごとに違う音)。kind は combat の敵の種類
+  appear(kind) {
+    if (!ctx) return;
+    const t = now();
+    const A = APPEAR[kind];
+    if (A) A(t);
+  },
+  // マンモスの鳴き声 (パオーン): 鼻を抜けるような、震えながら上がって下がる音
+  trumpet() {
+    if (!ctx) return;
+    const t = now(), dur = 1.1;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(260, t);
+    o.frequency.exponentialRampToValueAtTime(620, t + 0.25);
+    o.frequency.setValueAtTime(620, t + 0.7);
+    o.frequency.exponentialRampToValueAtTime(380, t + dur);
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 22;
+    const lg = ctx.createGain();
+    lg.gain.value = 18;
+    lfo.connect(lg).connect(o.frequency);
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 1300;
+    f.Q.value = 2.5;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.5, t + 0.12);
+    g.gain.setValueAtTime(0.5, t + 0.75);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(f).connect(g).connect(sfxBus);
+    o.start(t);
+    lfo.start(t);
+    o.stop(t + dur + 0.05);
+    lfo.stop(t + dur + 0.05);
+  },
+  // 竜の咆哮 (低くうなりながら上がって落ちる)。二首の竜が突っ込んでくるとき
+  roar() {
+    if (!ctx) return;
+    const t = now();
+    osc('sawtooth', 90, t, 1.4, 0.3, sfxBus, 45);
+    osc('square', 140, t, 1.1, 0.12, sfxBus, 60);
+    noise(t, 1.5, 0.5, 500, sfxBus);
+    noise(t, 1.0, 0.25, 1400, sfxBus, 'bandpass');
   },
   // やられたときの叫び声「あーっ」: 声帯の音 (のこぎり波) を、母音「あ」の響き (フォルマント) に通す
   scream() {
@@ -960,6 +1040,9 @@ export const SE_LIST = [
   { name: 'FLYBY', desc: '敵とすれちがう', play: () => sfx.whoosh() },
   { name: 'PTERO CRY', desc: '翼竜の叫び', play: () => sfx.screech() },
   { name: 'PRISM BEAM', desc: 'ボスの光の帯', play: () => sfx.fireBreath() },
+  { name: 'DRAGON ROAR', desc: '二首の竜の咆哮', play: () => sfx.roar() },
+  { name: 'MAMMOTH CALL', desc: 'マンモスの鳴き声', play: () => sfx.trumpet() },
+  ...Object.keys(APPEAR).map((k) => ({ name: `APPEAR ${k.toUpperCase()}`, desc: '敵の出現', play: () => sfx.appear(k) })),
   { name: 'RICOCHET', desc: '殻で弾が跳ね返る', play: () => sfx.ricochet() },
   { name: 'LOCK-ON', desc: 'ミサイルのロック', play: () => sfx.lock() },
   { name: 'HOMING LAUNCH', desc: 'ミサイル発射', play: () => sfx.missile() },

@@ -18,7 +18,7 @@ import { BGM_LIST, SE_LIST, captureAudioStream, initAudio, previewBGM, sfx, setE
 
 // ---- 定数
 const X_LIMIT = 96;        // 左右の移動範囲 (m)
-const Y_MAX = 20;          // 上昇できる高さ (リグの高さ, m)
+const Y_MAX = 30;          // 上昇できる高さ (リグの高さ, m)
 const MOVE_X = 18;         // スティックを倒しきったときの横移動速度 (m/s)
 const WHEEL_X_BOOST = 1.6; // ハンコンは切る角度が小さくなりがちなので、横移動を速くする
 const moveX = (a) => MOVE_X * (a.source === 'wheel' ? WHEEL_X_BOOST : 1);
@@ -52,6 +52,7 @@ let cleared = false;
 try { cleared = localStorage.getItem('skyrunner.cleared') === '1'; } catch (_) { /* 保存なし */ }
 const hardMode = () => cleared && settings.hard;
 const OBSTACLE_DAMAGE = 20;
+const BUSH_DAMAGE = 10;      // 低い茂みにぶつかったとき (宇宙船も人間も)
 const RING_BONUS = 500; // 浮遊リングをくぐったときの点
 
 // ハイスコアは、ふつうと難しいモードで分ける
@@ -194,7 +195,7 @@ function startPlay(stageNo) {
   S.fromStart = stageNo === 1;
   initAudio();
   Object.assign(S, {
-    mode: 'play', paused: false, entry: null, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0, pz: SIDE_Z_START, vz: 0,
+    mode: 'play', paused: false, entry: null, chapterHead: 0, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0, pz: SIDE_Z_START, vz: 0,
     stage: 1, phase: 'normal', phaseT: 0, stageT: 0, baseSpeed: SPEED.base, lives: LIVES, life: LIFE_MAX, lowLifeT: 0, extendIdx: 0, overT: 0, slowT: 0,
   });
   if (isSide()) S.py = 8; // 横スクロールは画面の中ほどの高さから
@@ -202,6 +203,7 @@ function startPlay(stageNo) {
   combat.reset();
   avatar.recenter();
   avatar.destroyed = false;
+  avatar.hidden = false;
   avatar.fallT = -1;
   avatar.stumbleT = 0;
   endBonus();
@@ -222,6 +224,13 @@ function applyStage(n, first = false) {
   }
   S.stageT = 0;
   S.phaseT = 0;
+  S.stageScore0 = combat.score; // 面ごとの記録用: この面で取った点と、被弾したか
+  S.stageHits0 = S.hits;
+  if ((n - 1) % CHAPTER === 0) { // 章 (6 面ずつ) の頭から通したときだけ、章の記録を残す
+    S.chapterHead = n;
+    S.chapterScore0 = combat.score;
+    S.chapterHits0 = S.hits;
+  }
   // ボスラッシュの何体目から始めるか (CONTINUE で太陽の前から / 開発用: ?rush=7)
   S.rushIndex = pendingRush ?? Math.max(0, Number(new URLSearchParams(location.search).get('rush')) || 0);
   pendingRush = null;
@@ -232,6 +241,7 @@ function applyStage(n, first = false) {
   combat.mult = combat.hard ? HARD_MULT : 1;
   combat.density = st.density;
   combat.waveTable = st.waves;
+  combat.stageT = 0;
   world.applyTheme(st.palette);
   world.setObstacles(st.obstacles);
   world.setCeiling(st.ceiling);
@@ -261,11 +271,61 @@ function togglePause(p) {
 
 // タイトルのステージ選択 (開発用の ?stage=N があれば、それを最初に選んでおく)
 let selectedStage = Math.max(1, Math.min(STAGE_COUNT, DEV_START_STAGE));
+// ---- 面ごとの記録 (ふつう / 難しいモード別に保存): { 面の番号: { best: その面で取った点の最高, nohit: 被弾なしでクリアした, clear: クリアした } }
+// 章 (1〜6・7〜12・13〜18 面) の記録も同じ形で c1・c2・c3 に入れる (章の頭から最後の面まで通したとき)
+const CHAPTER = 6;
+const chapterHead = (n) => Math.floor((n - 1) / CHAPTER) * CHAPTER + 1;
+// ステージ選択や CONTINUE で途中から遊んでも残る (ハイスコアは 1 面から通したときだけ)
+const records = { normal: {}, hard: {} };
+try { Object.assign(records, JSON.parse(localStorage.getItem('skyrunner.records') || '{}')); } catch (_) { /* 保存なし */ }
+// 面をクリアしたときに呼ぶ。STAGE CLEAR の下に足す行 (新記録・被弾なし) を返す
+function recordStage() {
+  const table = (records[combat.hard ? 'hard' : 'normal'] ||= {});
+  const r = (table[S.stage] ||= { best: 0, nohit: false, clear: false });
+  const pts = combat.score - (S.stageScore0 ?? 0);
+  const nohit = S.hits === S.stageHits0;
+  const isNew = !r.clear || pts > r.best;
+  r.best = Math.max(r.best, pts);
+  r.clear = true;
+  r.nohit ||= nohit;
+  const notes = [isNew && 'NEW RECORD!', nohit && '◆ NO DAMAGE'];
+  // 章の最後の面 (6・12・18 面) を、章の頭から通してクリアした: 章の記録
+  if (S.stage % CHAPTER === 0 && S.chapterHead === S.stage - CHAPTER + 1) {
+    const key = `c${S.stage / CHAPTER}`;
+    const c = (table[key] ||= { best: 0, nohit: false, clear: false });
+    const cpts = combat.score - S.chapterScore0, cnohit = S.hits === S.chapterHits0;
+    notes.push(`CHAPTER ${S.stage / CHAPTER} ${!c.clear || cpts > c.best ? 'NEW RECORD!' : 'CLEAR'}${cnohit ? ' ◆' : ''}`);
+    c.best = Math.max(c.best, cpts);
+    c.clear = true;
+    c.nohit ||= cnohit;
+  }
+  try { localStorage.setItem('skyrunner.records', JSON.stringify(records)); } catch (_) { /* 保存不可 */ }
+  refreshStageList();
+  const note = notes.filter(Boolean).join('   ');
+  return note ? `\n${note}` : ''; // 2 行目の下にもう 1 行
+}
+
 const stageSel = document.getElementById('stageSel');
+const chapterGroups = [];
 STAGES.forEach((st, i) => {
-  const kind = st.kind === 'bonus' ? '  ★BONUS' : st.kind === 'rush' ? '  ★BOSS RUSH' : '';
-  stageSel.add(new Option(`STAGE ${String(i + 1).padStart(2, '0')}  ${st.name}${kind}`, String(i + 1)));
+  if (i % CHAPTER === 0) chapterGroups.push(stageSel.appendChild(document.createElement('optgroup')));
+  chapterGroups.at(-1).appendChild(new Option('', String(i + 1)));
 });
+// 一覧の文字: 面の名前と、記録 (クリアした面はその面で取った点の最高、被弾なしでクリアしたら ◆。まだ行っていない面は ─)
+function refreshStageList() {
+  const table = records[hardMode() ? 'hard' : 'normal'] || {};
+  STAGES.forEach((st, i) => {
+    const kind = st.kind === 'bonus' ? '  ★BONUS' : st.kind === 'rush' ? '  ★BOSS RUSH' : '';
+    const r = table[i + 1];
+    const rec = r?.clear ? `   ${r.nohit ? '◆' : '✓'} ${r.best.toLocaleString()}` : i + 1 > progress ? '   ─' : '';
+    stageSel.options[i].text = `STAGE ${String(i + 1).padStart(2, '0')}  ${st.name}${kind}${rec}`;
+  });
+  chapterGroups.forEach((g, k) => {
+    const c = table[`c${k + 1}`];
+    g.label = `CHAPTER ${k + 1}  (STAGE ${k * CHAPTER + 1}〜${(k + 1) * CHAPTER})${c?.clear ? `   ${c.nohit ? '◆' : '✓'} ${c.best.toLocaleString()}` : ''}`;
+  });
+}
+refreshStageList();
 stageSel.value = String(selectedStage);
 stageSel.addEventListener('change', () => { selectedStage = Number(stageSel.value); });
 
@@ -333,6 +393,12 @@ const showHiScore = () => {
   const btn = document.getElementById('btnContinue');
   btn.hidden = progress <= 1;
   btn.querySelector('small').textContent = progress === STAGE_COUNT && sunCheckpoint ? '最終ボスの前から' : `STAGE ${progress} から`;
+  // 章の頭からの CONTINUE (章の記録をねらえる)。到達した面が章の頭なら CONTINUE と同じなので出さない
+  const ch = document.getElementById('btnChapter');
+  ch.hidden = progress <= 1 || chapterHead(progress) === progress;
+  ch.firstChild.textContent = `CHAPTER ${Math.ceil(progress / CHAPTER)} `;
+  ch.querySelector('small').textContent = `章の頭 STAGE ${chapterHead(progress)} から`;
+  refreshStageList(); // 難しいモードを切りかえたら、その記録を出す
 };
 
 function toTitle() {
@@ -340,6 +406,7 @@ function toTitle() {
   showHiScore();
   endBonus();
   combat.reset();
+  avatar.hidden = false; // エンディングで隠したプレイヤーを、タイトルでは出す
   S.paused = false;
   S.msg = '';
   overlay.hidden = false;
@@ -437,10 +504,12 @@ function allClear() {
   S.phase = 'ending';
   S.phaseT = 0;
   S.endingStep = -1;
+  avatar.hidden = true; // エンディングではプレイヤーを隠す (敵の紹介を見せる)
   showMsg('ALL CLEAR!!', `CONGRATULATIONS!  SCORE ${combat.score}`, 5);
   sfx.clear();
   say('Congratulations');
   setBGMMode('ending', { key: 0, tempo: 152 }); // エンディングの曲 (ステージのテンポの影響を受けない)
+  startBGM(); // STAGE CLEAR で止めた曲を、エンディングの曲で始める
   combat.clearHostiles();
   try { localStorage.setItem('skyrunner.cleared', '1'); } catch (_) { /* 保存不可 */ } // クリアのごほうび用
   // 読み込み直さなくても、タイトルに戻ったらごほうびが出るように
@@ -451,24 +520,53 @@ function allClear() {
   }
 }
 
-// エンディング (約 90 秒): 1〜18 面の景色を順に通り過ぎ、面の名前とボスの名前を出す。最後に点数の内訳。5 秒たったら飛ばせる
+// エンディングで紹介する敵の名前と、ひとこと
+const ENEMY_INFO = {
+  fighter: ['FIGHTER', '戦闘機'],
+  dart: ['CRYSTAL DART', '水晶の矢'],
+  gremlin: ['CRYSTAL BUG', '結晶の小虫'],
+  mammoth: ['MAMMOTH', 'マンモス'],
+  moai: ['GEODE', '晶洞岩'],
+  bouncer: ['BOUNCE GEM', '跳ねる結晶'],
+  pill: ['PILL BUG', 'ダンゴムシ'],
+  bat: ['GLASS BAT', '結晶コウモリ'],
+  ptero: ['PTERO', '翼竜'],
+  mech: ['BUILDER ROBO', '建設ロボ'],
+  icosa: ['PRISM ICOSA', '結晶の二十面体'],
+  turret: ['SPIRE TURRET', '水晶塔'],
+  gunship: ['GUNSHIP', 'ガンシップ'],
+  lens: ['PRISM LENS', 'ガラスのレンズ'],
+  orbiter: ['ORBIT CORE', '衛星コア'],
+};
+// 紹介する順番: 初めて出てくる面の順 (stage はその面の番号。景色の色もその面にする)
+const ENDING_LIST = (() => {
+  const list = [];
+  STAGES.forEach((st, stage) => {
+    for (const [kind] of st.waves || []) if (ENEMY_INFO[kind] && !list.some((o) => o.kind === kind)) list.push({ kind, stage });
+  });
+  return list;
+})();
+
+// エンディング (約 80 秒): 障害物は出さず、敵を 1 体ずつ目の前に呼んで紹介する (初めて出てきた面の景色で)。
+// 最後に点数の内訳。5 秒たったら飛ばせる
 const ENDING_START = 5, ENDING_PER = 4.4;
-const ENDING_LEN = ENDING_START + STAGE_COUNT * ENDING_PER + 6;
+const ENDING_LEN = ENDING_START + ENDING_LIST.length * ENDING_PER + 6;
 function updateEnding() {
   const i = Math.floor((S.phaseT - ENDING_START) / ENDING_PER);
-  if (S.phaseT >= ENDING_START && i < STAGE_COUNT && i !== S.endingStep) {
+  if (S.phaseT >= ENDING_START && i < ENDING_LIST.length && i !== S.endingStep) {
     S.endingStep = i;
-    const st = STAGES[i];
+    const { kind, stage } = ENDING_LIST[i];
+    const st = STAGES[stage];
     world.fadeTheme(st.palette); // 色は 1.2 秒かけて移す
-    world.setObstacles(st.obstacles);
     world.setCeiling(false); // 天井は出さない (景色を見せる)
-    const boss = st.kind === 'bonus' ? 'BONUS STAGE' : st.kind === 'rush' ? 'BOSS RUSH → ' + BOSS_INFO.sun[0] : BOSS_INFO[st.boss?.type]?.[0] || '';
-    showMsg(`STAGE ${i + 1}  ${st.name}`, boss, ENDING_PER - 0.4);
-  } else if (i >= STAGE_COUNT && S.endingStep < STAGE_COUNT) {
-    S.endingStep = STAGE_COUNT;
+    combat.showcase(kind, ENDING_PER - 0.2);
+    showMsg(`${ENEMY_INFO[kind][0]}  ${ENEMY_INFO[kind][1]}`, `STAGE ${stage + 1}  ${st.name}`, ENDING_PER - 0.4);
+  } else if (i >= ENDING_LIST.length && S.endingStep < ENDING_LIST.length) {
+    S.endingStep = ENDING_LIST.length;
     showMsg('THANK YOU FOR PLAYING', `SCORE ${combat.score}   ENEMIES ${combat.kills}   HITS ${S.hits}`, 6);
   }
 }
+const endingStage = () => (S.phase === 'ending' && S.endingStep >= 0 && S.endingStep < ENDING_LIST.length ? ENDING_LIST[S.endingStep].stage : -1);
 
 // ボスの名前と、倒し方のひとこと (初めて会ったときだけ WARNING の 2 行目に出す)
 const BOSS_INFO = {
@@ -478,7 +576,7 @@ const BOSS_INFO = {
   swarm: ['旋回する群れ', '逃げる前に全部落とせ'],
   mirror: ['ミラーコア', '鏡は弾を撃ち返す。すき間から核を撃て'],
   geodering: ['晶洞の輪', '殻が開いて光ったときだけ倒せる'],
-  mine: ['浮遊鉱山', '壊せない。耐えろ、出撃口を壊せ'],
+  mine: ['浮遊鉱山', '出撃口を壊して、本体を撃て'],
   colossus: ['磁鉄の巨像', '電極を先に壊せ'],
   sun: ['プリズムの太陽', '最後の戦い'],
   crown: ['氷晶の冠', '赤い印をよけろ。つららを壊せば雨が減る'],
@@ -534,7 +632,7 @@ function updateStage(dt) {
       sfx.warning();
     } else {
       S.phase = 'clear';
-      showMsg('STAGE CLEAR!', escaped ? '敵は逃げ去った' : `BOSS BONUS ${combat.lastBossBonus}`, 4.5);
+      showMsg('STAGE CLEAR!', (escaped ? '敵は逃げ去った' : `BOSS BONUS ${combat.lastBossBonus}`) + recordStage(), 4.5);
       sfx.clear();
       // もとの面には戻さない: 曲は止め、障害物は出さず、景色は次の面の色へ移していく
       stopBGM();
@@ -555,7 +653,7 @@ function updateStage(dt) {
     const pts = S.bonusCount * BONUS_TREE;
     combat.score += pts;
     world.mode = 'normal';
-    showMsg(`BONUS ${pts}`, `なぎ倒した木 ${S.bonusCount} 本 × ${BONUS_TREE}`, 3.5);
+    showMsg(`BONUS ${pts}`, `なぎ倒した木 ${S.bonusCount} 本 × ${BONUS_TREE}` + recordStage(), 3.5);
     sfx.clear();
   } else if (S.phase === 'bonusEnd' && S.phaseT > 3.5) {
     endBonus();
@@ -799,16 +897,6 @@ function slowDown(to, time) {
   S.slowT = time;
 }
 
-// 人間が茂みに足を引っかけた: ダメージは受けず、よろけて減速する
-function stumble() {
-  if (S.invuln > 0) return;
-  S.invuln = 0.8;
-  slowDown(0.6, 1);
-  avatar.stumble();
-  sfx.hit();
-  input.rumble(0.5, 150);
-}
-
 function onPickup(type) {
   if (type !== 'heal') return;
   if (S.life >= LIFE_MAX) {
@@ -1007,7 +1095,7 @@ function update(dt) {
   P.copy(avatar.hitPoint);
   world.side = side;
   // ボス戦 (WARNING から撃破まで) は障害物を出さない
-  world.update(dt, side ? speed * SIDE_SCROLL : speed, P, running && !(play && ['warning', 'boss', 'clear'].includes(S.phase)));
+  world.update(dt, side ? speed * SIDE_SCROLL : speed, P, running && !(play && ['warning', 'boss', 'clear', 'ending'].includes(S.phase))); // エンディングは障害物を出さない
 
   if (play && running) updateRide(dt);
   world.reach = yMax() + 1.6; // 今飛べる高さ (これより低い柱は飛び越えられる高さで出す)
@@ -1023,8 +1111,8 @@ function update(dt) {
   }
   if (play && running && !ride.active && S.invuln <= 0) {
     const o = world.hitTest(P, avatar.radius * 0.7); // 障害物には少し小さめの当たりで (かすっただけでは当たらない)
-    if (o && o.kind === 'bush' && settings.player === 'human') stumble();
-    else if (o) onHit(OBSTACLE_DAMAGE);
+    if (o) onHit(o.kind === 'bush' ? BUSH_DAMAGE : OBSTACLE_DAMAGE); // 宇宙船も人間も同じダメージ (低い茂みは軽め)
+    if (o && o.kind === 'bush' && settings.player === 'human' && S.mode === 'play') avatar.stumble(); // 人間は茂みにつまずく (見た目だけ)
     if (o && ['tree', 'bush', 'mushroom', 'crystal'].includes(o.kind)) world.knockDown(o); // ぶつかった木などは、すり抜けずに倒れる
   }
   // ライフが少ないときは警告音
@@ -1099,9 +1187,9 @@ function update(dt) {
     lifeMax: LIFE_MAX,
     blink: S.life < LIFE_MAX * 0.3 && Math.floor(performance.now() / 250) % 2 === 0,
     // エンディング中は、いま通り過ぎている面を出す
-    stageNo: S.phase === 'ending' && S.endingStep >= 0 && S.endingStep < STAGE_COUNT ? S.endingStep + 1 : S.stage, stageCount: STAGE_COUNT, hard: combat.hard,
+    stageNo: endingStage() >= 0 ? endingStage() + 1 : S.stage, stageCount: STAGE_COUNT, hard: combat.hard,
     // ボスラッシュの間は、何体目かも出す
-    stageName: S.phase === 'ending' && S.endingStep >= 0 && S.endingStep < STAGE_COUNT ? STAGES[S.endingStep].name : stageAt(S.stage).kind === 'rush' && ['warning', 'boss'].includes(S.phase) ? `${stageAt(S.stage).name}  BOSS ${S.rushIndex + 1}/${stageAt(S.stage).rush.length}` : stageAt(S.stage).name,
+    stageName: endingStage() >= 0 ? STAGES[endingStage()].name : stageAt(S.stage).kind === 'rush' && ['warning', 'boss'].includes(S.phase) ? `${stageAt(S.stage).name}  BOSS ${S.rushIndex + 1}/${stageAt(S.stage).rush.length}` : stageAt(S.stage).name,
     hi: Math.max(hiNow(), combat.score),
     mult: Math.round(combat.mult * 10) / 10,
     boss: combat.bossRatio === null ? null : Math.round(combat.bossRatio * 100) / 100,
@@ -1109,8 +1197,30 @@ function update(dt) {
   });
 
   S.fps += (1 / Math.max(dt, 1e-4) - S.fps) * 0.05;
-  debugPanel.draw(dt, { fps: S.fps, xr: renderer.xr.isPresenting, refSpace: S.refSpace, scale: settings.scale, version: buildInfo, calls: renderer.info.render.calls, tris: renderer.info.render.triangles }, input);
+  if (debugPanel.visible) trackPerf();
+  debugPanel.draw(dt, { fps: S.fps, xr: renderer.xr.isPresenting, refSpace: S.refSpace, scale: settings.scale, version: buildInfo, calls: renderer.info.render.calls, tris: renderer.info.render.triangles, perf: perfLines() }, input);
 }
+
+// 開発用 (?debug): 面と場面 (通常・ボスなど) ごとに、いちばん重かった 5 秒を残す。
+// 平均 fps がいちばん低かった 5 秒と、その間の描画回数の最大・敵と弾の数。Quest で 1〜18 面を通して、重い所を探すのに使う
+const perf = { win: [], worst: new Map(), last: performance.now() };
+function trackPerf() {
+  const now = performance.now(), ms = now - perf.last; // dt は 0.05 秒で切っているので、本当の時間で測る
+  perf.last = now;
+  if (S.mode !== 'play' || S.paused) { perf.win.length = 0; return; }
+  perf.win.push([now, ms, renderer.info.render.calls]);
+  while (now - perf.win[0][0] > 5000) perf.win.shift();
+  if (now - perf.win[0][0] < 4900) return; // 5 秒たまるまで待つ
+  const fps = (1000 * perf.win.length) / perf.win.reduce((a, w) => a + w[1], 0);
+  const key = `STAGE ${String(S.stage).padStart(2, '0')} ${['warning', 'boss'].includes(S.phase) ? 'BOSS' : S.phase.toUpperCase()}`;
+  const w = perf.worst.get(key);
+  if (!w || fps < w.fps) {
+    perf.worst.set(key, { fps, calls: Math.max(...perf.win.map((x) => x[2])), enemies: combat.enemies.length, bullets: combat.bullets.length });
+  }
+}
+const perfLines = () => [...perf.worst].sort((a, b) => a[1].fps - b[1].fps).slice(0, 8)
+  .map(([k, w]) => `${k.padEnd(18)} fps ${w.fps.toFixed(0).padStart(3)}  calls ${String(w.calls).padStart(4)}  敵 ${w.enemies}  弾 ${w.bullets}`);
+window.__perf = () => perfLines(); // 開発用: 重かった 5 秒の一覧
 
 // 開発用: プロモーション動画の録画で、ゲームの音を取り出す
 window.__audioStream = () => captureAudioStream();
@@ -1195,6 +1305,7 @@ document.getElementById('btnContinue').addEventListener('click', () => {
   if (progress === STAGE_COUNT && sunCheckpoint) pendingRush = sunIndex(); // 最終ボスの前から
   startPlay(progress);
 });
+document.getElementById('btnChapter').addEventListener('click', () => startPlay(chapterHead(progress)));
 btnVR.addEventListener('click', enterVR);
 if (new URLSearchParams(location.search).has('play')) startPlay(); // 開発用: ?play ですぐ開始
 if (new URLSearchParams(location.search).has('bonus')) { // 開発用: ?play&bonus でボーナスステージ (5 面) から始める

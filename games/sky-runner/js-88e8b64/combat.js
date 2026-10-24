@@ -19,9 +19,10 @@ const GEODE_Y = 1.6; // 晶洞岩の中心の高さ (モデルの原点は足元
 const FIGHTER_SCALE = 1.6, GUNSHIP_SCALE = 1.4, MOAI_SCALE = 1.7, GREMLIN_SCALE = 2.6, MECH_SCALE = 1.4, PILL_SCALE = 1.6, BOSS_SCALE = 2.2, PTERO_SCALE = 1.5;
 const REMOVE_Z = 40;
 const SMALL_KINDS = new Set(['gremlin', 'pillpart', 'dart', 'bat', 'satellite']); // 体当たりのダメージが 15 の小さい敵 (ほかは 25)
-const HEAL_HALF = new Set(['worm', 'phantom', 'mantis', 'whale']); // 体力が半分で回復を 1 個出す長めのボス
+const HEAL_HALF = new Set(['worm', 'phantom', 'mantis', 'whale', 'mine']); // 体力が半分で回復を 1 個出す長めのボス
 
 const GUN_SPEED = 230;      // 機関砲の弾速 (m/s)
+const FIREBALL_SPEED = 170; // 人間の火の玉の弾速 (m/s)
 const LOCK_ANGLE = 0.14;    // この角度 (rad, 約8度) の中に入った敵をロックする
 const UNLOCK_ANGLE = 0.4;   // ここまで外れたらロックを外す
 const LOCK_MAX = 4;
@@ -29,6 +30,7 @@ const LOCK_INTERVAL = 0.13; // 1機ロックするのにかかる時間 (s)
 const MISSILE_MAX = 8;
 const MISSILE_REGEN = 1.6;  // 1発回復するまでの時間 (s)
 
+const RED_EYE = new THREE.Color(0xff2010);
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _e = new THREE.Vector3(), _f = new THREE.Vector3();
 
 // 線分 a-b と点 c の距離が r 未満か (高速の弾が1フレームですり抜けないように)
@@ -66,6 +68,29 @@ void main() {
   gl_FragColor = vec4(vC, vA * smoothstep(0.5, 0.1, r));
   #include <colorspace_fragment>
 }`;
+
+// 同じ形と材質のものをたくさん描くとき (敵の光る弾、自機の光線) は、1 回の描画にまとめる (Quest の描画回数を減らす)。
+// 弾そのものは中身のない Object3D で動かし、毎フレームその位置・向き・大きさを書き写す
+class InstancePool {
+  constructor(scene, geo, mat, max) {
+    this.max = max;
+    this.n = 0;
+    this.mesh = new THREE.InstancedMesh(geo, mat, max);
+    this.mesh.count = 0;
+    this.mesh.frustumCulled = false; // 弾は画面じゅうに散らばるので、まとめて描く
+    scene.add(this.mesh);
+  }
+  begin() { this.n = 0; }
+  push(o) {
+    if (this.n >= this.max) return;
+    o.updateMatrix();
+    this.mesh.setMatrixAt(this.n++, o.matrix);
+  }
+  end() {
+    this.mesh.count = this.n;
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+}
 
 class Particles {
   constructor(scene, max, additive) {
@@ -416,7 +441,13 @@ export class Combat {
     this.announce = '';      // 画面に出したい知らせ (main.js が読んで消す)
     this.items = [];         // 回復アイテム
     this.itemT = 15;
+    this.stageT = 0;
     this.sparks = new Particles(scene, 1500, true);
+    // まとめて描く弾: 敵の光る弾 (核と光の輪) と、自機の光線
+    this.pools = {
+      orb: [new InstancePool(scene, GEO.bullet, MAT.bullet, 400), new InstancePool(scene, GEO.bulletHalo, MAT.bulletHalo, 400)],
+      shot: [new InstancePool(scene, GEO.shot, MAT.shot, 200)],
+    };
     this.smoke = new Particles(scene, 2500, false);
     this.lockTex = LOCK_TEX();
     this.lockMarkers = Array.from({ length: LOCK_MAX }, () => {
@@ -435,7 +466,9 @@ export class Combat {
       list.forEach((o) => this.remove(o));
       list.length = 0;
     }
+    this.drawPools(); // まとめて描く弾も消す
     this.itemT = 15;
+    this.stageT = 0;
     this.locks = [];
     this.missileStock = MISSILE_MAX;
     this.spawn = { wave: 3 };
@@ -548,7 +581,7 @@ export class Combat {
     mesh.scale.setScalar(GUNSHIP_SCALE);
     const e = {
       kind: 'gunship', mesh, mats, r: 3.6 * GUNSHIP_SCALE, hp: 6 + this.level * 2, score: 1000,
-      t: 0, x: px + rand(-6, 6), y: THREE.MathUtils.clamp(py + rand(1, 5), 4, 12), z: SPAWN_Z,
+      t: 0, x: px + rand(-6, 6), y: THREE.MathUtils.clamp(py + rand(1, 5), 4, 22), z: SPAWN_Z,
       hover: 0, fireT: 2, flash: 0,
     };
     this.addEnemy(e, 3.5 * GUNSHIP_SCALE);
@@ -559,21 +592,58 @@ export class Combat {
     return this.sideMode ? -18 : z3d;
   }
 
+  // エンディング: 敵を 1 体だけ出して、life 秒のあいだ目の前で回して見せる (撃たず、当たらず、倒せない)。
+  // ふだんの出し方で群れを出し、最初の 1 体だけ残す
+  showcase(kind, life) {
+    const P = this.lastPlayer || new THREE.Vector3(0, 5, 0);
+    const before = this.enemies.length, force = this.forceWave;
+    this.forceWave = kind;
+    this.spawnWave(P.x, P.y);
+    this.forceWave = force;
+    const [e, ...rest] = this.enemies.slice(before);
+    for (const o of rest) o.dead = true;
+    if (!e) return;
+    e.display = { t: 0, life };
+    e.hp = Infinity;
+    e.noLock = true;
+    e.fireT = Infinity;
+    e.mesh.rotation.set(0, Math.PI, 0);
+    e.mesh.position.set(P.x, Math.max(e.r, P.y), P.z - 200);
+  }
+
+  updateShowcase(e, dt, ctx) {
+    const D = e.display, P = ctx.player, p = e.mesh.position;
+    D.t += dt;
+    // 遠くから目の前 (大きさに合わせた距離) まで寄ってきて、ゆっくり回る。名前の文字と重ならないよう、目の高さより少し下に置く。
+    // 最後の 0.7 秒で上へ遠ざかる
+    const leave = D.t > D.life - 0.7;
+    const k = Math.min(1, dt * (leave ? 2 : 3));
+    p.x += (P.x - p.x) * k;
+    p.y += ((leave ? P.y + 30 : Math.max(e.r * 0.8, P.y - 1.5)) - p.y) * k;
+    p.z += ((leave ? P.z - 220 : P.z - Math.max(12, e.r * 3.5)) - p.z) * k;
+    e.mesh.rotation.y += dt * 0.9;
+    e.shadow.position.set(p.x, 0.05, p.z);
+    e.flash -= dt;
+    for (const m of e.mats) m.emissive.copy(e.flash > 0 ? WHITE : m.userData.base || BLACK);
+    if (D.t > D.life) e.dead = true;
+  }
+
   // 出す敵の群れを重み付きで選ぶ。重いもの (ガンシップ・建設ロボ・レンズ・衛星コア) は同時に出しすぎない
   spawnWave(px, py) {
     const isHeavy = (k) => k === 'gunship' || k === 'mech' || !!EXTRA[k]?.heavy;
-    // 重い敵は「組」で数える (建設ロボは 3 機で 1 組)。建設ロボの組は、ほかの重い敵とは別に 1 組まで
+    // 重い敵は「組」で数える (建設ロボは 3 機で 1 組、二十面体は 1 列で 1 組)。建設ロボの組は、ほかの重い敵とは別に 1 組まで
     const live = this.enemies.filter((e) => !e.dead && isHeavy(e.kind));
-    const heavy = new Set(live.map((e) => e.group || e)).size;
+    const heavy = new Set(live.map((e) => e.group || e.pack || e)).size;
     const mechGroups = new Set(live.filter((e) => e.kind === 'mech').map((e) => e.group)).size;
     const ok = (k) => (k === 'mech' ? mechGroups === 0 : isHeavy(k) ? heavy - mechGroups < 2 : true);
     // ステージ表の組み合わせ (なければ全種類)
     const base = this.waveTable || [['fighter', 3], ['gremlin', 2.2], ['pill', 2], ['moai', 1.6], ['ptero', 1.8], ['mech', 1.3], ['gunship', 1]];
-    let table = base.filter(([k]) => ok(k));
+    let table = base.filter(([k]) => ok(k) && !(k === 'mammoth' && this.stageT < 15)); // マンモスは面の最初の 15 秒は出さない
     if (!table.length) table = base.filter(([k]) => !isHeavy(k)); // 上限で出せないときは、表の中の重くない敵から選び直す
     if (!table.length) table = [['fighter', 1]];
     let r = Math.random() * table.reduce((a, [, w]) => a + w, 0);
     const kind = this.forceWave || table.find(([, w]) => (r -= w) < 0)?.[0] || table[0][0];
+    sfx.appear(kind); // 敵の種類ごとの出現音
     if (EXTRA[kind]) return EXTRA[kind].spawn(this, px, py); // 追加の敵 (enemies.js)
     ({
       fighter: () => this.spawnFighterWave(px, py),
@@ -606,7 +676,7 @@ export class Combat {
       const made = TPL.gremlin ? instance(TPL.gremlin) : fallback(0x337a28, 0.8);
       const e = {
         kind: 'gremlin', ...made, r: 1.1 * GREMLIN_SCALE * 0.75, hp: 2, score: 300, t: rand(0, 3), flash: 0, fireT: Infinity,
-        cx: px + rand(-12, 12), cy: THREE.MathUtils.clamp(py + rand(-1, 4), 1.5, 10), z: SPAWN_Z - k * 6, dash: null,
+        cx: px + rand(-12, 12), cy: THREE.MathUtils.clamp(py + rand(-1, 4), 1.5, 18), z: SPAWN_Z - k * 6, dash: null,
       };
       e.parts = ['BugAntL', 'BugAntR', 'BugWingL', 'BugWingR'].map((n2) => e.mesh.getObjectByName(n2)).filter(Boolean);
       e.mesh.scale.setScalar(GREMLIN_SCALE);
@@ -614,7 +684,7 @@ export class Combat {
     }
   }
 
-  // 建設ロボの3機編隊: 縦一列で突っ込んできて、先頭から順に撃っては左右上へ散る (DOMINO RUSH)
+  // 建設ロボの3機編隊: 縦一列で突っ込んできて、目の前まで迫りながら先頭から順に撃っては左右上へ散り、すぐ横をかすめて背後へ抜ける (DOMINO RUSH)
   spawnMechTrio(px) {
     const group = { phase: 'approach', lane: px, at: 0 };
     for (let role = 0; role < 3; role++) {
@@ -626,6 +696,8 @@ export class Combat {
       e.mesh.scale.setScalar(MECH_SCALE);
       e.mesh.position.set(px, 3.3 * MECH_SCALE, e.z);
       e.eye = e.mesh.getObjectByName('MechEye');
+      e.eyeMats = [];
+      e.eye?.traverse((o) => { if (o.isMesh) e.eyeMats.push([o.material, o.material.userData.base.clone()]); });
       this.addEnemy(e, 2.6 * MECH_SCALE);
     }
   }
@@ -701,7 +773,7 @@ export class Combat {
       e.slot = slot;
       e.openT = 1.5 + slot * 0.9; // 順番に開く
       e.cx = px;
-      e.cy = THREE.MathUtils.clamp(py + 3, 6, 14);
+      e.cy = THREE.MathUtils.clamp(py + 3, 6, 24);
       e.mesh.position.set(px, e.cy, SPAWN_Z);
       this.addEnemy(e, 1.6 * PILL_SCALE);
     }
@@ -773,52 +845,120 @@ export class Combat {
     }
   }
 
-  // 3機編隊の動き。approach: 縦一列でプレイヤーの列へ寄せながら突っ込む
-  // → attack: 先頭から 0.7 秒ずつずらして撃ち、上・右・左へ散る → retreat: 下がって去る
+  // 3機編隊の動き (planner-review-v1.5.8 の H1)。approach: 縦一列でプレイヤーの列へ寄せながら突っ込む
+  // → attack: 先頭は 40 m 先で止まり、0.5 秒目を赤く光らせてから体当たり (追うのは最初の 0.3 秒だけ、あとはまっすぐ)。
+  //   当たるときは目の 2 m 手前で砕ける (体の中を抜けない)。2・3 機目は 1 発ずつ撃って左右上へ散り、すぐ横をかすめて背後へ抜ける
+  // → 部隊のボスは、全機が抜けて 2 秒休んでから、遠くへ戻ってまた攻めてくる
   updateMech(e, dt, scroll, ctx) {
-    const G = e.group, p = e.mesh.position;
+    const G = e.group, p = e.mesh.position, P = ctx.player;
     const alive = this.enemies.filter((o) => o.group === G && !o.dead);
     const leader = alive[0] === e; // 先頭が落とされたら、次の機体が先頭になる
     if (G.phase === 'approach') {
       if (leader) {
-        G.lane += THREE.MathUtils.clamp(ctx.player.x - G.lane, -7 * dt, 7 * dt);
-        if (p.z > -55) {
+        G.lane += THREE.MathUtils.clamp(P.x - G.lane, -12 * dt, 12 * dt);
+        if (p.z > -70) {
           G.phase = 'attack';
           G.at = 0;
+          G.rammer = e; // 体当たりするのは、このときの先頭の 1 機だけ
           this.announce = 'DOMINO RUSH!';
         }
       }
-      e.z += (scroll * 0.5 + 46) * dt;
+      e.z += (scroll * 0.5 + 56) * dt;
     } else if (G.phase === 'attack') {
       if (leader) G.at += dt;
-      e.z = Math.min(e.z + (scroll * 0.5 + 30) * dt, ctx.side ? -10 - e.role * 6 : -20 - e.role * 7); // 横スクロールは画面の中で止まる
-      const local = G.at - e.role * 0.7;
-      if (local >= 0 && e.fired === 0) {
-        e.fired = 1;
-        this.fireMechShell(e, ctx);
-        // 1機目は上、2機目は右、3機目は左へ散る
-        e.offTo.set([0, 14, -14][e.role], [9, 1, 1][e.role]);
+      if (e === G.rammer && !ctx.side) {
+        if (!e.ram) {
+          e.z = Math.min(e.z + (scroll * 0.5 + 30) * dt, P.z - 40);
+          G.lane += THREE.MathUtils.clamp(P.x - G.lane, -6 * dt, 6 * dt);
+          const warn = G.at > 0.4;
+          this.setMechEye(e, warn); // 体当たりの合図: 目が赤く光る (0.5 秒)
+          if (G.at > 0.9) {
+            e.ram = { t: 0, vel: _a.subVectors(P, p).normalize().multiplyScalar(42 + this.level * 2).clone() };
+            e.noHit = true; // 当たりは下で見る (目の手前で砕く)
+            sfx.whoosh();
+          }
+        }
+      } else {
+        // 2・3 機目 (横スクロールは全機): 撃って散り、すぐ横をかすめて背後へ抜ける
+        const local = G.at - e.role * 0.7;
+        if (!e.passing) e.z = Math.min(e.z + (scroll * 0.5 + 30) * dt, ctx.side ? -10 - e.role * 6 : -28 - e.role * 7);
+        if (local >= 0 && e.fired === 0) {
+          e.fired = 1;
+          this.fireMechShell(e, ctx);
+          e.offTo.set([0, 14, -14][e.role], [9, 1, 1][e.role]);
+        }
+        if (local >= 1.6 && !e.passing && !ctx.side) {
+          e.passing = true;
+          const away = e.offTo.x === 0 ? (Math.random() < 0.5 ? -1 : 1) : Math.sign(e.offTo.x);
+          e.offTo.set(away * 15, 5); // 15 m 横をかすめる
+        }
+        if (e.passing) e.z = Math.min(e.z + (scroll * 0.5 + 45) * dt, P.z + 20); // 背後 20 m で待つ (消える所まで行かない)
       }
-      if (local >= 1.3 && e.fired === 1) {
-        e.fired = 2;
-        this.fireMechShell(e, ctx);
+      // 全機が背後へ抜けたら (横スクロールは 4.5 秒で) 終わり
+      const done = ctx.side ? G.at > 4.5 : alive.every((o) => (o.ram || o.passing) && o.mesh.position.z > P.z + 12);
+      if (leader && done) {
+        if (G.regroup) {
+          G.phase = 'rest';
+          G.at = 0;
+        } else if (ctx.side) {
+          G.phase = 'retreat';
+        } else {
+          for (const o of alive) o.dead = true;
+        }
       }
-      if (leader && G.at > 4.5) G.phase = 'retreat';
+    } else if (G.phase === 'rest') {
+      // 部隊のボス: 2 秒休んでから、遠くへ戻ってもう一度攻めてくる
+      if (leader) G.at += dt;
+      if (leader && G.at > 2) {
+        G.phase = 'approach';
+        for (const o of alive) {
+          o.ram = o.passing = null;
+          o.noHit = o.noLock = false;
+          o.mesh.visible = o.shadow.visible = true;
+          o.fired = 0;
+          o.z = SPAWN_Z * 0.6 - o.role * 9;
+          o.off.set(0, 0);
+          o.offTo.set(0, 0);
+          this.setMechEye(o, false);
+        }
+      }
     } else {
+      // 去る (部隊のボスが時間切れになったとき、横スクロールの攻撃のあと)
+      e.ram = null;
       e.z -= 32 * dt;
       e.offTo.y = 4;
-      if (G.regroup) {
-        // 部隊のボス: 下がりきったら、もう一度攻めてくる
-        if (leader && e.z < -80) {
-          G.phase = 'approach';
-          for (const o of this.enemies) if (o.group === G) { o.fired = 0; o.offTo.set(0, 0); }
-        }
-      } else if (e.z < SPAWN_Z) {
-        e.dead = true;
+      if (e.z < SPAWN_Z || (G.regroup === false && e.z < -80 && !ctx.side)) e.dead = true;
+      if (G.regroup && leader && e.z < -80) {
+        G.phase = 'approach';
+        for (const o of alive) { o.fired = 0; o.passing = null; o.offTo.set(0, 0); }
       }
     }
-    e.off.lerp(e.offTo, Math.min(1, dt * 6));
-    p.set(G.lane + e.off.x, 3.3 * MECH_SCALE + e.off.y + Math.sin(e.t * 2) * 0.15, e.z);
+    if (e.ram) {
+      const R = e.ram;
+      R.t += dt;
+      if (R.t < 0.3) R.vel.lerp(_a.subVectors(P, p).normalize().multiplyScalar(R.vel.length()), Math.min(1, dt * 6));
+      p.addScaledVector(R.vel, dt);
+      p.z = Math.min(p.z, P.z + 20); // 背後 20 m で待つ (部隊のボスが、また攻めてくるまで)
+      p.y = Math.max(3.3 * MECH_SCALE * 0.6, p.y);
+      e.z = p.z;
+      e.mesh.rotation.x = -0.35; // 前のめりに突っ込む
+      // 目の 2 m 手前まで来たら: 当たる位置なら砕けてダメージ。外れていればそのまま背後へ抜ける
+      if (!R.checked && p.z > P.z - e.r - 2) {
+        R.checked = true;
+        if (Math.hypot(p.x - P.x, p.y - P.y) < e.r + ctx.playerR) {
+          // 砕けて見えなくなり、背後で待つ (倒したことにはしない。部隊のボスなら、次の攻撃でまた出てくる)
+          ctx.onPlayerHit(25);
+          this.explode(p.clone(), true);
+          e.mesh.visible = e.shadow.visible = false;
+          e.noLock = true;
+          p.z = P.z + 20;
+        }
+      }
+    } else {
+      e.off.lerp(e.offTo, Math.min(1, dt * 6));
+      p.set(G.lane + e.off.x, 3.3 * MECH_SCALE + e.off.y + Math.sin(e.t * 2) * 0.15, e.z);
+      e.mesh.rotation.x = 0;
+    }
     e.mesh.rotation.y = Math.atan2(ctx.player.x - p.x, ctx.player.z - p.z) * 0.7;
     e.mesh.rotation.z = THREE.MathUtils.clamp((e.offTo.x - e.off.x) * -0.04, -0.3, 0.3);
     if (e.eye) e.eye.position.x = e.eye.userData.base.x + Math.sin(e.t * 2.5) * 0.4;
@@ -828,6 +968,11 @@ export class Combat {
       e.dustT = 0.06;
       this.smoke.emit(_b.set(p.x + rand(-1.5, 1.5), 0.3, p.z + rand(-1.5, 1.5)), _c.set(rand(-3, 3), 1, rand(-3, 3)), DUST, 1.4, 0.8, 2.5, 0.95);
     }
+  }
+
+  // 建設ロボの目を赤く光らせる (体当たりの合図) / 元に戻す
+  setMechEye(e, red) {
+    for (const [m, base] of e.eyeMats || []) m.userData.base.copy(red ? RED_EYE : base);
   }
 
   fireMechShell(e, ctx) {
@@ -866,7 +1011,7 @@ export class Combat {
       this.itemT -= dt;
       if (this.itemT <= 0) {
         this.itemT = rand(18, 26);
-        this.spawnItem(_a.set(ctx.player.x + rand(-8, 8), THREE.MathUtils.clamp(ctx.player.y + rand(-2, 3), 2, 9), SPAWN_Z * 0.8));
+        this.spawnItem(_a.set(ctx.player.x + rand(-8, 8), THREE.MathUtils.clamp(ctx.player.y + rand(-2, 3), 2, 15), SPAWN_Z * 0.8)); // 高く飛んでいても取りに行ける高さ (15 m まで)
       }
     }
     for (const it of this.items) {
@@ -942,11 +1087,22 @@ export class Combat {
     const nHeads = twin ? 2 : 1;
     for (let h = 0; h < nHeads; h++) {
       const head = make(TPL.head, 2.2, 2.6, true, 1, hues[h]);
-      const neck = twin ? Array.from({ length: 4 }, () => make(TPL.segment, 1.4, 1.6, false, 0.8, hues[h])) : [];
-      b.heads.push({
-        head, neck, side: twin ? (h ? 1 : -1) : 0, phase: h * 2.1, hue: hues[h],
+      const neck = twin ? Array.from({ length: 6 }, () => make(TPL.segment, 1.4, 1.6, false, 0.8, hues[h])) : [];
+      const H = {
+        head, neck, side: twin ? (h ? 1 : -1) : 0, sign: h ? 1 : -1, phase: h * 2.1, hue: hues[h], hp: hp / nHeads,
         fireT: 3 + h * 0.8, breathT: 8 + h * 3, breath: 0, flameT: 0, lungeT: 9 + h * 4, lunge: 0,
-      });
+      };
+      for (const part of [head, ...neck]) part.owner = H; // 二首は首ごとに体力を持ち、片方ずつ壊せる
+      b.heads.push(H);
+    }
+    if (twin) {
+      // 2 本の首が合わさる付け根。首はここから頭へ曲線でかけ渡し、胴体はここから後ろへつなげる (首と胴体が離れないように)
+      const at = new THREE.Vector3(0, 8, SPAWN_Z - 14);
+      b.hub = { spine: at, r: 1.6 * BOSS_SCALE * 0.8, mesh: { position: at } };
+      b.lost = []; // 壊れた首 (頭から順に爆発させる)
+      b.rushT = 16; // 二首そろって目の前まで迫ってくる攻撃
+      b.rush = -1;
+      b.volleyT = 0;
     }
     for (let i = 0; i < 9 + lv * 2; i++) b.body.push(make(TPL.segment, 1.4, 1.6, false));
     b.body.push(make(TPL.tail, 1.1, 1.3, false));
@@ -1054,6 +1210,7 @@ export class Combat {
       b.dying += dt;
       while (b.exploded < b.parts.length && b.dying > b.exploded * 0.11) {
         const part = b.parts[b.exploded++];
+        if (part.dead) continue; // 先に壊れた首
         this.explode(part.mesh.position, true);
         part.dead = true;
       }
@@ -1064,17 +1221,56 @@ export class Combat {
       return;
     }
 
+    // 壊れた首: 頭から順に爆発させる (残りは落ちていく)
+    for (const L of b.lost || []) {
+      L.t += dt;
+      for (const part of L.parts) if (!part.dead) part.mesh.position.y -= 8 * L.t * dt;
+      while (L.n < L.parts.length && L.t > L.n * 0.12) {
+        const part = L.parts[L.n++];
+        this.explode(part.mesh.position, L.n === 1);
+        part.dead = true;
+      }
+    }
+    if (b.lost) b.lost = b.lost.filter((L) => L.n < L.parts.length);
+
+    // 突進 (二首): 遠くからうなって迫り、プレイヤーの左右の目の前に頭を並べて撃ちまくり、また下がる
+    const RUSH_IN = 1.4, RUSH_HOLD = 3.2, RUSH_OUT = 1.4;
+    let rushK = 0;
+    if (b.twin && !ctx.side) {
+      if (b.rush < 0) {
+        b.rushT -= dt;
+        if (b.rushT <= 0 && t > 8 && !b.lunging && b.heads.every((H) => H.breath <= 0)) {
+          b.rush = 0;
+          b.volleyT = RUSH_IN;
+          sfx.roar();
+          sfx.whoosh();
+        }
+      } else {
+        b.rush += dt;
+        const r = b.rush;
+        rushK = r < RUSH_IN ? THREE.MathUtils.smoothstep(r, 0, RUSH_IN)
+          : r < RUSH_IN + RUSH_HOLD ? 1 : 1 - THREE.MathUtils.smoothstep(r, RUSH_IN + RUSH_HOLD, RUSH_IN + RUSH_HOLD + RUSH_OUT);
+        if (r > RUSH_IN + RUSH_HOLD + RUSH_OUT) {
+          b.rush = -1;
+          b.rushT = b.heads.length > 1 ? rand(13, 17) : rand(9, 12); // 首が 1 本になると怒って、よく迫ってくる
+        }
+      }
+    }
+
     // 頭: それぞれの目標へ向かう。二首は左右に分かれ、動きの位相もずらす
     for (const H of b.heads) {
+      if (b.twin && b.heads.length === 1) H.side += (0 - H.side) * Math.min(1, dt); // 1 本になったら真ん中へ寄る
       const target = _d.set(
         P.x * 0.4 + H.side * 11 + 18 * Math.sin(t * 0.62 + H.phase) + 5 * Math.sin(t * 1.9 + H.phase),
-        THREE.MathUtils.clamp(P.y + 3 + 6 * Math.sin(t * 1.3 + H.phase) + 2 * Math.sin(t * 2.7 + H.phase), 6, Math.min(22, this.ceilingY)),
+        THREE.MathUtils.clamp(P.y + 3 + 6 * Math.sin(t * 1.3 + H.phase) + 2 * Math.sin(t * 2.7 + H.phase), 6, Math.min(32, this.ceilingY)),
         ctx.side ? -20 + 5 * Math.sin(t * 0.41 + H.phase) : -38 + 8 * Math.sin(t * 0.41 + H.phase),
       );
       if (t < 5) target.z = THREE.MathUtils.lerp(ctx.side ? -60 : -200, target.z, t / 5); // 遠くから迫ってくる
+      // 突進: プレイヤーの左右、少し前に頭を並べる (ぶつからない距離)
+      if (rushK > 0) target.lerp(_e.set(P.x + H.sign * 10, Math.max(4, P.y + 2.5), P.z - 13), rushK);
       // 噛みつき: ときどき目の前まで突っ込んでくる (同時に噛みつくのは 1 つの頭だけ)
       H.lungeT -= dt;
-      if (H.lungeT <= 0 && t > 6 && !b.lunging && H.breath <= 0) {
+      if (H.lungeT <= 0 && t > 6 && !b.lunging && H.breath <= 0 && !(b.rush >= 0)) {
         H.lungeT = rand(6, 9) * (b.twin ? 1.4 : 1);
         H.lunge = 1.2;
         b.lunging = H;
@@ -1082,23 +1278,59 @@ export class Combat {
       }
       if (H.lunge > 0) {
         H.lunge -= dt;
-        target.set(P.x + (H.side || 1) * 7, P.y + 3, ctx.side ? P.z - 9 : -14); // 巨大なので少し離れた位置で噛みつく
+        target.set(P.x + (b.twin ? H.sign : 1) * 7, P.y + 3, ctx.side ? P.z - 9 : -14); // 巨大なので少し離れた位置で噛みつく
         if (H.lunge <= 0) b.lunging = null;
       }
-      H.head.spine.lerp(target, 1 - Math.exp(-dt * (H.lunge > 0 ? 3.5 : 2.6)));
+      H.head.spine.lerp(target, 1 - Math.exp(-dt * (rushK > 0 ? 8 : H.lunge > 0 ? 3.5 : 2.6)));
       H.head.mesh.position.copy(H.head.spine);
       H.head.mesh.lookAt(P);
-      this.followChain(H.neck, H.head, 1, dt, t + H.phase);
+      if (!b.twin) this.followChain(H.neck, H.head, 1, dt, t + H.phase);
     }
-    // 胴体の先 (二首なら 2 本の首の付け根の真ん中) から胴体をつなげる
-    let root = b.heads[0].neck.length ? b.heads[0].neck.at(-1) : b.heads[0].head;
     if (b.twin) {
-      const a = b.heads[0].neck.at(-1), c = b.heads[1].neck.at(-1);
-      root = { spine: _c.addVectors(a.spine, c.spine).multiplyScalar(0.5).clone(), r: a.r, mesh: { position: _c.addVectors(a.mesh.position, c.mesh.position).multiplyScalar(0.5).clone() } };
+      // 付け根: 頭たちのうしろ下。突進のときは胴体ごと迫ってくる
+      const hub = b.hub.spine;
+      const want = _c.set(0, 0, 0);
+      for (const H of b.heads) want.add(H.head.spine);
+      want.multiplyScalar(1 / b.heads.length).add(_b.set(0, -2, -14));
+      if (rushK > 0) want.lerp(_b.set(P.x, Math.max(5, P.y), P.z - 32), rushK);
+      hub.lerp(want, 1 - Math.exp(-dt * 2));
+      for (const H of b.heads) { // 首が伸びきらないように、離れすぎた頭のほうへ寄る
+        const d = hub.distanceTo(H.head.spine);
+        if (d > 30) hub.lerp(H.head.spine, (d - 30) / d);
+      }
+      // 首: 頭から付け根まで曲線でかけ渡す (外側へふくらませ、少しうねらせる)。最後の節が付け根に重なる
+      for (const H of b.heads) {
+        const a = H.head.mesh.position, n = H.neck.length;
+        const ctrl = _d.addVectors(a, hub).multiplyScalar(0.5).add(_b.set(H.side * 4, 3, 0));
+        H.neck.forEach((part, k) => {
+          const u = (k + 1) / n, v = 1 - u;
+          part.spine.set(0, 0, 0).addScaledVector(a, v * v).addScaledVector(ctrl, 2 * u * v).addScaledVector(hub, u * u);
+          const w = Math.sin(Math.PI * u) * 1.6; // 両端は動かさない
+          part.mesh.position.copy(part.spine).add(_b.set(Math.sin(t * 3 + H.phase - k * 0.7) * w, Math.cos(t * 2.4 + H.phase - k * 0.6) * w * 0.6, 0));
+          part.mesh.lookAt(k ? H.neck[k - 1].mesh.position : a);
+        });
+      }
     }
+    // 胴体の先 (二首なら首の付け根) から胴体をつなげる
+    const root = b.twin ? b.hub : b.heads[0].head;
     this.followChain(b.body, root, b.twin ? 5 : 1, dt, t);
 
     if (!ctx.active || t < 5) return;
+    if (b.rush >= 0) {
+      // 突進中は、左右の頭がかわるがわる目の前から扇の弾を撃つ (真ん中は少し外す)
+      if (b.rush > RUSH_IN && b.rush < RUSH_IN + RUSH_HOLD) {
+        b.volleyT -= dt;
+        if (b.volleyT <= 0) {
+          b.volleyT = Math.max(0.35, 0.6 - this.level * 0.03) * (b.heads.length > 1 ? 1 : 0.8);
+          b.volleyN = (b.volleyN || 0) + 1;
+          const H = b.heads[b.volleyN % b.heads.length], head = H.head;
+          const from = _c.copy(head.mesh.position).add(_b.set(0, -0.5, 2.5).multiplyScalar(BOSS_SCALE).applyQuaternion(head.mesh.quaternion));
+          const n = b.hp < b.maxHp * 0.5 ? 6 : 4;
+          for (let k = 0; k < n; k++) this.fireBullet(from.clone(), P, (k - (n - 1) / 2) * 0.16);
+        }
+      }
+      return; // 突進中はほかの攻撃をしない
+    }
     for (const H of b.heads) {
       const head = H.head;
       // 光の帯: ときどき口の核から光を噴き出す (首を振るので、帯が左右に流れる)
@@ -1139,6 +1371,16 @@ export class Combat {
     }
   }
 
+  // まとめて描く弾 (光る弾・光線) の位置を、描画用の InstancedMesh へ書き写す
+  drawPools() {
+    for (const list of Object.values(this.pools)) list.forEach((p) => p.begin());
+    for (const o of [...this.bullets, ...this.shots]) {
+      const key = o.mesh.userData.pool;
+      if (key) for (const p of this.pools[key]) p.push(o.mesh);
+    }
+    for (const list of Object.values(this.pools)) list.forEach((p) => p.end());
+  }
+
   // ---- 発射
   // style: 'beam' (宇宙船の光線)、'fireball' (ランナーの火の玉。火の粉を散らして飛ぶ)
   fireGun(origin, target, style = 'beam') {
@@ -1147,9 +1389,10 @@ export class Combat {
     if (style === 'fireball') {
       m = new THREE.Mesh(GEO.fireball, MAT.fireballCore);
       m.add(new THREE.Mesh(GEO.fireballHalo, MAT.fireballHalo));
-      speed = 170;
+      speed = FIREBALL_SPEED;
     } else {
-      m = new THREE.Mesh(GEO.shot, MAT.shot);
+      m = new THREE.Object3D(); // 光線は pools.shot でまとめて描く
+      m.userData.pool = 'shot';
     }
     m.position.copy(origin);
     m.lookAt(_a.copy(origin).add(dir));
@@ -1190,7 +1433,8 @@ export class Combat {
   }
 
   // type: 'orb' (光る弾)、'ring' (晶洞岩の光の輪、遅いが大きい)、'shell' (バズーカ、煙を引く)
-  fireBullet(from, at, spread = 0, type = 'orb', hue = null) {
+  // quiet: 発射音を鳴らさない (弾幕で一度にたくさん撃つとき。音は呼ぶ側で 1 回だけ鳴らす)
+  fireBullet(from, at, spread = 0, type = 'orb', hue = null, quiet = false) {
     const dir = _d.subVectors(at, from).normalize();
     if (spread) dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), spread);
     let m, speed = 34 * (this.hard ? 1.35 : 1), r = 0.45; // 難しいモードは敵の弾が速い
@@ -1224,14 +1468,14 @@ export class Combat {
       speed = 27;
       r = 0.7;
     } else {
-      m = new THREE.Mesh(GEO.bullet, MAT.bullet);
-      m.add(new THREE.Mesh(GEO.bulletHalo, MAT.bulletHalo));
+      m = new THREE.Object3D(); // 光る弾は pools.orb でまとめて描く (弾幕で何十発も出るため)
+      m.userData.pool = 'orb';
     }
     m.position.copy(from);
     m.lookAt(_a.copy(from).add(dir));
     this.scene.add(m);
     this.bullets.push({ mesh: m, vel: dir.clone().multiplyScalar(speed), r, life: type === 'fire' ? 2.4 : 9, age: 0, type, puffT: 0, mats });
-    if (type !== 'fire') sfx.enemyShot();
+    if (type !== 'fire' && !quiet) sfx.enemyShot();
   }
 
   // ---- 爆発
@@ -1252,13 +1496,38 @@ export class Combat {
     sfx.explode(big);
   }
 
+  // 二首のボスの首を 1 本壊す (頭から付け根へ順に爆発)。残った首は真ん中へ寄り、怒ってよく迫ってくる
+  breakBossHead(b, H) {
+    H.dead = true;
+    b.heads = b.heads.filter((h) => h !== H);
+    if (b.lunging === H) b.lunging = null;
+    b.lost.push({ parts: [H.head, ...H.neck], t: 0, n: 0 });
+    for (const part of [H.head, ...H.neck]) part.noLock = part.noHit = true;
+    b.rushT = Math.min(b.rushT, 4);
+    const bonus = Math.round(3000 * this.bonusLevel * this.mult);
+    this.score += bonus;
+    this.kills++;
+    sfx.explode(true);
+    sfx.roar();
+  }
+
   damage(e, amount) {
     e.flash = 0.08;
     if (e.kind === 'boss') {
       const b = e.boss;
       if (b.dying >= 0) return;
-      b.hp -= amount * (e.isHead ? 1.5 : 0.5); // 頭が弱点。胴体の節は硬い
+      const dmg = amount * (e.isHead ? 1.5 : 0.5); // 頭が弱点。胴体の節は硬い
       sfx.hit();
+      if (b.twin) {
+        // 二首: 首ごとに体力を持つ (胴体に当てると、体力の多いほうの首が減る)。片方の体力がなくなると、その首が壊れる
+        const H = e.owner || b.heads.reduce((x, y) => (y.hp > x.hp ? y : x));
+        if (H.dead) return;
+        H.hp -= dmg;
+        if (H.hp <= 0 && b.heads.length > 1) this.breakBossHead(b, H);
+        b.hp = b.heads.reduce((sum, h) => sum + Math.max(0, h.hp), 0);
+      } else {
+        b.hp -= dmg;
+      }
       if (b.hp <= 0) {
         b.dying = 0;
         this.lastBossBonus = Math.round(10000 * this.bonusLevel * this.mult);
@@ -1303,6 +1572,7 @@ export class Combat {
       }
     }
     this.lastPlayer = ctx.player;
+    if (ctx.spawn) this.stageT += dt; // 面の通常の区間が始まってからの時間
     this.updateBoss(dt, ctx);
     this.updateBossGroup(dt);
     this.updateItems(dt, scroll, ctx);
@@ -1310,6 +1580,7 @@ export class Combat {
     // 敵の動き
     for (const e of this.enemies) {
       e.t += dt;
+      if (e.display) { this.updateShowcase(e, dt, ctx); continue; } // エンディングの紹介 (動かず、撃たず、当たらない)
       const p = e.mesh.position;
       const z0 = p.z;
       if (e.kind === 'boss') {
@@ -1475,7 +1746,7 @@ export class Combat {
       b.mesh.position.addScaledVector(b.vel, dt * (flat ? SIDE_BULLET_SCALE : 1));
       if (flat) b.mesh.position.x = ctx.planeX;
       // 障害物に当たった弾は止まる (柱や石板の陰に隠れてよけられる)。炎・光の帯は止まらない
-      if (ctx.world && b.type !== 'fire' && ctx.world.shotTest(_e, b.mesh.position, _f)) {
+      if (ctx.world && b.type !== 'fire' && ctx.world.shotTest(_e, b.mesh.position, _f, true)) {
         b.dead = true;
         this.sparks.emit(_f, _c.set(0, 2, 0), WHITE, 0.5, 0.12);
         continue;
@@ -1525,7 +1796,7 @@ export class Combat {
       if (near?.noAssist) near = null; // ミラーコアの核は、見えている所を狙って撃つ (中心へ曲げると鏡に当たる)
       // 動いている敵は、弾が届くまでに進む分だけ先を狙う (先読み)
       const aimAt = near ? near.mesh.position.clone() : g.aimOrigin.clone().addScaledVector(g.aimDir, 90);
-      if (near?.vel) aimAt.addScaledVector(near.vel, g.origin.distanceTo(aimAt) / GUN_SPEED);
+      if (near?.vel) aimAt.addScaledVector(near.vel, g.origin.distanceTo(aimAt) / (ctx.gunStyle === 'fireball' ? FIREBALL_SPEED : GUN_SPEED)); // 火の玉は遅いので、その分先を狙う
       this.fireGun(g.origin, aimAt, ctx.gunStyle);
       sfx.shot();
     }
@@ -1583,7 +1854,13 @@ export class Combat {
       if (o) {
         const c = _d;
         s.dead = true;
-        if (o.breakable) {
+        if (o.hitPart.breakable) {
+          // 壊せる部品 (アーチの上の宝石): その部品だけ消す
+          o.group.remove(o.hitPart.mesh);
+          o.parts = o.parts.filter((pt) => pt !== o.hitPart);
+          this.score += Math.round(100 * this.mult);
+          this.explode(c);
+        } else if (o.breakable) {
           o.dead = true;
           this.score += Math.round(50 * this.mult);
           this.explode(c);
@@ -1669,6 +1946,7 @@ export class Combat {
         });
       }
     }
+    this.drawPools();
 
     // 照準とロックの印 (距離に比例して大きくし、見た目の大きさを一定にする)
     this.aim.visible = !!ctx.showAim;

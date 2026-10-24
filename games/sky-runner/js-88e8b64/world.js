@@ -335,6 +335,7 @@ export class World {
       gem.position.y = h + 2.2;
       g.add(gem);
       parts.push({ c: 'box', hx: w + 0.8, hz: 0.9, y0: h, y1: h + 1.6 });
+      parts.push({ c: 'sph', r: 1.4, y: h + 2.2, breakable: true, shotOnly: true, mesh: gem }); // 上の宝石は撃って壊せる (アーチは残る)。体や敵の弾には当たらない
       o = { kind: 'arch', group: g, r: w + 1, h: h + 1.6, parts };
     } else if (kind === 'monolith') {
       // 黒曜石の石板: 横に広く薄い壁。回り込むか、上を飛び越える
@@ -454,6 +455,7 @@ export class World {
       if (Math.min(z0, z1) - o.r - r - 3 > p.z || Math.max(z0, z1) + o.r + r + 3 < p.z) continue;
       const qx = p.x - o.group.position.x;
       for (const pt of o.parts) {
+        if (pt.shotOnly) continue; // 弾の当たりだけの部品 (アーチの上の宝石)
         // 部品ごとに z をまたいだかを見る (またいだら z の差は 0 とみなす)
         const a = z0 + (pt.dz || 0) - p.z, b = z1 + (pt.dz || 0) - p.z;
         const qz = a * b <= 0 ? (pt.dz || 0) : b + (pt.dz || 0);
@@ -466,15 +468,16 @@ export class World {
     return null;
   }
 
-  // 弾 (prev → pos の線分) が当たった障害物と、当たった点を返す
-  shotTest(prev, pos, out) {
+  // 弾 (prev → pos の線分) が当たった障害物と、当たった点を返す (当たった部品は o.hitPart)
+  // enemy: 敵の弾 (弾の当たりだけの部品 shotOnly は見ない)
+  shotTest(prev, pos, out, enemy = false) {
     for (const o of this.obstacles) {
       if (o.dead || o.knocked) continue;
       const op = o.group.position;
       if (Math.abs(pos.z - op.z) > o.r + 8 && Math.abs(prev.z - op.z) > o.r + 8) continue;
       for (let k = 0; k <= 4; k++) {
         out.lerpVectors(prev, pos, k / 4);
-        for (const pt of o.parts) if (World.touches(pt, out.x - op.x, out.y, out.z - op.z, 0.3)) return o;
+        for (const pt of o.parts) if (!(enemy && pt.shotOnly) && World.touches(pt, out.x - op.x, out.y, out.z - op.z, 0.3)) { o.hitPart = pt; return o; } // hitPart: 当たった部品
       }
     }
     return null;
