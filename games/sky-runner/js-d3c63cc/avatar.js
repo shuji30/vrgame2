@@ -48,6 +48,7 @@ export class Avatar {
     this.anchor = new THREE.Vector3(0, 1.6, 0); // 一人称で目を合わせる頭の位置 (rig の中)
     this.recenterPending = true;
     this.destroyed = false;  // ゲームオーバーで爆発したら消す
+    this.hidden = false;     // エンディングの間は隠す (影も)
     this.riding = false;     // ボーナスステージで水晶のそりに乗っている (一人称では機体を隠す)
     this.stumbleT = 0;       // 茂みにつまずいてよろけている残り時間
     this.fallT = -1;         // やられて地面に落ちている時間 (-1 = 落ちていない)
@@ -135,7 +136,7 @@ export class Avatar {
     }
 
     for (const [k, m] of Object.entries(this.models)) {
-      const show = k === kind && !(view === '1st' && (kind === 'human' || this.riding)) && !this.destroyed;
+      const show = k === kind && !(view === '1st' && (kind === 'human' || this.riding)) && !this.destroyed && !this.hidden;
       m.obj.rotation.order = view === 'side' ? 'YXZ' : 'XYZ';
       m.obj.visible = show;
       if (k !== kind) continue;
@@ -215,6 +216,6 @@ export class Avatar {
     this.shadow.position.set(this.hitPoint.x, 0.04, this.hitPoint.z);
     this.shadow.scale.setScalar((kind === 'ship' ? 2.6 : 0.8) * (1 - Math.min(h / 30, 0.5)));
     this.shadow.material.opacity = 0.35 * (1 - Math.min(h / 20, 0.6));
-    this.shadow.visible = !!m && !this.destroyed;
+    this.shadow.visible = !!m && !this.destroyed && !this.hidden;
   }
 }

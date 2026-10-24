@@ -42,7 +42,7 @@ export const STAGES = [
     obstacles: { mushroom: 3.5, spike: 1, ring: 0.8, lane: 0.28 },
     palette: { a: 0xffbcd9, b: 0x9a52c8, fog: 0xffe2f0, sky: 0x6a3ad0, mount: 0x9a6ac0, col: ['#ffffff', '#ff6aa8'], bush: 0xd062c4 },
     bgm: { key: 1, tempo: 154, song: 'jazz' },
-    boss: { type: 'twin', hp: 520, escape: 0 },
+    boss: { type: 'twin', hp: 440, escape: 0 },
   },
   {
     name: 'STEEL CANYON', kind: 'normal', length: 40, speed: 46, diff: 3, density: 1.0, ceiling: true,

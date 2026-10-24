@@ -2,7 +2,7 @@
 import { GENRE_NAMES, makeSongs } from './songs.js';
 
 let outNode = null; // 最終段 (録画で音を取り出すため)
-let ctx = null, master = null, sfxBus = null, bgmBus = null, noiseBuf = null;
+let ctx = null, master = null, sfxBus = null, appearBus = null, bgmBus = null, noiseBuf = null;
 let muted = false, timer = null, step = 0, nextTime = 0;
 let transpose = 0, tempo = 152;
 let bgmEnabled = true, engineEnabled = true;
@@ -33,6 +33,9 @@ export function initAudio() {
   sfxBus = ctx.createGain();
   sfxBus.gain.value = 0.8;
   sfxBus.connect(master);
+  appearBus = ctx.createGain();
+  appearBus.gain.value = 2.6; // 出現音は 2.6 倍 (曲や撃つ音にかき消されないように)
+  appearBus.connect(sfxBus);
   bgmBus = ctx.createGain();
   bgmBus.gain.value = BGM_LEVEL;
   bgmBus.connect(master);
@@ -80,35 +83,35 @@ const now = () => ctx.currentTime;
 // 敵の出現音。音量は控えめ (数秒おきに鳴るので、曲や撃つ音のじゃまにならないように)
 const APPEAR = {
   // 戦闘機: ジェットが遠くから近づく (高く上がるノイズと、下がる電子音)
-  fighter: (t) => { noise(t, 0.6, 0.25, 2400, sfxBus, 'bandpass'); osc('sawtooth', 900, t, 0.4, 0.05, sfxBus, 400); },
+  fighter: (t) => { noise(t, 0.6, 0.25, 2400, appearBus, 'bandpass'); osc('sawtooth', 900, t, 0.4, 0.05, appearBus, 400); },
   // 水晶の矢: 澄んだ音が 5 つ駆け上がる
-  dart: (t) => [84, 88, 91, 96, 100].forEach((m, i) => osc('sine', mtof(m), t + i * 0.05, 0.18, 0.07, sfxBus)),
+  dart: (t) => [84, 88, 91, 96, 100].forEach((m, i) => osc('sine', mtof(m), t + i * 0.05, 0.18, 0.07, appearBus)),
   // 結晶の小虫: 羽音のような細かい震え
-  gremlin: (t) => { for (let i = 0; i < 6; i++) osc('square', 1800 + i * 120, t + i * 0.04, 0.03, 0.04, sfxBus, 1400); },
+  gremlin: (t) => { for (let i = 0; i < 6; i++) osc('square', 1800 + i * 120, t + i * 0.04, 0.03, 0.04, appearBus, 1400); },
   // ダンゴムシ: 殻が転がる、ころころという低い音
-  pill: (t) => { for (let i = 0; i < 4; i++) osc('triangle', 220 - i * 25, t + i * 0.08, 0.07, 0.12, sfxBus, 150); },
+  pill: (t) => { for (let i = 0; i < 4; i++) osc('triangle', 220 - i * 25, t + i * 0.08, 0.07, 0.12, appearBus, 150); },
   // 晶洞岩: 地面から重い岩がせり上がる
-  moai: (t) => { noise(t, 0.8, 0.35, 260, sfxBus); osc('sine', 60, t, 0.8, 0.25, sfxBus, 90); },
+  moai: (t) => { noise(t, 0.8, 0.35, 260, appearBus); osc('sine', 60, t, 0.8, 0.25, appearBus, 90); },
   // 建設ロボ: 機械の起動音 (ピッピッと上がる)
-  mech: (t) => [0, 0.12, 0.24].forEach((d, i) => osc('square', 330 * (1 + i * 0.5), t + d, 0.08, 0.06, sfxBus)),
+  mech: (t) => [0, 0.12, 0.24].forEach((d, i) => osc('square', 330 * (1 + i * 0.5), t + d, 0.08, 0.06, appearBus)),
   // 翼竜: 遠くの鳴き声 (小さく)
-  ptero: (t) => osc('sawtooth', 1600, t, 0.5, 0.05, sfxBus, 700),
+  ptero: (t) => osc('sawtooth', 1600, t, 0.5, 0.05, appearBus, 700),
   // ガンシップ: 低いエンジンのうなり
-  gunship: (t) => { osc('sawtooth', 55, t, 1.2, 0.15, sfxBus, 75); noise(t, 1.2, 0.2, 400, sfxBus); },
+  gunship: (t) => { osc('sawtooth', 55, t, 1.2, 0.15, appearBus, 75); noise(t, 1.2, 0.2, 400, appearBus); },
   // ガラスのレンズ: きらきら回る和音
-  lens: (t) => [79, 83, 86, 91].forEach((m, i) => osc('triangle', mtof(m), t + i * 0.07, 0.4, 0.05, sfxBus)),
+  lens: (t) => [79, 83, 86, 91].forEach((m, i) => osc('triangle', mtof(m), t + i * 0.07, 0.4, 0.05, appearBus)),
   // 水晶塔: 地面を突き破る音
-  turret: (t) => { noise(t, 0.3, 0.4, 1200, sfxBus); osc('square', 120, t, 0.25, 0.1, sfxBus, 240); },
+  turret: (t) => { noise(t, 0.3, 0.4, 1200, appearBus); osc('square', 120, t, 0.25, 0.1, appearBus, 240); },
   // 結晶コウモリ: 高い超音波のさえずり
-  bat: (t) => { for (let i = 0; i < 3; i++) osc('sine', 3200, t + i * 0.09, 0.05, 0.05, sfxBus, 2400); },
+  bat: (t) => { for (let i = 0; i < 3; i++) osc('sine', 3200, t + i * 0.09, 0.05, 0.05, appearBus, 2400); },
   // 跳ねる結晶: ぽよんと跳ねる
-  bouncer: (t) => { osc('sine', 300, t, 0.15, 0.15, sfxBus, 700); osc('sine', 300, t + 0.18, 0.12, 0.1, sfxBus, 600); },
+  bouncer: (t) => { osc('sine', 300, t, 0.15, 0.15, appearBus, 700); osc('sine', 300, t + 0.18, 0.12, 0.1, appearBus, 600); },
   // 二十面体: 重い鉄の球が転がり出す、ごろごろという地響き
-  icosa: (t) => { noise(t, 1.4, 0.45, 180, sfxBus); osc('sine', 45, t, 1.4, 0.3, sfxBus, 35); osc('square', 90, t, 0.2, 0.06, sfxBus, 60); },
+  icosa: (t) => { noise(t, 1.4, 0.45, 180, appearBus); osc('sine', 45, t, 1.4, 0.3, appearBus, 35); osc('square', 90, t, 0.2, 0.06, appearBus, 60); },
   // マンモス: 重い足音が 3 つ近づいてくる
-  mammoth: (t) => [0, 0.32, 0.64].forEach((d, i) => { osc('sine', 70, t + d, 0.25, 0.18 + i * 0.06, sfxBus, 40); noise(t + d, 0.2, 0.15 + i * 0.05, 220, sfxBus); }),
+  mammoth: (t) => [0, 0.32, 0.64].forEach((d, i) => { osc('sine', 70, t + d, 0.25, 0.18 + i * 0.06, appearBus, 40); noise(t + d, 0.2, 0.15 + i * 0.05, 220, appearBus); }),
   // 衛星コア: 不思議な電子のうねり
-  orbiter: (t) => { osc('sine', 500, t, 0.7, 0.08, sfxBus, 1000); osc('sine', 750, t, 0.7, 0.05, sfxBus, 1500); },
+  orbiter: (t) => { osc('sine', 500, t, 0.7, 0.08, appearBus, 1000); osc('sine', 750, t, 0.7, 0.05, appearBus, 1500); },
 };
 
 export const sfx = {
