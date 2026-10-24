@@ -10,19 +10,19 @@
 //   diff     難しさ (1〜8)。敵の体力・撃つ頻度・出る間隔に効く
 //   density  敵の群れが出る間隔の倍率 (大きいほど多く出る)
 //   waves    出てくる敵と重み (fighter 戦闘機、gremlin 結晶の小虫、pill ダンゴムシ、moai 晶洞岩、ptero 翼竜、mech 建設ロボ 3 機、gunship ガンシップ、
-//            dart 水晶の矢、lens ガラスのレンズ、turret 水晶塔、bat 結晶コウモリ、bouncer 跳ねる結晶、orbiter 衛星コア)
+//            dart 水晶の矢、lens ガラスのレンズ、turret 水晶塔、bat 結晶コウモリ、bouncer 跳ねる結晶、orbiter 衛星コア、mammoth マンモス)
 //   obstacles 障害物の重み (column 柱 / bush 茂み / tree 木 / rock 浮遊岩 / mushroom 巨大キノコ / crystal 水晶 / arch ガラスのアーチ /
 //            monolith 黒曜石の石板 / spike 地面のトゲ / ring 浮遊リング (くぐるとボーナス))。lane: 進路上に置く確率
 //   ceiling  天井がある面
 //   palette  地面の 2 色 (a, b)、霧と地平線 (fog)、空の上 (sky)、遠景の山 (mount)、柱の帯 (col)、茂みや木の葉 (bush)
 //   bgm      通常の曲のキー (半音) とテンポ
-//   boss     { type: 'serpent' | 'twin' | 'squad' | 'swarm' | 'mirror' (ミラーコア。tier 1〜3) | 'geodering' (晶洞の輪。tier 1〜2) | 'mine' (浮遊鉱山。escape 秒耐えれば撃破) | 'colossus' (磁鉄の巨像) | 'sun' (最終ボス) | 'crown' (氷晶の冠) | 'worm' (砂岩の大蛇) | 'turbine' (双子の回転刃) | 'phantom' (水晶の亡霊) | 'laserwing' (光翼の母船) | 'mantis' (硝子のカマキリ) | 'whale' (溶岩の結晶鯨), hp, escape (秒。この時間で逃げる。0 = 倒すまで), diff (ボスラッシュで使う強さ) }
+//   boss     { type: 'serpent' | 'twin' | 'squad' | 'swarm' | 'mirror' (ミラーコア。tier 1〜3) | 'geodering' (晶洞の輪。tier 1〜2) | 'mine' (浮遊鉱山) | 'colossus' (磁鉄の巨像) | 'sun' (最終ボス) | 'crown' (氷晶の冠) | 'worm' (砂岩の大蛇) | 'turbine' (双子の回転刃) | 'phantom' (水晶の亡霊) | 'laserwing' (光翼の母船) | 'mantis' (硝子のカマキリ) | 'whale' (溶岩の結晶鯨), hp, escape (秒。この時間で逃げる。0 = 倒すまで), diff (ボスラッシュで使う強さ) }
 //   rush     ボスラッシュの順番 (18 面)
 
 export const STAGES = [
   {
     name: 'SUNNY FIELD', kind: 'normal', length: 45, speed: 40, diff: 1, density: 0.9,
-    waves: [['fighter', 3], ['dart', 1.5], ['gremlin', 1]],
+    waves: [['fighter', 3], ['dart', 1.5], ['gremlin', 1], ['mammoth', 1.2]],
     obstacles: { bush: 3, tree: 2, ring: 1.2, column: 0.5, lane: 0.25 },
     palette: { a: 0xe9cf6a, b: 0x3e9c3c, fog: 0xf6dcae, sky: 0x2f72d8, mount: 0x5a70a8, col: ['#f4f4f4', '#e2559a'], bush: 0x2e8b3a },
     bgm: { key: 0, tempo: 152, song: 'rock' },
@@ -46,8 +46,8 @@ export const STAGES = [
   },
   {
     name: 'STEEL CANYON', kind: 'normal', length: 40, speed: 46, diff: 3, density: 1.0, ceiling: true,
-    waves: [['mech', 3], ['icosa', 2.5], ['turret', 1.5], ['fighter', 1]],
-    obstacles: { column: 2.5, monolith: 1.2, lane: 0.3 },
+    waves: [['mech', 3], ['icosa', 4], ['turret', 1.5], ['fighter', 1]],
+    obstacles: { column: 2.5, lane: 0.3 }, // 二十面体の面: 黒い石板は出さない
     palette: { a: 0xcfd3dc, b: 0x5a6070, fog: 0xd8dce8, sky: 0x4a5a80, mount: 0x5a6478, col: ['#e8ecf4', '#3a4458'], bush: 0x6a7a6a },
     bgm: { key: 1, tempo: 158, song: 'metal' },
     boss: { type: 'squad', hp: 0, escape: 32 },
@@ -84,8 +84,8 @@ export const STAGES = [
   },
   {
     name: 'IRON TUNNEL', kind: 'normal', length: 38, speed: 49, diff: 6, density: 1.2, ceiling: true,
-    waves: [['mech', 2.5], ['icosa', 2.5], ['orbiter', 1.5], ['fighter', 1]],
-    obstacles: { column: 2.5, monolith: 1, lane: 0.33 },
+    waves: [['mech', 2.5], ['icosa', 4], ['orbiter', 1.5], ['fighter', 1]],
+    obstacles: { column: 2.5, lane: 0.33 }, // 二十面体の面: 黒い石板は出さない
     palette: { a: 0x9a9aa0, b: 0x303438, fog: 0x9aa0a8, sky: 0x202838, mount: 0x40444c, col: ['#d8dce4', '#202428'], bush: 0x4a5a4a },
     bgm: { key: 3, tempo: 164, song: 'grunge' },
     boss: { type: 'turbine', hp: 360, escape: 0 },
@@ -122,7 +122,7 @@ export const STAGES = [
   },
   {
     name: 'SHADOW HALL', kind: 'normal', length: 45, speed: 48, diff: 6, density: 1.3, ceiling: true,
-    waves: [['bat', 2], ['icosa', 2], ['gremlin', 2], ['turret', 1]],
+    waves: [['bat', 2], ['icosa', 3.5], ['gremlin', 2], ['turret', 1]],
     obstacles: { column: 2, crystal: 1.5, mushroom: 0.8, lane: 0.33 },
     palette: { a: 0x6a5a8a, b: 0x2a2040, fog: 0x3a2a50, sky: 0x0a0418, mount: 0x2a1a3a, col: ['#c8b8e8', '#3a2058'], bush: 0x5a3a7a },
     bgm: { key: 5, tempo: 166, song: 'metal' },
@@ -142,7 +142,7 @@ export const STAGES = [
     obstacles: { column: 2, ring: 1.5, monolith: 1, lane: 0.33 },
     palette: { a: 0x7a8298, b: 0x202838, fog: 0x505870, sky: 0x101828, mount: 0x283040, col: ['#e0e4ee', '#283040'], bush: 0x3a4a5a },
     bgm: { key: 6, tempo: 168, song: 'jazz' },
-    boss: { type: 'mine', escape: 35 },
+    boss: { type: 'mine', hp: 360, escape: 0 },
   },
   {
     name: 'BONE DESERT', kind: 'normal', length: 60, speed: 52, diff: 8, density: 1.5,
@@ -162,7 +162,7 @@ export const STAGES = [
       { type: 'serpent', hp: 300, escape: 0, diff: 1 }, { type: 'twin', hp: 380, escape: 0, diff: 3 },
       { type: 'mirror', hp: 180, tier: 2, escape: 0, diff: 3 },
       { type: 'squad', hp: 0, escape: 22, diff: 3 }, { type: 'geodering', tier: 1, escape: 22, diff: 4 },
-      { type: 'mine', escape: 20, diff: 6 }, { type: 'colossus', hp: 280, escape: 0, diff: 6 },
+      { type: 'mine', hp: 220, escape: 0, diff: 6 }, { type: 'colossus', hp: 280, escape: 0, diff: 6 },
       { type: 'sun', hp: 600, escape: 0, diff: 8 }, // 最終ボス
     ],
   },

@@ -1,6 +1,7 @@
 // ボス: 光翼の母船 (LASER WING)。13 面。大きなガラスの翼の母船。両方の翼の先に光線の発射口、中央に核。
-// 細い赤い予告の線を約 1 秒引いたあと、太い光線で左右に薙ぎ払う (プレイヤーのいた高さを通るので、上下に動いてよける)。
-// 横スクロールでは上下に薙ぐ (前後に動いてよける)。発射口は撃って壊せて、壊すとその側の光線が止まる。核はいつでも撃てる
+// 細い赤い予告の線を約 1 秒引いたあと、太い光線で左右に薙ぎ払う。光線の高さは上段・中段・下段からランダムで、
+// 左右対称 (両方同じ段)・非対称 (両方ちがう段)・片側だけ、もランダム (空いている段へ上下に動いてよける)。
+// 発射口は壊せない (弾を跳ね返す)。核はいつでも撃てる
 import * as THREE from 'three';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -48,7 +49,7 @@ export function spawnLaserWing(c, def) {
   const grp = { type: 'laserwing', t: 0, escape: Infinity, total: 1, kills: 0, leaving: false, bonus: 10000 };
   const body = {
     kind: 'laserwing', mesh: g, mats: [wingM, frameM, coreM], r: 4 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 3,
-    k, x: c.lastPlayer?.x ?? 0, z: SPAWN_Z, emitters: [], beamT: 3, turn: 0, bossGroup: grp,
+    k, x: c.lastPlayer?.x ?? 0, z: SPAWN_Z, emitters: [], beamT: 3, bossGroup: grp,
   };
   grp.ratio = () => Math.max(0, body.hp / body.maxHp);
   c.bossGroup = grp;
@@ -58,7 +59,7 @@ export function spawnLaserWing(c, def) {
     const m = mat(0xffb0a0, 0x802010);
     const mesh = new THREE.Mesh(GEO.emitter, m);
     mesh.scale.setScalar(2 * k);
-    const em = { kind: 'emitter', mesh, mats: [m], r: 2.4 * k, hp: 10 + c.level, score: 1500, t: 0, flash: 0, fireT: Infinity, body, sx, beam: null };
+    const em = { kind: 'emitter', mesh, mats: [m], r: 2.4 * k, hp: Infinity, score: 0, t: 0, flash: 0, fireT: Infinity, body, sx, beam: null, noLock: true };
     mesh.position.copy(g.position);
     c.addEnemy(em, 0);
     em.shadow.visible = false;
@@ -67,8 +68,14 @@ export function spawnLaserWing(c, def) {
   c.bossDefeated = false;
 }
 
-// 光線を 1 本始める: 予告の線 (1 秒) → 光線で薙ぐ (1.2 秒)
-function startBeam(c, em, ctx) {
+// 光線の段の高さ (下段・中段・上段)。天井のある面は天井の下に収める
+function levels(c) {
+  const top = Math.min(c.ceilingY, 30);
+  return [3.5, top * 0.45, top - 6];
+}
+
+// 光線を 1 本始める: 予告の線 (1 秒) → 光線で薙ぐ (1.2 秒)。y: 光線がプレイヤーの所を通る高さ
+function startBeam(c, em, ctx, y) {
   const P = ctx.player;
   const line = new THREE.Line(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3)), new THREE.LineBasicMaterial({ color: 0xff3020 }));
   line.frustumCulled = false;
@@ -77,10 +84,10 @@ function startBeam(c, em, ctx) {
   c.scene.add(line, beam);
   const sweep = rand(26, 34) * (em.sx > 0 ? -1 : 1); // 翼の外から内へ薙ぐ
   em.beam = {
-    line, beam, t: 0, warn: 1.0, dur: ctx.side ? 0.6 : 1.2, hit: false, y: P.y, x: P.x, z: P.z,
-    // 横スクロールは薙がずに、プレイヤーの高さの横一文字の光線 (上下によける)
-    from: ctx.side ? new THREE.Vector3(0, P.y, P.z + 40) : new THREE.Vector3(P.x - sweep, P.y, P.z),
-    to: ctx.side ? new THREE.Vector3(0, P.y, P.z + 40) : new THREE.Vector3(P.x + sweep, P.y, P.z),
+    line, beam, t: 0, warn: 1.0, dur: ctx.side ? 0.6 : 1.2, hit: false, y, x: P.x, z: P.z,
+    // 横スクロールは薙がずに、その段の高さの横一文字の光線 (上下によける)
+    from: ctx.side ? new THREE.Vector3(0, y, P.z + 40) : new THREE.Vector3(P.x - sweep, y, P.z),
+    to: ctx.side ? new THREE.Vector3(0, y, P.z + 40) : new THREE.Vector3(P.x + sweep, y, P.z),
   };
 }
 
@@ -101,14 +108,24 @@ export const LASERWING_KINDS = {
       e.z = Math.min(hz, e.z + (scroll * 0.4 + 26) * dt);
       e.x += ((ctx.player.x ?? 0) - e.x) * Math.min(1, dt * 0.25);
       p.set(e.x + Math.sin(e.t * 0.35) * (ctx.side ? 0 : 8), 14 + Math.sin(e.t * 0.6) * 1.2, e.z);
-      // 光線: 発射口が残っていれば、交互に (体力が半分を切ると両方同時に)
+      // 光線: 段 (上・中・下) と組み合わせ (対称・非対称・片側) をランダムに選ぶ。
+      // 1 つは 6 割の確率でプレイヤーのいる段をねらう。両方撃っても、必ず 1 段は空く
       if (e.z >= hz - 1 && e.emitters.every((m) => !m.beam)) e.beamT -= dt;
       if (e.beamT <= 0) {
-        const live = e.emitters.filter((m) => !m.dead);
-        if (live.length) {
-          e.turn++;
-          const both = e.hp < e.maxHp * 0.5;
-          for (const m of live) if (both || live.length === 1 || (e.turn % 2 === 0) === (m.sx > 0)) startBeam(c, m, ctx);
+        const L = levels(c);
+        const near = L.reduce((bi, y, i) => (Math.abs(y - ctx.player.y) < Math.abs(L[bi] - ctx.player.y) ? i : bi), 0);
+        const a = Math.random() < 0.6 ? near : Math.floor(Math.random() * 3);
+        const r = Math.random(), single = e.hp < e.maxHp * 0.5 ? 0.15 : 0.3; // 体力が半分を切ると、両方撃つことが多い
+        const [left, right] = e.emitters[0].sx < 0 ? e.emitters : [e.emitters[1], e.emitters[0]];
+        if (r < single) {
+          startBeam(c, Math.random() < 0.5 ? left : right, ctx, L[a]); // 片側だけ
+        } else if (r < single + (1 - single) / 2) {
+          for (const m of e.emitters) startBeam(c, m, ctx, L[a]); // 左右対称: 同じ段を両側から
+        } else {
+          const b = (a + 1 + Math.floor(Math.random() * 2)) % 3; // 非対称: 左右で別の段
+          const swap = Math.random() < 0.5;
+          startBeam(c, left, ctx, L[swap ? b : a]);
+          startBeam(c, right, ctx, L[swap ? a : b]);
         }
         e.beamT = rand(2.4, 3.2) / (1 + (c.level - 1) * 0.05);
       }
@@ -126,6 +143,7 @@ export const LASERWING_KINDS = {
   emitter: {
     endBeam, // combat.remove から呼ぶ
     big: true,
+    shielded: () => true, // 壊せない (弾を跳ね返す)
     sideAbs: true,
     update(c, e, dt, scroll, ctx, p) {
       const b = e.body;

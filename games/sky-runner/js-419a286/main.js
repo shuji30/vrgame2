@@ -18,7 +18,7 @@ import { BGM_LIST, SE_LIST, captureAudioStream, initAudio, previewBGM, sfx, setE
 
 // ---- 定数
 const X_LIMIT = 96;        // 左右の移動範囲 (m)
-const Y_MAX = 20;          // 上昇できる高さ (リグの高さ, m)
+const Y_MAX = 30;          // 上昇できる高さ (リグの高さ, m)
 const MOVE_X = 18;         // スティックを倒しきったときの横移動速度 (m/s)
 const WHEEL_X_BOOST = 1.6; // ハンコンは切る角度が小さくなりがちなので、横移動を速くする
 const moveX = (a) => MOVE_X * (a.source === 'wheel' ? WHEEL_X_BOOST : 1);
@@ -202,6 +202,7 @@ function startPlay(stageNo) {
   combat.reset();
   avatar.recenter();
   avatar.destroyed = false;
+  avatar.hidden = false;
   avatar.fallT = -1;
   avatar.stumbleT = 0;
   endBonus();
@@ -340,6 +341,7 @@ function toTitle() {
   showHiScore();
   endBonus();
   combat.reset();
+  avatar.hidden = false; // エンディングで隠したプレイヤーを、タイトルでは出す
   S.paused = false;
   S.msg = '';
   overlay.hidden = false;
@@ -437,10 +439,12 @@ function allClear() {
   S.phase = 'ending';
   S.phaseT = 0;
   S.endingStep = -1;
+  avatar.hidden = true; // エンディングではプレイヤーを隠す (敵の紹介を見せる)
   showMsg('ALL CLEAR!!', `CONGRATULATIONS!  SCORE ${combat.score}`, 5);
   sfx.clear();
   say('Congratulations');
   setBGMMode('ending', { key: 0, tempo: 152 }); // エンディングの曲 (ステージのテンポの影響を受けない)
+  startBGM(); // STAGE CLEAR で止めた曲を、エンディングの曲で始める
   combat.clearHostiles();
   try { localStorage.setItem('skyrunner.cleared', '1'); } catch (_) { /* 保存不可 */ } // クリアのごほうび用
   // 読み込み直さなくても、タイトルに戻ったらごほうびが出るように
@@ -451,24 +455,53 @@ function allClear() {
   }
 }
 
-// エンディング (約 90 秒): 1〜18 面の景色を順に通り過ぎ、面の名前とボスの名前を出す。最後に点数の内訳。5 秒たったら飛ばせる
+// エンディングで紹介する敵の名前と、ひとこと
+const ENEMY_INFO = {
+  fighter: ['FIGHTER', '戦闘機'],
+  dart: ['CRYSTAL DART', '水晶の矢'],
+  gremlin: ['CRYSTAL BUG', '結晶の小虫'],
+  mammoth: ['MAMMOTH', 'マンモス'],
+  moai: ['GEODE', '晶洞岩'],
+  bouncer: ['BOUNCE GEM', '跳ねる結晶'],
+  pill: ['PILL BUG', 'ダンゴムシ'],
+  bat: ['GLASS BAT', '結晶コウモリ'],
+  ptero: ['PTERO', '翼竜'],
+  mech: ['BUILDER ROBO', '建設ロボ'],
+  icosa: ['PRISM ICOSA', '結晶の二十面体'],
+  turret: ['SPIRE TURRET', '水晶塔'],
+  gunship: ['GUNSHIP', 'ガンシップ'],
+  lens: ['PRISM LENS', 'ガラスのレンズ'],
+  orbiter: ['ORBIT CORE', '衛星コア'],
+};
+// 紹介する順番: 初めて出てくる面の順 (stage はその面の番号。景色の色もその面にする)
+const ENDING_LIST = (() => {
+  const list = [];
+  STAGES.forEach((st, stage) => {
+    for (const [kind] of st.waves || []) if (ENEMY_INFO[kind] && !list.some((o) => o.kind === kind)) list.push({ kind, stage });
+  });
+  return list;
+})();
+
+// エンディング (約 80 秒): 障害物は出さず、敵を 1 体ずつ目の前に呼んで紹介する (初めて出てきた面の景色で)。
+// 最後に点数の内訳。5 秒たったら飛ばせる
 const ENDING_START = 5, ENDING_PER = 4.4;
-const ENDING_LEN = ENDING_START + STAGE_COUNT * ENDING_PER + 6;
+const ENDING_LEN = ENDING_START + ENDING_LIST.length * ENDING_PER + 6;
 function updateEnding() {
   const i = Math.floor((S.phaseT - ENDING_START) / ENDING_PER);
-  if (S.phaseT >= ENDING_START && i < STAGE_COUNT && i !== S.endingStep) {
+  if (S.phaseT >= ENDING_START && i < ENDING_LIST.length && i !== S.endingStep) {
     S.endingStep = i;
-    const st = STAGES[i];
+    const { kind, stage } = ENDING_LIST[i];
+    const st = STAGES[stage];
     world.fadeTheme(st.palette); // 色は 1.2 秒かけて移す
-    world.setObstacles(st.obstacles);
     world.setCeiling(false); // 天井は出さない (景色を見せる)
-    const boss = st.kind === 'bonus' ? 'BONUS STAGE' : st.kind === 'rush' ? 'BOSS RUSH → ' + BOSS_INFO.sun[0] : BOSS_INFO[st.boss?.type]?.[0] || '';
-    showMsg(`STAGE ${i + 1}  ${st.name}`, boss, ENDING_PER - 0.4);
-  } else if (i >= STAGE_COUNT && S.endingStep < STAGE_COUNT) {
-    S.endingStep = STAGE_COUNT;
+    combat.showcase(kind, ENDING_PER - 0.2);
+    showMsg(`${ENEMY_INFO[kind][0]}  ${ENEMY_INFO[kind][1]}`, `STAGE ${stage + 1}  ${st.name}`, ENDING_PER - 0.4);
+  } else if (i >= ENDING_LIST.length && S.endingStep < ENDING_LIST.length) {
+    S.endingStep = ENDING_LIST.length;
     showMsg('THANK YOU FOR PLAYING', `SCORE ${combat.score}   ENEMIES ${combat.kills}   HITS ${S.hits}`, 6);
   }
 }
+const endingStage = () => (S.phase === 'ending' && S.endingStep >= 0 && S.endingStep < ENDING_LIST.length ? ENDING_LIST[S.endingStep].stage : -1);
 
 // ボスの名前と、倒し方のひとこと (初めて会ったときだけ WARNING の 2 行目に出す)
 const BOSS_INFO = {
@@ -478,7 +511,7 @@ const BOSS_INFO = {
   swarm: ['旋回する群れ', '逃げる前に全部落とせ'],
   mirror: ['ミラーコア', '鏡は弾を撃ち返す。すき間から核を撃て'],
   geodering: ['晶洞の輪', '殻が開いて光ったときだけ倒せる'],
-  mine: ['浮遊鉱山', '壊せない。耐えろ、出撃口を壊せ'],
+  mine: ['浮遊鉱山', '出撃口を壊して、本体を撃て'],
   colossus: ['磁鉄の巨像', '電極を先に壊せ'],
   sun: ['プリズムの太陽', '最後の戦い'],
   crown: ['氷晶の冠', '赤い印をよけろ。つららを壊せば雨が減る'],
@@ -799,16 +832,6 @@ function slowDown(to, time) {
   S.slowT = time;
 }
 
-// 人間が茂みに足を引っかけた: ダメージは受けず、よろけて減速する
-function stumble() {
-  if (S.invuln > 0) return;
-  S.invuln = 0.8;
-  slowDown(0.6, 1);
-  avatar.stumble();
-  sfx.hit();
-  input.rumble(0.5, 150);
-}
-
 function onPickup(type) {
   if (type !== 'heal') return;
   if (S.life >= LIFE_MAX) {
@@ -1007,7 +1030,7 @@ function update(dt) {
   P.copy(avatar.hitPoint);
   world.side = side;
   // ボス戦 (WARNING から撃破まで) は障害物を出さない
-  world.update(dt, side ? speed * SIDE_SCROLL : speed, P, running && !(play && ['warning', 'boss', 'clear'].includes(S.phase)));
+  world.update(dt, side ? speed * SIDE_SCROLL : speed, P, running && !(play && ['warning', 'boss', 'clear', 'ending'].includes(S.phase))); // エンディングは障害物を出さない
 
   if (play && running) updateRide(dt);
   world.reach = yMax() + 1.6; // 今飛べる高さ (これより低い柱は飛び越えられる高さで出す)
@@ -1023,8 +1046,8 @@ function update(dt) {
   }
   if (play && running && !ride.active && S.invuln <= 0) {
     const o = world.hitTest(P, avatar.radius * 0.7); // 障害物には少し小さめの当たりで (かすっただけでは当たらない)
-    if (o && o.kind === 'bush' && settings.player === 'human') stumble();
-    else if (o) onHit(OBSTACLE_DAMAGE);
+    if (o) onHit(OBSTACLE_DAMAGE); // 宇宙船も人間も同じダメージ
+    if (o && o.kind === 'bush' && settings.player === 'human' && S.mode === 'play') avatar.stumble(); // 人間は茂みにつまずく (見た目だけ)
     if (o && ['tree', 'bush', 'mushroom', 'crystal'].includes(o.kind)) world.knockDown(o); // ぶつかった木などは、すり抜けずに倒れる
   }
   // ライフが少ないときは警告音
@@ -1099,9 +1122,9 @@ function update(dt) {
     lifeMax: LIFE_MAX,
     blink: S.life < LIFE_MAX * 0.3 && Math.floor(performance.now() / 250) % 2 === 0,
     // エンディング中は、いま通り過ぎている面を出す
-    stageNo: S.phase === 'ending' && S.endingStep >= 0 && S.endingStep < STAGE_COUNT ? S.endingStep + 1 : S.stage, stageCount: STAGE_COUNT, hard: combat.hard,
+    stageNo: endingStage() >= 0 ? endingStage() + 1 : S.stage, stageCount: STAGE_COUNT, hard: combat.hard,
     // ボスラッシュの間は、何体目かも出す
-    stageName: S.phase === 'ending' && S.endingStep >= 0 && S.endingStep < STAGE_COUNT ? STAGES[S.endingStep].name : stageAt(S.stage).kind === 'rush' && ['warning', 'boss'].includes(S.phase) ? `${stageAt(S.stage).name}  BOSS ${S.rushIndex + 1}/${stageAt(S.stage).rush.length}` : stageAt(S.stage).name,
+    stageName: endingStage() >= 0 ? STAGES[endingStage()].name : stageAt(S.stage).kind === 'rush' && ['warning', 'boss'].includes(S.phase) ? `${stageAt(S.stage).name}  BOSS ${S.rushIndex + 1}/${stageAt(S.stage).rush.length}` : stageAt(S.stage).name,
     hi: Math.max(hiNow(), combat.score),
     mult: Math.round(combat.mult * 10) / 10,
     boss: combat.bossRatio === null ? null : Math.round(combat.bossRatio * 100) / 100,

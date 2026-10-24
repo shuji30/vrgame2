@@ -335,6 +335,7 @@ export class World {
       gem.position.y = h + 2.2;
       g.add(gem);
       parts.push({ c: 'box', hx: w + 0.8, hz: 0.9, y0: h, y1: h + 1.6 });
+      parts.push({ c: 'sph', r: 1.4, y: h + 2.2, breakable: true, mesh: gem }); // 上の宝石は撃って壊せる (アーチは残る)
       o = { kind: 'arch', group: g, r: w + 1, h: h + 1.6, parts };
     } else if (kind === 'monolith') {
       // 黒曜石の石板: 横に広く薄い壁。回り込むか、上を飛び越える
@@ -466,7 +467,7 @@ export class World {
     return null;
   }
 
-  // 弾 (prev → pos の線分) が当たった障害物と、当たった点を返す
+  // 弾 (prev → pos の線分) が当たった障害物と、当たった点を返す (当たった部品は o.hitPart)
   shotTest(prev, pos, out) {
     for (const o of this.obstacles) {
       if (o.dead || o.knocked) continue;
@@ -474,7 +475,7 @@ export class World {
       if (Math.abs(pos.z - op.z) > o.r + 8 && Math.abs(prev.z - op.z) > o.r + 8) continue;
       for (let k = 0; k <= 4; k++) {
         out.lerpVectors(prev, pos, k / 4);
-        for (const pt of o.parts) if (World.touches(pt, out.x - op.x, out.y, out.z - op.z, 0.3)) return o;
+        for (const pt of o.parts) if (World.touches(pt, out.x - op.x, out.y, out.z - op.z, 0.3)) { o.hitPart = pt; return o; } // hitPart: 当たった部品
       }
     }
     return null;
