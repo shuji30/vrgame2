@@ -18,7 +18,7 @@ import { BGM_LIST, SE_LIST, captureAudioStream, initAudio, previewBGM, sfx, setE
 
 // ---- 定数
 const X_LIMIT = 96;        // 左右の移動範囲 (m)
-const Y_MAX = 20;          // 上昇できる高さ (リグの高さ, m)
+const Y_MAX = 30;          // 上昇できる高さ (リグの高さ, m)
 const MOVE_X = 18;         // スティックを倒しきったときの横移動速度 (m/s)
 const WHEEL_X_BOOST = 1.6; // ハンコンは切る角度が小さくなりがちなので、横移動を速くする
 const moveX = (a) => MOVE_X * (a.source === 'wheel' ? WHEEL_X_BOOST : 1);
@@ -441,6 +441,7 @@ function allClear() {
   sfx.clear();
   say('Congratulations');
   setBGMMode('ending', { key: 0, tempo: 152 }); // エンディングの曲 (ステージのテンポの影響を受けない)
+  startBGM(); // STAGE CLEAR で止めた曲を、エンディングの曲で始める
   combat.clearHostiles();
   try { localStorage.setItem('skyrunner.cleared', '1'); } catch (_) { /* 保存不可 */ } // クリアのごほうび用
   // 読み込み直さなくても、タイトルに戻ったらごほうびが出るように
@@ -478,7 +479,7 @@ const BOSS_INFO = {
   swarm: ['旋回する群れ', '逃げる前に全部落とせ'],
   mirror: ['ミラーコア', '鏡は弾を撃ち返す。すき間から核を撃て'],
   geodering: ['晶洞の輪', '殻が開いて光ったときだけ倒せる'],
-  mine: ['浮遊鉱山', '壊せない。耐えろ、出撃口を壊せ'],
+  mine: ['浮遊鉱山', '出撃口を壊して、本体を撃て'],
   colossus: ['磁鉄の巨像', '電極を先に壊せ'],
   sun: ['プリズムの太陽', '最後の戦い'],
   crown: ['氷晶の冠', '赤い印をよけろ。つららを壊せば雨が減る'],
@@ -799,16 +800,6 @@ function slowDown(to, time) {
   S.slowT = time;
 }
 
-// 人間が茂みに足を引っかけた: ダメージは受けず、よろけて減速する
-function stumble() {
-  if (S.invuln > 0) return;
-  S.invuln = 0.8;
-  slowDown(0.6, 1);
-  avatar.stumble();
-  sfx.hit();
-  input.rumble(0.5, 150);
-}
-
 function onPickup(type) {
   if (type !== 'heal') return;
   if (S.life >= LIFE_MAX) {
@@ -1023,8 +1014,8 @@ function update(dt) {
   }
   if (play && running && !ride.active && S.invuln <= 0) {
     const o = world.hitTest(P, avatar.radius * 0.7); // 障害物には少し小さめの当たりで (かすっただけでは当たらない)
-    if (o && o.kind === 'bush' && settings.player === 'human') stumble();
-    else if (o) onHit(OBSTACLE_DAMAGE);
+    if (o) onHit(OBSTACLE_DAMAGE); // 宇宙船も人間も同じダメージ
+    if (o && o.kind === 'bush' && settings.player === 'human' && S.mode === 'play') avatar.stumble(); // 人間は茂みにつまずく (見た目だけ)
     if (o && ['tree', 'bush', 'mushroom', 'crystal'].includes(o.kind)) world.knockDown(o); // ぶつかった木などは、すり抜けずに倒れる
   }
   // ライフが少ないときは警告音

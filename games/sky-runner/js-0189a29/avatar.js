@@ -8,8 +8,8 @@ const THIRD_OFFSET = {
   ship: new THREE.Vector3(0, -1.6, -9),
   human: new THREE.Vector3(0, -1.1, -5),
 };
-// 当たり判定の半径 (m)。宇宙船は翼が大きいが、遊びやすさを優先して小さめにする
-const RADIUS = { ship: 0.8, human: 0.4 };
+// 当たり判定の半径 (m)。宇宙船と人間で難しさが変わらないよう、同じにする (宇宙船は翼が大きいが、遊びやすさを優先して小さめ)
+const RADIUS = { ship: 0.6, human: 0.6 };
 
 const _v = new THREE.Vector3();
 const _m = new THREE.Matrix4();

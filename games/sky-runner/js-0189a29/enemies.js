@@ -6,10 +6,12 @@
 //   big:      倒したときの爆発を大きくし、回復アイテムを落とすことがある
 import * as THREE from 'three';
 import { CEIL_Y } from './world.js';
+import { sfx } from './audio.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
 const _a = new THREE.Vector3(), _b = new THREE.Vector3();
+const DUST = new THREE.Color(0xb89a70);
 const K = 1.8; // 敵の大きさの倍率 (近づいたときに画面いっぱいに迫って見えるように)
 
 // 共有するジオメトリ (敵ごとに作り直さない)
@@ -25,20 +27,35 @@ const GEO = {
   orb: new THREE.SphereGeometry(1, 12, 10),
 };
 GEO.batWing.computeVertexNormals();
-// 二十面体の 20 枚の面 (開くときに 1 枚ずつ外へ広がる)。面ごとに、中心を原点にした三角形と、外向きの向き
+// 二十面体の 20 枚の面 (開くときに 1 枚ずつ外へ広がる)。面ごとに、中心を原点にした厚い三角の板と、外向きの向き
 GEO.icoFaces = (() => {
   const pos = new THREE.IcosahedronGeometry(1, 0).toNonIndexed().attributes.position;
   const faces = [];
   for (let f = 0; f < pos.count; f += 3) {
     const v = [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(pos, f + k));
     const c = v[0].clone().add(v[1]).add(v[2]).divideScalar(3);
-    const geo = new THREE.BufferGeometry().setFromPoints(v.map((p) => p.clone().sub(c)));
+    // 外の面と、内側へ 22% 縮めた面をつないで、厚みのある装甲板にする
+    const o = v.map((p) => p.clone().sub(c));
+    const i = v.map((p) => p.clone().multiplyScalar(0.78).sub(c));
+    const tris = [o[0], o[1], o[2], i[0], i[2], i[1]];
+    for (let k = 0; k < 3; k++) {
+      const n = (k + 1) % 3;
+      tris.push(o[k], i[k], i[n], o[k], i[n], o[n]);
+    }
+    const geo = new THREE.BufferGeometry().setFromPoints(tris);
     geo.computeVertexNormals();
     faces.push({ geo, c });
   }
   return faces;
 })();
-GEO.icoCore = new THREE.IcosahedronGeometry(0.55, 1);
+GEO.icoCore = new THREE.IcosahedronGeometry(0.72, 1);
+// マンモス: 毛の塊 (丸を伸ばして使う)、脚、鼻の節、反り返った牙
+GEO.blob = new THREE.IcosahedronGeometry(1, 1);
+GEO.leg = new THREE.CylinderGeometry(0.55, 0.45, 2.6, 7).translate(0, -1.3, 0); // 原点 = 付け根
+GEO.trunkSeg = new THREE.CylinderGeometry(0.42, 0.34, 1, 7).translate(0, -0.5, 0);
+GEO.tusk = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
+  [0, 0, 0], [0.15, -0.9, 0.5], [0.35, -1.2, 1.4], [0.55, -0.7, 2.2], [0.6, 0.2, 2.5],
+].map((v) => new THREE.Vector3(...v))), 14, 0.2, 6);
 
 // 被弾で白く光らせるため、マテリアルは敵ごとに作る (元の発光色を覚えておく)
 function mat(color, emissive = 0x000000, extra = {}) {
@@ -247,60 +264,178 @@ export const EXTRA = {
   },
 
   // ---- 結晶の二十面体 (PRISM ICOSA): 天井のある面で、床と天井を転がってくる。
-  // 途中で止まって 20 枚の面が花のように開き、中の赤い核からミサイルを 2 発撃つ。閉じている間は弾を跳ね返し、開いている間だけ壊せる。
-  // 閉じたら、また転がってプレイヤーへ向かってくる (よけるか、開いている間に壊す)
+  // 止まらずに転がりながら 20 枚のパネルが少し浮き上がって開き、中の赤い核からミサイルを 1 発撃つ。閉じている間は弾を跳ね返し、開いている間だけ壊せる (パネルは少しだけ開く)。
+  // 閉じてまた転がり、近づくともう一度開いて撃つ (よけるか、開いている間に壊す)
   icosa: {
-    kamikaze: true,
+    kamikaze: true, heavy: true, big: true,
     spawn(c, px) {
-      const n = 3;
-      const xs = [-1, 0, 1].map((k) => px + k * rand(8, 11) + rand(-2, 2));
-      const top = Math.random() < 0.5; // 床と天井を交互に (真ん中だけ反対側)
+      // 大きくて重い: 直径 約 12 m。5〜6 個の組が、天井の組・床の組と交互に、次々に転がってくる (空いている上下へよける)
+      const n = 5 + Math.floor(Math.random() * 2);
+      const xs = Array.from({ length: n }, () => px + rand(-14, 14));
+      const top = c.icosaTop = !c.icosaTop; // 前の組と反対側
+      const pack = {}; // 1 列で 1 組 (重い敵の数え方)
       for (let k = 0; k < n; k++) {
-        const shell = mat(0xc8b8ff, 0x302080, { metalness: 0.4, roughness: 0.15 });
+        const shell = mat(0x4a4258, 0x120c22, { metalness: 0.85, roughness: 0.35, side: THREE.DoubleSide }); // 鈍く光る黒鉄の装甲
         const core = mat(0xff5060, 0xff2040);
         const parts = GEO.icoFaces.map((f) => [f.geo, shell, (m) => { m.position.copy(f.c); m.userData.c = f.c; }]);
         parts.push([GEO.icoCore, core, (m) => { m.name = 'core'; m.scale.setScalar(0.01); }]);
-        const R = 2.2 * K;
-        const ceil = k === 1 ? !top : top;
-        const e = { kind: 'icosa', ...build(parts), r: R, R, hp: 3 + Math.ceil(c.level / 2), score: 700, t: 0, flash: 0, fireT: Infinity, dmg: 20,
-          ceil, x: xs[k], z: SPAWN_Z - k * 14, state: 'roll', open: 0, holdT: 0, shots: 0, holdZ: c.holdZ(rand(-95, -75) - k * 6) };
+        const R = 3.4 * K;
+        const ceil = top;
+        const e = { kind: 'icosa', ...build(parts), r: R * 0.9, R, hp: 6 + c.level, score: 1200, t: 0, flash: 0, fireT: Infinity, dmg: 25,
+          ceil, pack, x: xs[k], z: SPAWN_Z - k * 14, state: 'roll', open: 0, holdT: 0, shots: 0, holdZ: c.holdZ(rand(-85, -72) - k * 6) };
         e.core = e.mesh.getObjectByName('core');
         e.mesh.scale.setScalar(R);
         e.mesh.position.set(e.x, ceil ? CEIL_Y - R : R, e.z);
-        c.addEnemy(e, 1.6 * K);
+        c.addEnemy(e, 2.8 * K);
       }
     },
     shielded: (e) => e.open < 0.7,
     update(c, e, dt, scroll, ctx, p) {
       const z0 = e.z;
+      e.z += (scroll + 10) * dt; // 重いので、ゆっくり転がる (止まらない)
       if (e.state === 'roll') {
-        e.z += (scroll + 14) * dt;
-        if (e.z >= e.holdZ) { e.z = e.holdZ; e.state = 'stop'; e.holdT = 0; }
-      } else if (e.state === 'stop') {
-        // 止まって (地面に対しては、うしろへ転がって) 開き、撃ち、閉じる
+        e.holdT -= dt;
+        // 開く場所まで来たら開く。閉じたあとも、まだ遠ければもう一度開く
+        if (e.z >= e.holdZ && e.holdT <= 0 && e.z < e.holdZ + (c.sideMode ? 12 : 55)) { e.state = 'open'; e.holdT = 0; e.shots = 0; }
+      } else {
+        // 転がりながら開き、撃ち、閉じる
         e.holdT += dt;
         e.open = THREE.MathUtils.clamp(e.holdT < 2.4 ? (e.holdT - 0.3) / 0.4 : (2.9 - e.holdT) / 0.4, 0, 1);
         if (e.holdT > 0.75 && e.fireT === Infinity && e.shots === 0) e.fireT = 0;
-        if (e.holdT > 3) e.state = 'charge';
-      } else {
-        e.z += (scroll + 18) * dt; // また転がってくる
+        if (e.holdT > 3) { e.state = 'roll'; e.open = 0; e.holdT = 1.2; }
       }
       p.set(e.x, e.ceil ? CEIL_Y - e.R : e.R, e.z);
       // 転がる: 地面に対する速さの分だけ回す (天井では逆向き)
       const ground = (e.z - z0) / Math.max(dt, 1e-4) - scroll;
-      if (e.open < 0.05) e.mesh.rotation.x += (ground / e.R) * dt * (e.ceil ? -1 : 1); // 開いている間は回さない
+      e.mesh.rotation.x += (ground / e.R) * dt * (e.ceil ? -1 : 1); // 開いている間も転がり続ける
       for (const m of e.mesh.children) {
         if (m === e.core) continue;
-        m.position.copy(m.userData.c).multiplyScalar(1 + e.open * 0.9);
+        m.position.copy(m.userData.c).multiplyScalar(1 + e.open * 0.15); // パネルは少しだけ開き、すき間から赤い核の光がのぞく
       }
       e.core.scale.setScalar(Math.max(0.01, e.open));
     },
     fire(c, e, ctx, p) {
-      if (e.state !== 'stop' || e.open < 0.7) { e.fireT = Infinity; return; }
-      // 中の核からミサイル (煙を引く弾) を、少し角度をつけて 1 発ずつ
-      c.fireBullet(p.clone(), ctx.player, e.shots ? 0.1 : -0.1, 'shell');
+      if (e.state !== 'open' || e.open < 0.7) { e.fireT = Infinity; return; }
+      // 中の核からミサイル (煙を引く弾) を、少し角度をつけて撃つ
+      c.fireBullet(p.clone(), ctx.player, rand(-0.1, 0.1), 'shell');
       e.shots++;
-      e.fireT = e.shots < 2 ? 0.45 : Infinity;
+      e.fireT = Infinity; // 5〜6 個の組で来るので、1 回開くごとに 1 発
+    },
+  },
+
+  // ---- マンモス (MAMMOTH): 1 面。前方の地面を歩いてきて、近づくと前脚を上げて鼻を振り上げ、鳴いて鼻から弾を吹く。
+  // そのあと頭を下げて、プレイヤーめがけて突進してくる (最初の 0.5 秒だけ追う。上へ飛ぶか、横へよける)。硬くて大きい
+  mammoth: {
+    heavy: true, big: true,
+    spawn(c, px) {
+      const n = Math.random() < 0.3 ? 2 : 1;
+      for (let k = 0; k < n; k++) {
+        const fur = mat(0x6e4429, 0x000000, { roughness: 0.95, metalness: 0 });
+        const dark = mat(0x4a2c1a, 0x000000, { roughness: 0.95, metalness: 0 });
+        const tusk = mat(0xf6efdc, 0x2a2618, { roughness: 0.3, side: THREE.DoubleSide }); // 左の牙は裏返して使うので両面
+        const eye = mat(0xff6030, 0xff3010);
+        const g = new THREE.Group();
+        const add = (parent, geo, m, pos, scale, rot) => {
+          const mesh = new THREE.Mesh(geo, m);
+          mesh.position.set(...pos);
+          if (scale) mesh.scale.set(...scale);
+          if (rot) mesh.rotation.set(...rot);
+          parent.add(mesh);
+          return mesh;
+        };
+        // 胴 (原点 = 胴の真ん中。当たり・ロックはここを見る)、背中のこぶ、しっぽ
+        add(g, GEO.blob, fur, [0, 0, 0], [2.3, 2.0, 3.1]);
+        add(g, GEO.blob, fur, [0, 1.5, 0.9], [1.7, 1.4, 1.7]);
+        add(g, GEO.trunkSeg, dark, [0, 0.4, -3], [0.4, 1.4, 0.4], [-0.5, 0, 0]);
+        // 頭は首を軸に上下に振る
+        const head = new THREE.Group();
+        head.position.set(0, 0.8, 2.6);
+        g.add(head);
+        add(head, GEO.blob, fur, [0, 0.3, 0.8], [1.5, 1.6, 1.4]);
+        for (const sx of [-1, 1]) {
+          add(head, GEO.blob, dark, [sx * 1.4, 0.4, 0.4], [0.25, 1.0, 0.8]); // 耳
+          add(head, GEO.blob, eye, [sx * 0.75, 0.75, 1.95], [0.18, 0.18, 0.18]); // 光る目
+          add(head, GEO.tusk, tusk, [sx * 0.55, -0.4, 1.7], [sx, 1, 1]); // 牙は左右で外へ反る
+        }
+        // 鼻: 4 つの節。根元から順に曲げて、垂らしたり振り上げたりする
+        const trunk = [];
+        let parent = head;
+        for (let i = 0; i < 4; i++) {
+          const seg = new THREE.Group();
+          seg.position.set(0, i ? -0.95 : -0.2, i ? 0 : 2.1);
+          parent.add(seg);
+          add(seg, GEO.trunkSeg, dark, [0, 0, 0], [1 - i * 0.15, 1, 1 - i * 0.15]);
+          trunk.push(seg);
+          parent = seg;
+        }
+        // 脚: 付け根を軸に振る
+        const legs = [];
+        for (const [lx, lz] of [[-1.3, 1.8], [1.3, 1.8], [-1.3, -1.8], [1.3, -1.8]]) {
+          const leg = new THREE.Group();
+          leg.position.set(lx, -1.2, lz);
+          g.add(leg);
+          add(leg, GEO.leg, dark, [0, 0, 0]);
+          legs.push(leg);
+        }
+        const S = 1.5 * (c.sideMode ? 0.7 : 1);
+        g.scale.setScalar(S);
+        const e = {
+          kind: 'mammoth', mesh: g, mats: [fur, dark, tusk, eye], r: 3.2 * S, hp: 14 + c.level * 4, score: 2000, t: rand(0, 2), flash: 0, fireT: Infinity, dmg: 30,
+          S, head, trunk, legs, state: 'walk', timer: 0, step: 0, x: px + (n > 1 ? (k ? 1 : -1) * rand(10, 14) : rand(-6, 6)), z: SPAWN_Z - k * 25,
+        };
+        g.position.set(e.x, 3.8 * S, e.z);
+        c.addEnemy(e, 3.2 * S);
+      }
+    },
+    update(c, e, dt, scroll, ctx, p) {
+      const P = ctx.player;
+      let gait = 4, swing = 0.35, rear = 0, headDown = 0, trunkUp = 0;
+      if (e.state === 'walk') {
+        // 地面を歩いてくる (地面より少し速く)。プレイヤーの列へゆっくり寄る
+        e.z += (scroll + 7) * dt;
+        e.x += THREE.MathUtils.clamp(P.x - e.x, -3 * dt, 3 * dt);
+        if (e.z > (c.sideMode ? -60 : -95)) { e.state = 'rear'; e.timer = 0; sfx.trumpet(); }
+      } else if (e.state === 'rear') {
+        // 前脚を上げて鼻を振り上げ、鳴いて鼻から弾を吹く (1.3 秒)
+        e.timer += dt;
+        e.z += scroll * dt;
+        const k = Math.sin(Math.min(1, e.timer / 1.3) * Math.PI);
+        rear = k * 0.45;
+        trunkUp = k;
+        gait = 0;
+        if (e.timer > 0.6 && e.fireT === Infinity && !e.fired) { e.fired = true; e.fireT = 0; }
+        if (e.timer > 1.3) {
+          e.state = 'charge';
+          e.timer = 0;
+          sfx.whoosh();
+        }
+      } else {
+        // 突進: 頭を下げて、地響きを立てて走ってくる。最初の 0.5 秒だけプレイヤーの列を追う
+        e.timer += dt;
+        if (e.timer < 0.5) e.x += THREE.MathUtils.clamp(P.x - e.x, -14 * dt, 14 * dt);
+        e.z += (scroll + 32) * dt;
+        gait = 11;
+        swing = 0.6;
+        headDown = 1;
+        if (Math.random() < dt * 25) c.smoke.emit(_a.set(e.x + rand(-3, 3), 0.4, e.z + rand(-2, 2)), _b.set(rand(-3, 3), rand(1, 3), rand(-2, 2)), DUST, 2, 0.9, 2.5, 0.95);
+      }
+      // 歩く: 脚を対角に振り、体を少し上下させる。前脚を上げるときは体を起こす
+      e.step += dt * gait;
+      e.legs.forEach((leg, i) => { leg.rotation.x = Math.sin(e.step + (i === 0 || i === 3 ? 0 : Math.PI)) * swing - (i < 2 ? rear * 1.6 : 0); });
+      const bob = gait ? Math.abs(Math.sin(e.step)) * 0.25 : 0;
+      e.mesh.rotation.x = -rear + headDown * 0.08;
+      p.set(e.x, (3.8 + bob + rear * 2) * e.S, e.z);
+      e.mesh.rotation.y = c.sideMode ? 0 : THREE.MathUtils.clamp((P.x - e.x) * 0.02, -0.4, 0.4);
+      e.head.rotation.x = headDown * 0.45 - trunkUp * 0.35;
+      // 鼻: ふだんはぶらぶら、鳴くときは振り上げる
+      e.trunk.forEach((seg, i) => { seg.rotation.x = Math.sin(e.t * 2.4 - i * 0.6) * 0.12 + 0.1 - trunkUp * (0.55 + i * 0.12); });
+      if (p.z > 25) e.dead = true;
+    },
+    fire(c, e, ctx) {
+      // 鼻の先から、ゆっくりした玉を 5 発 (扇形)
+      e.fireT = Infinity;
+      const tip = e.trunk[3].getWorldPosition(new THREE.Vector3());
+      for (let s = -2; s <= 2; s++) c.fireBullet(tip.clone(), ctx.player, s * 0.13);
     },
   },
 
