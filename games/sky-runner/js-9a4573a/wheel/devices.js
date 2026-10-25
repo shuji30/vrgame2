@@ -32,8 +32,9 @@ export function defaultConfig() {
     bindings: {}, // action → { kind: 'axis'|'button', pad, padIndex, control, cal }
     // wheelDeg: ドライバーで設定しているハンドルの回転角 (左端〜右端)。lockDeg: 端まで切ったことにする角度 (90° = 左右 45° ずつ)
     steer: { wheelDeg: 900, lockDeg: 90, deadzone: 0.04, gamma: 1, invert: false },
-    // FFB: 被弾や障害物に当たったときの短い振動と、中央へ戻すばね (0 = 出さない)
-    ffb: { enabled: true, rumble: 0.5, spring: 0 },
+    // FFB: 被弾や障害物に当たったときの短い振動、中央へ戻すばね (真ん中から離すほど強く戻る)、回す重さ (ダンパー。0 = 出さない)。
+    // invert: 力の向きを反転 (機種によって一定の力の向きが逆)。v: 設定の版 (2 からばねとダンパーをはじめから効かせる)
+    ffb: { enabled: true, rumble: 0.5, spring: 0.35, damper: 0.15, invert: false, v: 2 },
   };
 }
 
@@ -41,7 +42,11 @@ export function loadConfig() {
   const d = defaultConfig();
   try {
     const c = JSON.parse(localStorage.getItem(STORE) || 'null');
-    if (c && c.bindings) return { ...d, ...c, steer: { ...d.steer, ...c.steer }, ffb: { ...d.ffb, ...c.ffb } };
+    if (c && c.bindings) {
+      // 前の版はばねの初期値が 0 (効かない) だったので、0 のままならはじめの値にする
+      const ffb = c.ffb?.v >= 2 ? c.ffb : { ...c.ffb, spring: c.ffb?.spring || d.ffb.spring, v: d.ffb.v };
+      return { ...d, ...c, steer: { ...d.steer, ...c.steer }, ffb: { ...d.ffb, ...ffb } };
+    }
   } catch (_) {
     // 壊れていたら初期値
   }
@@ -191,8 +196,29 @@ export class WheelInput {
     const now = performance.now();
     const r = now < this.rumbleUntil ? this.rumbleMag * f.rumble : 0;
     // ばねは割り当て済みのハンドルが見えているときだけ
-    const s = this.last && this.config.bindings.steer ? f.spring : 0;
-    this.bridge.force({ r, hz: 30, s });
+    // 中央へ戻すばね: ハンドルの位置から戻す力を計算して、一定の力 (constant) で出す。
+    // ダイレクトドライブのハンコンは、機器のばね効果 (spring) に対応していないことが多いため (TURBO KART と同じやり方)。
+    // 真ん中から離すほど強く、大きく回すと少し余計に強くなる。設定のばねのテストの間 (4 秒) は、設定を開いていても出す
+    const testing = now < this.springTestUntil;
+    const x = (this.last || testing) && this.config.bindings.steer ? this.steerPos() : null;
+    let c = 0;
+    if (x != null) {
+      const k = testing ? Math.max(0.3, f.spring) : f.spring;
+      c = Math.max(-1, Math.min(1, -(x * 0.6 + x * Math.abs(x) * 0.4) * k * 1.6)) * (f.invert ? -1 : 1);
+    }
+    this.bridge.force({ r, hz: 30, c, d: x != null ? f.damper : 0 });
+  }
+
+  // ハンドルの物理的な位置 (-1..1。端まで切る角度で ±1。遊び・曲がり方・左右の反転の設定は入れない)
+  steerPos() {
+    const B = this.config.bindings.steer;
+    const raw = this.readBinding(snapshotPads(this.bridge), B);
+    return raw == null ? null : mapSteer(raw, { ...B.cal, ...this.config.steer, invert: false, deadzone: 0, gamma: 1 }).value;
+  }
+
+  // 設定のばねのテスト: 4 秒間、戻す力を出す (ハンドルを左右に回して確かめる)
+  testSpring() {
+    this.springTestUntil = performance.now() + 4000;
   }
 
   // 短い振動 (被弾・障害物など)。strength 0..1、ms ミリ秒 (長くても 0.5 秒まで)

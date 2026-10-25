@@ -433,6 +433,9 @@ export async function loadEnemyModels(url) {
 // yOff: モデルの原点が足元にあるものは、体の中心が原点になるよう下げる (当たり判定とロックの中心)
 // share: 材質をモデルと共有する (数の多い雑魚。被弾の光は材質の差し替え、flashMeshes で行う)。
 //        共有しないときは、敵ごとに材質を複製して発光色で光らせる (色を変えるボスや建設ロボの目)
+// 建設ロボの塗装 (Blender のモデルは黄色。編隊ごとに塗り替える)
+const MECH_PAINTS = [0xf2b814, 0x2a6ae0, 0xd8302a, 0x8a3ad0, 0x8a9098];
+
 export function instance(tpl, yOff = 0, share = false) {
   const inner = tpl.clone();
   inner.position.y = -yOff;
@@ -722,6 +725,9 @@ export class Combat {
     e.fireT = Infinity;
     e.mesh.rotation.set(0, Math.PI, 0);
     e.mesh.position.set(P.x, Math.max(e.r, P.y), P.z - 200);
+    // 原点から形の一番下までの深さ (砂時計や水晶塔は原点より下へ長く伸びる)。地面に埋まらないよう、これより上に置く
+    e.mesh.updateMatrixWorld(true);
+    e.display.floor = e.mesh.position.y - new THREE.Box3().setFromObject(e.mesh).min.y + 0.3;
   }
 
   updateShowcase(e, dt, ctx) {
@@ -732,7 +738,7 @@ export class Combat {
     const leave = D.t > D.life - 0.7;
     const k = Math.min(1, dt * (leave ? 2 : 3));
     p.x += (P.x - p.x) * k;
-    p.y += ((leave ? P.y + 30 : Math.max(e.r * 0.8, P.y - 1.5)) - p.y) * k;
+    p.y += ((leave ? P.y + 30 : Math.max(e.r * 0.8, D.floor || 0, P.y - 1.5)) - p.y) * k;
     p.z += ((leave ? P.z - 220 : P.z - Math.max(12, e.r * 3.5)) - p.z) * k;
     e.mesh.rotation.y += dt * 0.9;
     e.shadow.position.set(p.x, 0.05, p.z);
@@ -808,8 +814,10 @@ export class Combat {
   // 建設ロボの3機編隊: 縦一列で突っ込んできて、目の前まで迫りながら先頭から順に撃っては左右上へ散り、すぐ横をかすめて背後へ抜ける (DOMINO RUSH)
   spawnMechTrio(px) {
     const group = { phase: 'approach', lane: px, at: 0 };
+    const paint = MECH_PAINTS[Math.floor(Math.random() * MECH_PAINTS.length)]; // 編隊ごとに塗装の色を選ぶ (黄・青・赤・紫・グレー)
     for (let role = 0; role < 3; role++) {
       const made = TPL.mech ? instance(TPL.mech, 3) : fallback(0x4a2a6a, 2.8);
+      for (const m of made.mats) if (m.name === 'EN_DozerYellow') m.color.setHex(paint);
       const e = {
         kind: 'mech', ...made, r: 3.2 * MECH_SCALE, hp: 10 + this.level * 3, score: 1500, t: role * 0.4, flash: 0, fireT: Infinity,
         role, group, z: SPAWN_Z - role * 9, off: new THREE.Vector2(), offTo: new THREE.Vector2(), fired: 0, dustT: 0,
@@ -1260,7 +1268,7 @@ export class Combat {
     const nHeads = twin ? 2 : 1;
     for (let h = 0; h < nHeads; h++) {
       const head = make(TPL.head, 2.2, 2.6, true, 1, hues[h]);
-      const neck = twin ? Array.from({ length: 6 }, () => make(TPL.segment, 1.4, 1.6, false, 0.8, hues[h])) : [];
+      const neck = twin ? Array.from({ length: 11 }, () => make(TPL.segment, 1.4, 1.6, false, 0.8, hues[h])) : [];
       const H = {
         head, neck, side: twin ? (h ? 1 : -1) : 0, sign: h ? 1 : -1, phase: h * 2.1, hue: hues[h], hp: hp / nHeads,
         fireT: 3 + h * 0.8, breathT: 8 + h * 3, breath: 0, flameT: 0, lungeT: 9 + h * 4, lunge: 0,
@@ -1269,18 +1277,19 @@ export class Combat {
       b.heads.push(H);
     }
     if (twin) {
-      // 2 本の首が合わさる付け根。首はここから頭へ曲線でかけ渡し、胴体はここから後ろへつなげる (首と胴体が離れないように)
-      const at = new THREE.Vector3(0, 8, SPAWN_Z - 14);
+      // 2 本の長い首の、うしろの先端がつながる所。首はここから頭へ曲線でかけ渡す (胴体としっぽはない。首はそれぞれの頭の色)
+      const at = new THREE.Vector3(0, 8, SPAWN_Z - 20);
       b.hub = { spine: at, r: 1.6 * BOSS_SCALE * 0.8, mesh: { position: at } };
       b.lost = []; // 壊れた首 (頭から順に爆発させる)
       b.rushT = 16; // 二首そろって目の前まで迫ってくる攻撃
       b.rush = -1;
       b.volleyT = 0;
     }
-    // 胴の節 (1 節で描画 3 回)。双晶は首が 12 節あるので、胴は短くして描画回数を抑える (Quest でボス戦 150 回以下)
-    const nBody = twin ? 6 + lv : 9 + lv * 2;
-    for (let i = 0; i < nBody; i++) b.body.push(make(TPL.segment, 1.4, 1.6, false));
-    b.body.push(make(TPL.tail, 1.1, 1.3, false));
+    // 胴の節としっぽ (1 節で描画 3 回)。双晶は 2 本の首 (22 節) だけで、胴としっぽは付けない (Quest でボス戦 150 回以下)
+    if (!twin) {
+      for (let i = 0; i < 9 + lv * 2; i++) b.body.push(make(TPL.segment, 1.4, 1.6, false));
+      b.body.push(make(TPL.tail, 1.1, 1.3, false));
+    }
     this.boss = b;
     this.bossDefeated = false;
   }
@@ -1522,17 +1531,17 @@ export class Combat {
       const hub = b.hub.spine;
       const want = _c.set(0, 0, 0);
       for (const H of b.heads) want.add(H.head.spine);
-      want.multiplyScalar(1 / b.heads.length).add(_b.set(0, -2, -14));
+      want.multiplyScalar(1 / b.heads.length).add(_b.set(0, -3, -20));
       if (rushK > 0) want.lerp(_b.set(P.x, Math.max(5, P.y), P.z - 32), rushK);
       hub.lerp(want, 1 - Math.exp(-dt * 2));
       for (const H of b.heads) { // 首が伸びきらないように、離れすぎた頭のほうへ寄る
         const d = hub.distanceTo(H.head.spine);
-        if (d > 30) hub.lerp(H.head.spine, (d - 30) / d);
+        if (d > 40) hub.lerp(H.head.spine, (d - 40) / d);
       }
       // 首: 頭から付け根まで曲線でかけ渡す (外側へふくらませ、少しうねらせる)。最後の節が付け根に重なる
       for (const H of b.heads) {
         const a = H.head.mesh.position, n = H.neck.length;
-        const ctrl = _d.addVectors(a, hub).multiplyScalar(0.5).add(_b.set(H.side * 4, 3, 0));
+        const ctrl = _d.addVectors(a, hub).multiplyScalar(0.5).add(_b.set(H.side * 7, 3, 0));
         H.neck.forEach((part, k) => {
           const u = (k + 1) / n, v = 1 - u;
           part.spine.set(0, 0, 0).addScaledVector(a, v * v).addScaledVector(ctrl, 2 * u * v).addScaledVector(hub, u * u);
@@ -1542,9 +1551,8 @@ export class Combat {
         });
       }
     }
-    // 胴体の先 (二首なら首の付け根) から胴体をつなげる
-    const root = b.twin ? b.hub : b.heads[0].head;
-    this.followChain(b.body, root, b.twin ? 5 : 1, dt, t);
+    // 頭から胴体をつなげる (二首は胴体がない)
+    if (!b.twin) this.followChain(b.body, b.heads[0].head, 1, dt, t);
 
     if (!ctx.active || t < 5) return;
     if (b.rush >= 0) {
@@ -1591,14 +1599,20 @@ export class Combat {
         for (let k = 0; k < n; k++) this.fireBullet(from.clone(), P, (k - (n - 1) / 2) * 0.13);
       }
     }
-    // 体力が半分を切ると、胴体からも撃ってくる
-    if (b.hp < b.maxHp * 0.5) {
-      b.segFireT -= dt;
-      if (b.segFireT <= 0) {
-        b.segFireT = Math.max(0.35, 0.9 - this.level * 0.08);
-        const part = b.body[Math.floor(Math.random() * b.body.length)];
-        this.fireBullet(part.mesh.position.clone(), P);
-      }
+    // 胴体の節 (プリズム) からも撃ってくる (双晶ははじめから。1 面のプリズム連珠は体力が半分を切ってから)。半分を切ると速くなる
+    if (b.twin || b.hp < b.maxHp * 0.5) b.segFireT -= dt;
+    if (b.segFireT <= 0) {
+      b.segFireT = Math.max(0.35, 0.9 - this.level * 0.08) * (b.hp < b.maxHp * 0.5 ? 1 : 1.8);
+      const segs = b.twin ? b.heads.flatMap((H) => H.neck) : b.body.slice(0, -1); // 二首は首の節から
+      const part = segs[Math.floor(Math.random() * segs.length)];
+      this.fireBullet(part.mesh.position.clone(), P);
+    }
+    // 双晶: 2 本の首がつながる所からミサイルを 2 発ずつ (少し左右へ散らす)
+    if (b.twin) b.tailFireT = (b.tailFireT ?? 3) - dt;
+    if (b.tailFireT <= 0) {
+      b.tailFireT = rand(2.4, 3.2) / (1 + (this.level - 1) * 0.1) * (b.hp < b.maxHp * 0.5 ? 0.75 : 1);
+      for (const s of [-0.12, 0.12]) this.fireBullet(b.hub.spine.clone(), P, s, 'shell');
+      sfx.enemyShot();
     }
   }
 

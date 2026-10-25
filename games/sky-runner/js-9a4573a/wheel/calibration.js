@@ -42,7 +42,8 @@ export class WheelPanel {
       const w = t.dataset.wheel;
       if (t.dataset.learn) { this.wizard = null; this.startLearn(t.dataset.learn); }
       else if (t.dataset.clear) { delete this.cfg.bindings[t.dataset.clear]; this.commit(); }
-      else if (t.dataset.test) this.wheel.bridge.test(t.dataset.test, t.dataset.test === 'rumble' ? this.cfg.ffb.rumble : Math.max(0.2, this.cfg.ffb.spring));
+      else if (t.dataset.test === 'center') this.wheel.testSpring(); // ばねはゲーム側で計算して出す (4 秒)
+      else if (t.dataset.test) this.wheel.bridge.test(t.dataset.test, t.dataset.test === 'rumble' ? this.cfg.ffb.rumble : 0.5);
       else if (w === 'wizard') this.startWizard();
       else if (w === 'done') this.finishLearn();
       else if (w === 'skip') this.next();

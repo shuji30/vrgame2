@@ -307,16 +307,19 @@
           <input type="range" min="0" max="0.2" step="0.01" data-cfg="steer.deadzone"></label>
         <label><input type="checkbox" data-cfg="steer.invert"> 左右を反転</label>
         <p class="sub">FFB (デバイスブリッジ経由)</p>
-        <label><input type="checkbox" data-cfg="ffb.enabled"> 被弾・障害物で振動させる</label>
+        <label><input type="checkbox" data-cfg="ffb.enabled"> FFB を出す (被弾・障害物の振動と、中央へ戻すばね)</label>
         <label>振動の強さ <span data-show="ffb.rumble"></span>
           <input type="range" min="0" max="1" step="0.05" data-cfg="ffb.rumble"></label>
         <label>中央へ戻すばね (回すほど重い) <span data-show="ffb.spring"></span>
           <input type="range" min="0" max="0.8" step="0.05" data-cfg="ffb.spring"></label>
+        <label><input type="checkbox" data-cfg="ffb.invert"> 力の向きを反転 <small>(「左へ」で右へ回るとき、ばねで外へ押されるとき)</small></label>
         <label>回す重さ (ダンパー) <span data-show="ffb.damper"></span>
           <input type="range" min="0" max="0.6" step="0.05" data-cfg="ffb.damper"></label>
         <div class="wh-bar">
           <button type="button" class="wh-btn" data-test="rumble">振動のテスト</button>
-          <button type="button" class="wh-btn" data-test="center">ばねのテスト</button>
+          <button type="button" class="wh-btn" data-test="center">ばねのテスト (4 秒、ハンドルを回して確かめる)</button>
+          <button type="button" class="wh-btn" data-test="left">左へ</button>
+          <button type="button" class="wh-btn" data-test="right">右へ</button>
         </div>
         <details class="wh-raw">
           <summary>デバイスの生の値</summary>
@@ -378,7 +381,7 @@
     <button class="tbtn fire" data-hold="fire" aria-label="射撃">FIRE</button>
   </div>
 </div>
-<script type="module" src="./js-e7ca1de/main.js"></script>
+<script type="module" src="./js-9a4573a/main.js"></script>
 <script>
   // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
   if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {
