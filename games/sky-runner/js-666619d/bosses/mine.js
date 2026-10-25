@@ -3,6 +3,7 @@
 // 出撃口は硬いが、撃つと壊れて点が入り、しばらく止まる (5 秒で直る)。
 // 本体は出撃口が 3 つそろっている間は弾を跳ね返す。出撃口を 1 つでも壊すと鉱脈が明るく光り、本体に弾が効く (体力を 0 にすれば撃破)
 import * as THREE from 'three';
+import { bossModel } from '../enemies.js';
 import { sfx } from '../audio.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -33,32 +34,37 @@ export function spawnMine(c, def) {
   // 撃破ボーナスは、壊した出撃口の数で増える (8000 + 1 つ 500、最大 12000)。倒すまで去らない (180 秒の保険はある)
   const grp = { type: 'mine', t: 0, escape: def.escape || Infinity, total: 1, kills: 0, leaving: false, bonus: 8000 };
   c.bossGroup = grp;
-  const rockM = mat(0x4a3a4a, 0x000000, { roughness: 0.9 });
-  const veinM = mat(0xff9af0, 0x803070, { roughness: 0.2 });
-  const bandM = mat(0xffd36a, 0x5a4010, { metalness: 0.6 });
-  const g = new THREE.Group();
-  const rock = new THREE.Mesh(GEO.rock, rockM);
-  rock.scale.set(16, 8, 10);
-  g.add(rock);
-  for (let i = 0; i < 7; i++) {
-    const v = new THREE.Mesh(GEO.vein, veinM);
-    const a = (i / 7) * Math.PI * 2;
-    v.position.set(Math.cos(a) * 13, Math.sin(a * 2) * 3, Math.sin(a) * 7);
-    v.scale.set(1.6, 4, 1.6);
-    v.rotation.set(rand(-0.6, 0.6), 0, rand(-0.6, 0.6));
-    g.add(v);
-  }
-  for (const y of [-2, 2]) {
-    const b = new THREE.Mesh(GEO.band, bandM);
-    b.rotation.x = Math.PI / 2;
-    b.scale.set(17, 11, 1);
-    b.position.y = y;
-    g.add(b);
-  }
+  // 本体: Blender のモデル (FloatingMine) か、読み込む前は図形で。mats[1] は鉱脈 (出撃口が開くと光らせる)
+  const made = bossModel('mine', ['MineRock', 'MineVein', 'MineBand']) || (() => {
+    const rockM = mat(0x4a3a4a, 0x000000, { roughness: 0.9 });
+    const veinM = mat(0xff9af0, 0x803070, { roughness: 0.2 });
+    const bandM = mat(0xffd36a, 0x5a4010, { metalness: 0.6 });
+    const g = new THREE.Group();
+    const rock = new THREE.Mesh(GEO.rock, rockM);
+    rock.scale.set(16, 8, 10);
+    g.add(rock);
+    for (let i = 0; i < 7; i++) {
+      const v = new THREE.Mesh(GEO.vein, veinM);
+      const a = (i / 7) * Math.PI * 2;
+      v.position.set(Math.cos(a) * 13, Math.sin(a * 2) * 3, Math.sin(a) * 7);
+      v.scale.set(1.6, 4, 1.6);
+      v.rotation.set(rand(-0.6, 0.6), 0, rand(-0.6, 0.6));
+      g.add(v);
+    }
+    for (const y of [-2, 2]) {
+      const b = new THREE.Mesh(GEO.band, bandM);
+      b.rotation.x = Math.PI / 2;
+      b.scale.set(17, 11, 1);
+      b.position.y = y;
+      g.add(b);
+    }
+    return { mesh: g, mats: [rockM, veinM, bandM] };
+  })();
+  const g = made.mesh;
   const k = side ? 0.6 : 1;
   g.scale.setScalar(k);
   const body = {
-    kind: 'mine', mesh: g, mats: [rockM, veinM, bandM], r: 10 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 4,
+    kind: 'mine', mesh: g, mats: made.mats, r: 10 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 4,
     k, x: c.lastPlayer?.x ?? 0, y: side ? 15 : 19, z: SPAWN_Z, hatches: [null, null, null], down: [0, 0, 0], launchT: 2.5, bossGroup: grp,
   };
   grp.ratio = () => Math.max(0, body.hp / body.maxHp);
@@ -69,10 +75,13 @@ export function spawnMine(c, def) {
 }
 
 function makeHatch(c, body, i) {
-  const m = mat(0x30202a, 0xff7020);
-  const mesh = new THREE.Mesh(GEO.hatch, m);
-  mesh.scale.set(3.6, 3, 1).multiplyScalar(body.k);
-  const h = { kind: 'hatch', mesh, mats: [m], r: 2.4 * body.k, hp: 20 + c.level * 2, score: 500, t: 0, flash: 0, fireT: Infinity, body, slot: i, noItem: true };
+  // 出撃口: Blender のモデル (MineHatch。mats[0] は光るすき間) か箱で
+  const hm = bossModel('hatch', ['HatchGlow', 'HatchFrame']);
+  const m = hm ? null : mat(0x30202a, 0xff7020);
+  const mesh = hm ? hm.mesh : new THREE.Mesh(GEO.hatch, m);
+  if (hm) mesh.scale.setScalar(body.k);
+  else mesh.scale.set(3.6, 3, 1).multiplyScalar(body.k);
+  const h = { kind: 'hatch', mesh, mats: hm ? hm.mats : [m], r: 2.4 * body.k, hp: 20 + c.level * 2, score: 500, t: 0, flash: 0, fireT: Infinity, body, slot: i, noItem: true };
   mesh.position.copy(body.mesh.position).add(hatchOffset(i, c.sideMode).multiplyScalar(body.k));
   c.addEnemy(h, 0);
   h.shadow.visible = false;
@@ -221,12 +230,14 @@ function updateBarrage(c, e, dt, ctx, p) {
 }
 
 function launchDrone(c, hatch, ctx) {
-  const m = mat(0xbff8ff, 0x3080c0);
-  const mesh = new THREE.Mesh(GEO.drone, m);
-  mesh.scale.setScalar(1.3);
+  // 採掘ドローン: Blender のモデル (MiningDrone) か図形で
+  const dm = bossModel('drone', ['DroneBody']);
+  const m = dm ? null : mat(0xbff8ff, 0x3080c0);
+  const mesh = dm ? dm.mesh : new THREE.Mesh(GEO.drone, m);
+  if (!dm) mesh.scale.setScalar(1.3);
   const p = hatch.mesh.position.clone();
   const out = new THREE.Vector3(rand(-1, 1), rand(-0.6, 0.2), 1).normalize().multiplyScalar(14);
-  const d = { kind: 'drone', mesh, mats: [m], r: 1.6, hp: 1, score: 100, t: 0, flash: 0, fireT: Infinity, vel: out, speed: 40 + c.level * 2, dmg: 15 };
+  const d = { kind: 'drone', mesh, mats: dm ? dm.mats : [m], r: 1.6, hp: 1, score: 100, t: 0, flash: 0, fireT: Infinity, vel: out, speed: 40 + c.level * 2, dmg: 15 };
   mesh.position.copy(p);
   c.addEnemy(d, 0.8);
 }

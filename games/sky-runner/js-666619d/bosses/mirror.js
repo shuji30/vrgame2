@@ -5,7 +5,8 @@
 // そのときプレイヤーがいた所へまっすぐ飛んでくる。目の 11 m 手前で砕けて、線の近く (横 3 m) にいれば 15。2 秒で輪に戻る
 // 核と鏡は enemies.js の EXTRA と同じ形 (update / fire) で動かす。撃破と逃げる判定は combat.js の bossGroup に乗せる
 import * as THREE from 'three';
-import { MODELS } from '../enemies.js';
+import { bossModel } from '../enemies.js';
+import { sfx } from '../audio.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
@@ -31,31 +32,6 @@ const TIERS = {
   3: { mirrors: 8, R: 15, speed: 0.75, size: 4.3, move: 1, fan: 7, reverse: true, spiral: true, side: { mirrors: 5, R: 8, k: 0.6 } },
 };
 
-// Blender のモデルを複製する (材質はボスごとに複製して、発光色で光らせる)。モデルは -Z が前なので 180 度回す。
-// first: mats の先頭に並べる材質の名前 (コードが mats[0]・mats[1] を見て光らせるため)
-function fromModel(key, first) {
-  const tpl = MODELS[key];
-  if (!tpl) return null;
-  const inner = tpl.clone();
-  const copies = new Map();
-  inner.traverse((o) => {
-    if (!o.isMesh) return;
-    if (!copies.has(o.material)) {
-      const cm = o.material.clone();
-      cm.userData.base = cm.emissive.clone();
-      copies.set(o.material, cm);
-    }
-    o.material = copies.get(o.material);
-  });
-  inner.rotation.y = Math.PI;
-  const g = new THREE.Group();
-  g.add(inner);
-  const mats = [...copies.values()];
-  const order = (m) => { const i = first.indexOf(m.name); return i < 0 ? first.length : i; };
-  mats.sort((a, b) => order(a) - order(b));
-  return { mesh: g, mats };
-}
-
 // ボスを出す (combat.spawnBoss から呼ぶ)。def: { type: 'mirror', hp, tier }
 export function spawnMirror(c, def) {
   const base = TIERS[def.tier || 1];
@@ -64,7 +40,7 @@ export function spawnMirror(c, def) {
   const coreK = sd ? sd.k : 1;
   const hp = def.hp || 160 + c.level * 30;
   // 核: Blender のモデル (MirrorCore) か、読み込む前は図形で。mats[0] は核の結晶 (体力が半分を切ると赤く光らせる)
-  const made = fromModel('mirrorCore', ['MirrorCoreMat']) || (() => {
+  const made = bossModel('mirrorCore', ['MirrorCoreMat']) || (() => {
     const coreMat = mat(0xbff8ff, 0x40c8ff);
     const shellMat = mat(0x9fe8ff, 0x1a5a80, { transparent: true, opacity: 0.45, forceSinglePass: true });
     const grp = new THREE.Group();
@@ -85,7 +61,7 @@ export function spawnMirror(c, def) {
   c.addEnemy(core, 4);
   for (let i = 0; i < tier.mirrors; i++) {
     // 鏡: Blender のモデル (MirrorPlate) か図形で。mats[1] は金の縁 (鏡の突進の予告で赤く光らせる)
-    const pm = fromModel('mirrorPlate', ['MirrorGlass', 'MirrorRim']) || (() => {
+    const pm = bossModel('mirrorPlate', ['MirrorGlass', 'MirrorRim']) || (() => {
       const glass = mat(0xe8fbff, 0x3a7a9a);
       const rimM = mat(0xffd36a, 0x7a5a10);
       const grp = new THREE.Group();
@@ -137,8 +113,8 @@ export const MIRROR_KINDS = {
         const free = e.mirrors.filter((m) => !m.dead && !m.charge);
         if (e.chargeT <= 0 && free.length === e.mirrors.filter((m) => !m.dead).length) { // 前の鏡が戻ってから
           const m = free[Math.floor(Math.random() * free.length)];
-          if (m) m.charge = { state: 'warn', t: 0, from: m.mesh.position.clone() };
-          e.chargeT = rand(3.6, 4.4);
+          if (m) { m.charge = { state: 'warn', t: 0, from: m.mesh.position.clone() }; sfx.ricochet(); }
+          e.chargeT = T.move ? rand(3.6, 4.4) : rand(5.6, 6.4); // 2 面 (最初に会うボス) は 6 秒ごと
         }
       }
     },

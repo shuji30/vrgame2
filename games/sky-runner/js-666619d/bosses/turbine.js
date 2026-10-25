@@ -4,7 +4,8 @@
 // 体力が半分を切ると、2 回に 1 回は「床を転がる刃」(FLOOR SAW): 円盤 1 枚が床に降りて縦に立ち、床に赤い線 (通り道) を
 // 引いて 1 秒赤く光ったあと、床を毎秒 30 m でまっすぐ転がってくる。目の 10 m 手前で跳ね上がって砕け、通り道 (横 2.5 m) にいれば 20
 import * as THREE from 'three';
-import { eyeGuard } from '../enemies.js';
+import { eyeGuard, bossModel } from '../enemies.js';
+import { sfx } from '../audio.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
@@ -27,19 +28,24 @@ export function spawnTurbine(c, def) {
   const side = c.sideMode;
   const k = side ? 0.65 : 1;
   const hp = def.hp || 360;
-  const coreM = mat(0x9fe8ff, 0x3a9ad0);
-  const axleM = mat(0x8a8fa0, 0x000000);
-  const g = new THREE.Group();
-  const core = new THREE.Mesh(GEO.core, coreM);
-  core.scale.setScalar(3);
-  const axle = new THREE.Mesh(GEO.axle, axleM);
-  axle.scale.set(16, 1, 1);
-  if (side) axle.rotation.z = Math.PI / 2; // 横スクロールは縦の軸
-  g.add(core, axle);
+  // 核と軸: Blender のモデル (TurbineCore) か、読み込む前は図形で
+  const cm = bossModel('turbineCore', ['TurbineCoreMat']) || (() => {
+    const coreM = mat(0x9fe8ff, 0x3a9ad0);
+    const axleM = mat(0x8a8fa0, 0x000000);
+    const grp = new THREE.Group();
+    const core = new THREE.Mesh(GEO.core, coreM);
+    core.scale.setScalar(3);
+    const axle = new THREE.Mesh(GEO.axle, axleM);
+    axle.scale.set(16, 1, 1);
+    grp.add(core, axle);
+    return { mesh: grp, mats: [coreM, axleM] };
+  })();
+  const g = cm.mesh;
+  if (side) g.children[0].rotation.z = Math.PI / 2; // 横スクロールは縦の軸
   g.scale.setScalar(k);
   const grp = { type: 'turbine', t: 0, escape: Infinity, total: 1, kills: 0, leaving: false, bonus: 10000 };
   const body = {
-    kind: 'turbine', mesh: g, mats: [coreM, axleM], r: 3.4 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 3,
+    kind: 'turbine', mesh: g, mats: cm.mats, r: 3.4 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 3,
     k, x: c.lastPlayer?.x ?? 0, z: SPAWN_Z, blades: [], cycle: 4, bossGroup: grp,
   };
   grp.ratio = () => Math.max(0, body.hp / body.maxHp);
@@ -47,21 +53,26 @@ export function spawnTurbine(c, def) {
   g.position.set(body.x, 12, SPAWN_Z);
   c.addEnemy(body, 4 * k);
   for (const sx of [-1, 1]) {
-    const bm = mat(0xd8dce8, 0x202838, { metalness: 0.9 });
-    const bg = new THREE.Group();
-    const disc = new THREE.Mesh(GEO.disc, bm);
-    disc.scale.setScalar(5);
-    bg.add(disc);
-    for (let i = 0; i < 10; i++) {
-      const t = new THREE.Mesh(GEO.tooth, bm);
-      const a = (i / 10) * Math.PI * 2;
-      t.position.set(Math.cos(a) * 5.4, Math.sin(a) * 5.4, 0);
-      t.rotation.z = a - Math.PI / 2;
-      t.scale.setScalar(1.6);
-      bg.add(t);
-    }
+    // 刃の円盤: Blender のモデル (TurbineBlade) か図形で。mats[0] は鋼 (予告で赤く、戻るときは金色に光らせる)
+    const bmd = bossModel('turbineBlade', ['TurbineSteel']) || (() => {
+      const bm = mat(0xd8dce8, 0x202838, { metalness: 0.9 });
+      const grp = new THREE.Group();
+      const disc = new THREE.Mesh(GEO.disc, bm);
+      disc.scale.setScalar(5);
+      grp.add(disc);
+      for (let i = 0; i < 10; i++) {
+        const t = new THREE.Mesh(GEO.tooth, bm);
+        const a = (i / 10) * Math.PI * 2;
+        t.position.set(Math.cos(a) * 5.4, Math.sin(a) * 5.4, 0);
+        t.rotation.z = a - Math.PI / 2;
+        t.scale.setScalar(1.6);
+        grp.add(t);
+      }
+      return { mesh: grp, mats: [bm] };
+    })();
+    const bg = bmd.mesh;
     bg.scale.setScalar(k);
-    const b = { kind: 'blade', mesh: bg, mats: [bm], r: 5.2 * k, hp: Infinity, score: 0, t: 0, flash: 0, fireT: Infinity, body, sx, state: 'hold', u: 0, from: new THREE.Vector3(), to: new THREE.Vector3(), noLock: true, dmg: 25 };
+    const b = { kind: 'blade', mesh: bg, mats: bmd.mats, r: 5.2 * k, hp: Infinity, score: 0, t: 0, flash: 0, fireT: Infinity, body, sx, state: 'hold', u: 0, from: new THREE.Vector3(), to: new THREE.Vector3(), noLock: true, dmg: 25 };
     bg.position.copy(g.position);
     c.addEnemy(b, 3 * k);
     body.blades.push(b);
@@ -189,6 +200,8 @@ function floorSaw(c, e, dt, scroll, ctx, p) {
       e.line = new THREE.Line(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([p.x, 0.12, p.z, p.x, 0.12, P.z - 10], 3)), new THREE.LineBasicMaterial({ color: 0xff3020 }));
       e.line.frustumCulled = false;
       c.scene.add(e.line);
+      e.marker = e.line; // 片付けは combat.remove に任せる (核が倒れたときも消える)
+      sfx.lock(); // 予告の音
     }
     return;
   }
@@ -211,7 +224,7 @@ function floorSaw(c, e, dt, scroll, ctx, p) {
     c.scene.remove(e.line);
     e.line.geometry.dispose();
     e.line.material.dispose();
-    e.line = null;
+    e.line = e.marker = null;
     e.mesh.rotation.y = 0;
     e.state = 'back';
     e.u = 0;

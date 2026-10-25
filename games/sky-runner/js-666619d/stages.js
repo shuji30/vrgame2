@@ -170,3 +170,43 @@ export const STAGES = [
 
 export const STAGE_COUNT = STAGES.length;
 export const stageAt = (n) => STAGES[Math.max(1, Math.min(STAGE_COUNT, Number.isInteger(n) ? n : 1)) - 1];
+
+// ボスの名前と、倒し方のひとこと (初めて会ったときだけ WARNING の 2 行目に出す)
+export const BOSS_INFO = {
+  serpent: ['プリズム連珠', '頭を狙え'],
+  twin: ['双晶', '2 つの頭を狙え'],
+  squad: ['ロボット部隊', '縦一列の突進をよけて撃て'],
+  swarm: ['旋回する群れ', '逃げる前に全部落とせ'],
+  mirror: ['ミラーコア', '鏡は弾を撃ち返す。すき間から核を撃て'],
+  geodering: ['晶洞の輪', '殻が開いて光ったときだけ倒せる'],
+  mine: ['浮遊鉱山', '出撃口を壊して、本体を撃て'],
+  colossus: ['磁鉄の巨像', '電極を先に壊せ'],
+  sun: ['プリズムの太陽', '最後の戦い'],
+  crown: ['氷晶の冠', '赤い印をよけろ。つららを壊せば雨が減る'],
+  worm: ['砂岩の大蛇', '頭だけが弱点。進む先を狙え'],
+  turbine: ['双子の回転刃', '刃は戻ってくる。真ん中の核を撃て'],
+  phantom: ['水晶の亡霊', '目が水色の本物を撃て。分身は紫'],
+  laserwing: ['光翼の母船', '光線は上下によけろ。翼の先を壊せ'],
+  mantis: ['硝子のカマキリ', '斬撃をよけたら、光る腹を撃て'],
+  whale: ['溶岩の結晶鯨', '浮上したら背中の潮吹き穴を撃て'],
+};
+
+// エンディングで紹介する敵の名前と、ひとこと
+export const ENEMY_INFO = {
+  fighter: ['FIGHTER', '戦闘機'],
+  dart: ['CRYSTAL DART', '水晶の矢'],
+  gremlin: ['CRYSTAL BUG', '結晶の小虫'],
+  mammoth: ['MAMMOTH', 'マンモス'],
+  moai: ['GEODE', '晶洞岩'],
+  bouncer: ['BOUNCE GEM', '跳ねる結晶'],
+  pill: ['PILL BUG', 'ダンゴムシ'],
+  bat: ['GLASS BAT', '結晶コウモリ'],
+  ptero: ['PTERO', '翼竜'],
+  mech: ['BUILDER ROBO', '建設ロボ'],
+  icosa: ['PRISM ICOSA', '結晶の二十面体'],
+  turret: ['SPIRE TURRET', '水晶塔'],
+  gunship: ['GUNSHIP', 'ガンシップ'],
+  lens: ['PRISM LENS', 'ガラスのレンズ'],
+  orbiter: ['ORBIT CORE', '衛星コア'],
+  jelly: ['CRYSTAL JELLY', '水晶のクラゲ'],
+};

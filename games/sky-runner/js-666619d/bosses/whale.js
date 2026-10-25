@@ -6,6 +6,7 @@
 // 横 2 m 以内・高さ 4 m 以下なら 20。背びれは 5 発で壊せる (早く潜って 500 点)
 import * as THREE from 'three';
 import { sfx } from '../audio.js';
+import { bossModel } from '../enemies.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
@@ -29,35 +30,40 @@ export function spawnWhale(c, def) {
   const side = c.sideMode;
   const k = side ? 0.6 : 1.3;
   const holeHp = Math.round((def.hp || 300) / 3);
-  const bodyM = mat(0x24182a, 0x000000);
-  const lavaM = mat(0xff8a30, 0xc03a00);
-  const g = new THREE.Group();
-  const body = new THREE.Mesh(GEO.body, bodyM);
-  body.scale.set(5, 4, 13);
-  g.add(body);
-  for (const sx of [-1, 1]) {
-    const fin = new THREE.Mesh(GEO.fin, lavaM);
-    fin.position.set(sx * 5, -1, 2);
-    fin.rotation.z = sx * -1.2;
-    fin.scale.set(1.4, 2, 0.6);
-    g.add(fin);
-  }
-  const tail = new THREE.Mesh(GEO.tail, lavaM);
-  tail.position.z = -14;
-  tail.scale.set(4, 0.6, 3);
-  g.add(tail);
-  // 背中の溶岩の割れ目 (光る筋)
-  for (let i = 0; i < 4; i++) {
-    const v = new THREE.Mesh(GEO.fin, lavaM);
-    v.position.set(rand(-2, 2), 3.2, -6 + i * 4);
-    v.scale.set(0.4, 0.8, 0.4);
-    g.add(v);
-  }
+  // 体: Blender のモデル (MagmaWhale) か、読み込む前は図形で
+  const made = bossModel('whale', ['WhaleBody', 'WhaleLava']) || (() => {
+    const bodyM = mat(0x24182a, 0x000000);
+    const lavaM = mat(0xff8a30, 0xc03a00);
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(GEO.body, bodyM);
+    body.scale.set(5, 4, 13);
+    g.add(body);
+    for (const sx of [-1, 1]) {
+      const fin = new THREE.Mesh(GEO.fin, lavaM);
+      fin.position.set(sx * 5, -1, 2);
+      fin.rotation.z = sx * -1.2;
+      fin.scale.set(1.4, 2, 0.6);
+      g.add(fin);
+    }
+    const tail = new THREE.Mesh(GEO.tail, lavaM);
+    tail.position.z = -14;
+    tail.scale.set(4, 0.6, 3);
+    g.add(tail);
+    // 背中の溶岩の割れ目 (光る筋)
+    for (let i = 0; i < 4; i++) {
+      const v = new THREE.Mesh(GEO.fin, lavaM);
+      v.position.set(rand(-2, 2), 3.2, -6 + i * 4);
+      v.scale.set(0.4, 0.8, 0.4);
+      g.add(v);
+    }
+    return { mesh: g, mats: [bodyM, lavaM] };
+  })();
+  const g = made.mesh;
   g.scale.setScalar(k);
   const grp = { type: 'whale', t: 0, escape: Infinity, total: 1, kills: 0, leaving: false, bonus: 11000 };
   const w = {
     // 当たりは小さめ (背中の潮吹き穴を覆わないように)
-    kind: 'whale', mesh: g, mats: [bodyM, lavaM], r: 4 * k, hp: 1, score: 0, t: 0, flash: 0, fireT: Infinity, k,
+    kind: 'whale', mesh: g, mats: made.mats, r: 4 * k, hp: 1, score: 0, t: 0, flash: 0, fireT: Infinity, k,
     state: 'under', timer: 2, x: c.lastPlayer?.x ?? 0, z: c.holdZ(-55), rise: 0, marker: null, holes: [], holeHp, bossGroup: grp, noLock: true,
   };
   grp.ratio = () => Math.max(0, w.holes.reduce((s, h) => s + Math.max(0, h.dead ? 0 : h.hp), 0) / (holeHp * 3));
@@ -157,7 +163,7 @@ export const WHALE_KINDS = {
           for (const h of e.holes) h.fireT = Infinity;
           if (e.bossGroup.ratio() < 0.5 && !ctx.side) {
             spawnFin(c, e, ctx); // 潜っている間に、背びれの突進を 1 回
-            e.timer += 2.4; // 背びれが通り過ぎてから浮上する
+            e.timer += 1.2; // 背びれが通り過ぎるころに浮上する
           }
         }
       }

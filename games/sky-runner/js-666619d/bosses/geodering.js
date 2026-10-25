@@ -6,6 +6,7 @@
 // 殻が震えて光り (0.8 秒)、開いて 1.6 秒 (倒せる)、光の輪を 3 発の扇で吐いて閉じ、輪へ戻る
 import * as THREE from 'three';
 import { enemyModel, instance } from '../combat.js';
+import { sfx } from '../audio.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
@@ -142,7 +143,7 @@ function march(c, e, dt, ctx, p) {
   let want = 0, shake = 0;
   if (M.state === 'out') {
     p.lerpVectors(M.from, M.to, ease(Math.min(1, M.u / 1.2)));
-    if (M.u >= 1.2) { M.state = 'warn'; M.u = 0; }
+    if (M.u >= 1.2) { M.state = 'warn'; M.u = 0; sfx.lock(); }
   } else if (M.state === 'warn') {
     p.copy(M.to);
     shake = 0.12 + Math.sin(e.t * 50) * 0.06; // 殻が震えて、すき間から光が漏れる
