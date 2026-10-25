@@ -944,7 +944,55 @@ const genres = () => (genreSongs ||= makeSongs({
   mtof, osc, noise, kick, snare, hat, crash, clap, bassNote, powerChord, leadNote, popLead, sustainEnv,
 }));
 
+// ---- 録音した曲 (mp3): ジャンルに録音の曲があれば、そのジャンルの面の通常の区間で、プログラムの曲の代わりに流す
+// (WARNING からはボスの曲に切りかわる)。ステージ表の bgm.song に 'file:曲のパス' と書いて、1 つの面だけに付けることもできる。
+// WebAudio の BGM の出口につなぐので、音量・消音・ポーズは今の BGM と同じように効く。
+// ファイルの番号は docs/music/midi の番号と同じ (01 ロック、02 クラシック、03 ジャズ、04 ポップス、05 オルタナティブ、06 ボサノバ、07 レゲエ、08 メタル、09 グランジ、
+// 10 ボス、11 ボーナス、12 ゲームオーバー、13 最終ボス、14 エンディング)
+const RECORDED_SONGS = {
+  rock: './assets/music/01_Gravity_Left_Behind.mp3',
+  classical: './assets/music/02_The_Weight_of_Stillness.mp3',
+  jazz: './assets/music/03_Midnight_Mallets.mp3',
+  pops: './assets/music/04_Golden_Hour_High_Score.mp3',
+  boss: './assets/music/10_boss_PRISM_MENACE.mp3', // ボス戦の曲 (最終ボスの太陽は専用の曲のまま)
+};
+// リアルミュージック (タイトル画面で切りかえる): オフのときは録音の曲を使わず、すべてゲームの音源 (プログラム) の曲で鳴らす
+let realMusic = true;
+export function setRealMusic(on) {
+  realMusic = on;
+}
+// 録音の曲の音量。mp3 は RMS -14.3 dBFS ほどにそろっているので、BGM の出口 (0.35 × 全体 0.6) を通ったあとに、
+// ゲームの音源の曲 (約 -16 dBFS) と同じくらい (約 -17 dBFS) になる倍率 (2026-10-25 に測って決めた。前の 1.2 では 10 dB 小さかった)
+const RECORDED_GAIN = 3.4;
+// ファイルごとの補正 (ほかより小さく録音されている曲): 10 ボスは RMS -18.6 dBFS なので 4.3 dB 上げる
+const RECORDED_TRIM = { boss: 1.64 };
+const recorded = {}; // パス → audio 要素
+let recordedNow = null;
+function recordedEl(url) {
+  if (!recorded[url]) {
+    const el = new Audio(url);
+    el.loop = true;
+    const g = ctx.createGain();
+    const key = Object.keys(RECORDED_SONGS).find((k) => RECORDED_SONGS[k] === url);
+    g.gain.value = RECORDED_GAIN * (RECORDED_TRIM[key] || 1);
+    ctx.createMediaElementSource(el).connect(g).connect(bgmBus);
+    recorded[url] = el;
+  }
+  return recorded[url];
+}
+// 今の曲の状態に合わせて、録音の曲を流す / 止める (曲が変わったら頭から)
+function syncRecorded(restart = false) {
+  const want = ctx && timer && song.startsWith('file:') ? recordedEl(song.slice(5)) : null;
+  if (recordedNow && recordedNow !== want) recordedNow.pause();
+  if (want && (want !== recordedNow || restart)) {
+    want.currentTime = 0;
+    want.play().catch(() => { /* まだ操作がなく、鳴らせない */ });
+  }
+  recordedNow = want;
+}
+
 function schedule() {
+  if (song.startsWith('file:')) return; // 録音の曲を流している間は、プログラムの曲を鳴らさない
   const songs = {
     rock: [playStep, tempo, STEPS],
     boss: [bossStep, BOSS_TEMPO, BOSS_STEPS],
@@ -980,11 +1028,13 @@ export function startBGM() {
   step = 0;
   nextTime = ctx.currentTime + 0.1;
   timer = setInterval(schedule, 25);
+  syncRecorded(true);
 }
 
 export function stopBGM() {
   clearInterval(timer);
   timer = null;
+  syncRecorded();
 }
 
 export function setBGMEnabled(on) {
@@ -999,6 +1049,7 @@ export function setBGMMode(mode, opts) {
   if (opts && opts.song !== undefined) stageSong = opts.song || 'rock';
   let next = mode === true ? 'boss' : mode === false ? 'rock' : mode;
   if (next === 'rock') next = stageSong; // 通常の曲は、そのステージのジャンルの曲
+  if (realMusic && RECORDED_SONGS[next]) next = 'file:' + RECORDED_SONGS[next]; // 録音の曲があるジャンルは、録音の曲で (サウンドテストの試聴も)
   if (opts) {
     transpose = opts.key || 0;
     tempo = opts.tempo || 152;
@@ -1006,6 +1057,7 @@ export function setBGMMode(mode, opts) {
   if (next === song) return;
   song = next;
   step = 0;
+  syncRecorded(true);
   // フランジャーを止めておく (前の曲の途中でかかっていた場合)
   if (band) for (const side of [band.gtrL, band.gtrR]) side.fx.flanger.wet.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
 }
@@ -1013,6 +1065,7 @@ export function setBGMMode(mode, opts) {
 // ポーズ中は音をすべて止める (BGM の位置もそのまま止まる)
 export function setPaused(p) {
   if (!ctx) return;
+  if (recordedNow) { if (p) recordedNow.pause(); else recordedNow.play().catch(() => {}); } // 録音の曲も、その位置で止める
   if (p) ctx.suspend();
   else ctx.resume();
 }
@@ -1102,6 +1155,7 @@ export function previewBGM(id) {
   step = 0;
   nextTime = ctx.currentTime + 0.1;
   timer = setInterval(schedule, 25);
+  syncRecorded(true);
 }
 
 // 開発用: ゲームの音を MediaStream として取り出す (プロモーション動画の録画用)
