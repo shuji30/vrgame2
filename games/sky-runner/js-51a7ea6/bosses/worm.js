@@ -3,6 +3,7 @@
 // 3D ではプレイヤーの前を左右に横切って飛び、横スクロールでは画面の面の中で前後に飛ぶ。頭が一番高い所で扇の弾を撃つ
 import * as THREE from 'three';
 import { sfx } from '../audio.js';
+import { bossModel } from '../enemies.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const HIDE_Y = -60; // 潜っている間の置き場所 (当たらない)
@@ -25,25 +26,30 @@ export function spawnWorm(c, def) {
   const side = c.sideMode;
   const k = side ? 0.65 : 1.4; // 3D は大きく (50 m 先でも迫力が出るように)
   const hp = def.hp || 320;
-  const headM = mat(0xc89a5a, 0x000000);
-  const eyeM = mat(0x80ffd0, 0x40c090);
-  const g = new THREE.Group();
-  const head = new THREE.Mesh(GEO.head, headM);
-  head.scale.set(3, 2.4, 3.6);
-  g.add(head);
-  for (const sx of [-1, 1]) {
-    const jaw = new THREE.Mesh(GEO.jaw, headM);
-    jaw.position.set(sx * 1.4, -0.8, 3.4);
-    jaw.scale.setScalar(1.4);
-    g.add(jaw);
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), eyeM);
-    eye.position.set(sx * 1.5, 0.9, 2.6);
-    g.add(eye);
-  }
+  // 頭: Blender のモデル (WormHead) か、読み込む前は図形で
+  const hm = bossModel('wormHead', ['WormSand', 'WormEye']) || (() => {
+    const headM = mat(0xc89a5a, 0x000000);
+    const eyeM = mat(0x80ffd0, 0x40c090);
+    const grp = new THREE.Group();
+    const head = new THREE.Mesh(GEO.head, headM);
+    head.scale.set(3, 2.4, 3.6);
+    grp.add(head);
+    for (const sx of [-1, 1]) {
+      const jaw = new THREE.Mesh(GEO.jaw, headM);
+      jaw.position.set(sx * 1.4, -0.8, 3.4);
+      jaw.scale.setScalar(1.4);
+      grp.add(jaw);
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), eyeM);
+      eye.position.set(sx * 1.5, 0.9, 2.6);
+      grp.add(eye);
+    }
+    return { mesh: grp, mats: [headM, eyeM] };
+  })();
+  const g = hm.mesh;
   g.scale.setScalar(k);
   const grp = { type: 'worm', t: 0, escape: Infinity, total: 1, kills: 0, leaving: false, bonus: 10000 };
   const w = {
-    kind: 'worm', mesh: g, mats: [headM, eyeM], r: 3.4 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: Infinity,
+    kind: 'worm', mesh: g, mats: hm.mats, r: 3.4 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: Infinity,
     k, state: 'under', timer: 2.5, u: 0, path: [], segs: [], from: new THREE.Vector3(), to: new THREE.Vector3(), apex: 14, dur: 2.4,
     fired: false, dir: 1, bossGroup: grp, noLock: true,
   };
@@ -57,11 +63,15 @@ export function spawnWorm(c, def) {
   c.addEnemy(w, 3 * k);
   w.shadow.visible = false;
   for (let i = 0; i < 11; i++) {
-    const m = mat(i % 2 ? 0xa8804a : 0xb88e56, 0x000000);
-    const mesh = new THREE.Mesh(GEO.seg, m);
+    // 体の節: Blender のモデル (WormSeg。半径 1) か図形で。1 つおきに少し暗い色
+    const sm = bossModel('wormSeg', ['WormSegSand']);
+    if (sm && i % 2) sm.mats[0].color.setHex(0xa8804a);
+    const fm = sm ? null : mat(i % 2 ? 0xa8804a : 0xb88e56, 0x000000);
+    const mesh = sm ? sm.mesh : new THREE.Mesh(GEO.seg, fm);
+    const m = sm ? sm.mats : [fm];
     const s = 2.6 * (1 - i * 0.05) * k;
     mesh.scale.set(s, s * 0.85, s);
-    const seg = { kind: 'wormSeg', mesh, mats: [m], r: s * 0.9, hp: Infinity, score: 0, t: 0, flash: 0, fireT: Infinity, head: w, idx: i, noLock: true, dmg: 20 };
+    const seg = { kind: 'wormSeg', mesh, mats: m, r: s * 0.9, hp: Infinity, score: 0, t: 0, flash: 0, fireT: Infinity, head: w, idx: i, noLock: true, dmg: 20 };
     mesh.position.set(0, HIDE_Y, -50);
     c.addEnemy(seg, 0);
     seg.shadow.visible = false;

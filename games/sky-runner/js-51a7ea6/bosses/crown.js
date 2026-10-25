@@ -5,6 +5,8 @@
 // 体力が半分を切ると、雨の 2 回に 1 回は「氷の柵」(ICE FENCE): プレイヤーの左右 15 m に 5 m おきにつららを落とし、
 // 1 か所だけ 10 m 以上あけて青い輪の印を出す (そこを抜けるか、高さ 9 m 以上を飛び越える)
 import * as THREE from 'three';
+import { bossModel } from '../enemies.js';
+import { sfx } from '../audio.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
@@ -24,20 +26,33 @@ function mat(color, emissive, extra = {}) {
   return m;
 }
 
+// つらら 1 本 (長さ 5、下向き): Blender のモデル (CrownIcicle) か図形で
+function icicle(opacity) {
+  const made = bossModel('icicle');
+  if (made) return made;
+  const m = mat(0xe8fbff, 0x3a7a9a, { transparent: true, opacity });
+  return { mesh: new THREE.Mesh(GEO.icicle, m), mats: [m] };
+}
+
 export function spawnCrown(c, def) {
   const side = c.sideMode;
   const k = side ? 0.6 : 1;
   const hp = def.hp || 300;
-  const ringM = mat(0xffd36a, 0x5a4010, { metalness: 0.7 });
-  const gemM = mat(0xcff4ff, 0x3a9ad0);
-  const g = new THREE.Group();
-  const ring = new THREE.Mesh(GEO.ring, ringM);
-  ring.rotation.x = Math.PI / 2; // 水平な輪
-  g.add(ring, new THREE.Mesh(GEO.gem, gemM));
+  // 冠: Blender のモデル (CrystalCrown) か、読み込む前は図形で
+  const made = bossModel('crown') || (() => {
+    const ringM = mat(0xffd36a, 0x5a4010, { metalness: 0.7 });
+    const gemM = mat(0xcff4ff, 0x3a9ad0);
+    const grp = new THREE.Group();
+    const ring = new THREE.Mesh(GEO.ring, ringM);
+    ring.rotation.x = Math.PI / 2; // 水平な輪
+    grp.add(ring, new THREE.Mesh(GEO.gem, gemM));
+    return { mesh: grp, mats: [ringM, gemM] };
+  })();
+  const g = made.mesh;
   g.scale.setScalar(k);
   const grp = { type: 'crown', t: 0, escape: Infinity, total: 1, kills: 0, leaving: false, bonus: 10000 };
   const body = {
-    kind: 'crown', mesh: g, mats: [ringM, gemM], r: 3.6 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 3, noAssist: false,
+    kind: 'crown', mesh: g, mats: made.mats, r: 3.6 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 3, noAssist: false,
     k, x: c.lastPlayer?.x ?? 0, z: SPAWN_Z, a: 0, icicles: [], rainT: 3, bossGroup: grp,
   };
   grp.ratio = () => Math.max(0, body.hp / body.maxHp);
@@ -45,10 +60,10 @@ export function spawnCrown(c, def) {
   g.position.set(body.x, 17 * k, SPAWN_Z);
   c.addEnemy(body, 6 * k);
   for (let i = 0; i < 8; i++) {
-    const m = mat(0xe8fbff, 0x3a7a9a, { transparent: true, opacity: 0.9 });
-    const mesh = new THREE.Mesh(GEO.icicle, m);
+    const im = icicle(0.9);
+    const mesh = im.mesh;
     mesh.scale.setScalar(k);
-    const ice = { kind: 'crownIce', mesh, mats: [m], r: 1.6 * k, hp: 3, score: 300, t: 0, flash: 0, fireT: Infinity, body, slot: (i / 8) * Math.PI * 2, noItem: true };
+    const ice = { kind: 'crownIce', mesh, mats: im.mats, r: 1.6 * k, hp: 3, score: 300, t: 0, flash: 0, fireT: Infinity, body, slot: (i / 8) * Math.PI * 2, noItem: true };
     mesh.position.copy(g.position);
     c.addEnemy(ice, 0);
     ice.shadow.visible = false;
@@ -60,15 +75,15 @@ export function spawnCrown(c, def) {
 // つららを 1 本降らせる: 地面に印を出し、0.4 秒後に落とす (0.9 秒で地面へ)
 // off: プレイヤーからの横のずれ (なければ、4 割は真上、ほかは 3〜8 m ずらす)。wait: 落ちるまでの待ち
 function dropIcicle(c, from, ctx, scroll, off = Math.random() < 0.4 ? 0 : rand(3, 8) * (Math.random() < 0.5 ? -1 : 1), wait = 0.4) {
-  const lead = Math.max(20, scroll * 1.3 + 18); // 地面に刺さってから、少し先でプレイヤーの所へ流れてくる
+  const lead = Math.max(20, scroll * (wait + 0.9) + 18); // 地面に刺さってから、少し先でプレイヤーの所へ流れてくる (待ち + 落ちる 0.9 秒の分)
   const marker = new THREE.Mesh(GEO.marker, new THREE.MeshBasicMaterial({ color: 0xff3a30, transparent: true, opacity: 0.8, depthWrite: false }));
   marker.position.set(ctx.side ? 0 : ctx.player.x + off, 0.08, -lead);
   c.scene.add(marker);
-  const m = mat(0xe8fbff, 0x3a7a9a, { transparent: true, opacity: 0.95 });
-  const mesh = new THREE.Mesh(GEO.icicle, m);
+  const im = icicle(0.95);
+  const mesh = im.mesh;
   mesh.scale.setScalar(1.2);
   mesh.position.copy(from);
-  const e = { kind: 'icefall', mesh, mats: [m], r: 1.8, hp: 2, score: 100, t: 0, flash: 0, fireT: Infinity, marker, from: from.clone(), wait, fall: 0, landed: false, dmg: 15, noItem: true };
+  const e = { kind: 'icefall', mesh, mats: im.mats, r: 1.8, hp: 2, score: 100, t: 0, flash: 0, fireT: Infinity, marker, from: from.clone(), wait, fall: 0, landed: false, dmg: 15, noItem: true };
   c.addEnemy(e, 1);
   return e;
 }
@@ -84,6 +99,7 @@ function dropFence(c, e, ctx, scroll, sources) {
     const from = sources.length ? sources[i++ % sources.length].mesh.position : e.mesh.position;
     first = first || dropIcicle(c, from, ctx, scroll, off, 0.6);
   }
+  sfx.lock(); // 柵の予告の音
   if (first && !ctx.side) {
     const mk = new THREE.Mesh(GEO.gap, new THREE.MeshBasicMaterial({ color: 0x40b0ff, transparent: true, opacity: 0.8, depthWrite: false }));
     mk.position.set(ctx.player.x + gap, 0.09, first.marker.position.z);

@@ -388,6 +388,16 @@ export async function loadEnemyModels(url) {
   const extra = {
     dart: ['CrystalDart'], lens: ['GlassLens'], turret: ['CrystalSpire', ['TowerHead']], bat: ['GlassBat', ['BatWingL', 'BatWingR']],
     bouncer: ['BounceGem'], orbiter: ['OrbitCore'], satellite: ['OrbitSat'],
+    mirrorCore: ['MirrorCore'], mirrorPlate: ['MirrorPlate'], // ボス: ミラーコア
+    turbineCore: ['TurbineCore'], turbineBlade: ['TurbineBlade'], // ボス: 双子の回転刃
+    colossus: ['ColossusBody', ['ColArmL', 'ColArmR', 'legL', 'magnet']], // ボス: 磁鉄の巨像 (腕・左脚・磁石は動かす)
+    crown: ['CrystalCrown'], icicle: ['CrownIcicle'], // ボス: 氷晶の冠とつらら
+    ghost: ['CrystalGhost'], // ボス: 水晶の亡霊 (本物も分身も)
+    laserwing: ['LaserWing'], emitter: ['LaserEmitter'], // ボス: 光翼の母船と発射口
+    wormHead: ['WormHead'], wormSeg: ['WormSeg'], // ボス: 砂岩の大蛇
+    mantis: ['GlassMantis', ['MantisArmL', 'MantisArmR', 'MantisBelly']], // ボス: 硝子のカマキリ (鎌と腹は動かす)
+    whale: ['MagmaWhale'], // ボス: 溶岩の結晶鯨
+    mine: ['FloatingMine'], hatch: ['MineHatch'], drone: ['MiningDrone'], // ボス: 浮遊鉱山と出撃口・採掘ドローン
   };
   for (const [key, [name, parts]] of Object.entries(extra)) {
     const node = gltf.scene.getObjectByName(name);
@@ -505,6 +515,7 @@ export class Combat {
   }
 
   reset() {
+    if (this.bossGroup?.wall) this.scene.remove(this.bossGroup.wall.guide); // ロボの壁の道しるべ
     for (const list of [this.enemies, this.bullets, this.shots, this.missiles, this.items]) {
       list.forEach((o) => this.remove(o));
       list.length = 0;
@@ -1076,6 +1087,8 @@ export class Combat {
       e.wallX = x0 + i * 16;
       e.wallI = i;
       e.wallFrom = e.mesh.position.clone();
+      // うしろ (背後 20 m) で待っていたロボは、プレイヤーの所を通らないよう、遠くの上空から並ぶ
+      if (e.wallFrom.z > P.z - 30) e.wallFrom.set(x0 + i * 16, 30, P.z - 140);
       e.wallHit = false;
       e.ram = e.passing = null;
       e.noHit = true; // 当たりは目の手前で見る
@@ -1097,15 +1110,14 @@ export class Combat {
     } else {
       this.setMechEye(e, true);
       p.set(e.wallX, y, W.z);
-      // 目の 8 m 手前で、当たる位置なら砕けて 25 (抜け道にいれば、ロボの表面まで 8 m 以上)
+      // 目の 8 m 手前で、列のロボは全部砕ける (外れたロボも、目の横を通らない)。当たる位置なら 25
+      // (抜け道にいれば、ロボの表面まで 8 m 以上)
       if (!e.wallHit && p.z + e.r > P.z - 8) {
         e.wallHit = true;
-        if (Math.abs(p.x - P.x) < e.r * 0.8 + ctx.playerR && P.y < 9 + ctx.playerR) {
-          ctx.onPlayerHit(25);
-          this.explode(p.clone(), true);
-          e.mesh.visible = e.shadow.visible = false;
-          e.noLock = true;
-        }
+        if (Math.abs(p.x - P.x) < e.r * 0.8 + ctx.playerR && P.y < 9 + ctx.playerR) ctx.onPlayerHit(25);
+        this.explode(p.clone(), true);
+        e.mesh.visible = e.shadow.visible = false;
+        e.noLock = true;
       }
     }
     e.mesh.rotation.set(0, 0, 0);
@@ -1338,7 +1350,7 @@ export class Combat {
           o.off.set(0, 0);
           o.offTo.set(0, 0);
           this.setMechEye(o, false);
-          o.group.phase = 'approach';
+          o.group.phase = g.leaving ? 'retreat' : 'approach'; // 逃げ始めていたら、攻め直さずに去る
           o.group.at = 0;
         }
       }

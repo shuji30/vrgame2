@@ -5,6 +5,8 @@
 // 体力が半分を切ると、2 回に 1 回は片方が「縦の光線」(VERTICAL CUT): そのときのプレイヤーの横の位置を、上から床まで切る
 // (横へよける)。予告は、その位置の少し先に立つ赤い縦の線。もう片方は上段か下段の横の光線
 import * as THREE from 'three';
+import { bossModel } from '../enemies.js';
+import { sfx } from '../audio.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
@@ -34,23 +36,28 @@ export function spawnLaserWing(c, def) {
   const side = c.sideMode;
   const k = side ? 0.6 : 1;
   const hp = def.hp || 380;
-  const wingM = mat(0xd8f6ff, 0x1a4a6a, { transparent: true, opacity: 0.8 });
-  const frameM = mat(0x8a8fa8, 0x000000, { metalness: 0.7 });
-  const coreM = mat(0xffffff, 0x60e0ff);
-  const g = new THREE.Group();
-  const wing = new THREE.Mesh(GEO.wing, wingM);
-  wing.scale.set(30, 0.8, 9);
-  const spine = new THREE.Mesh(GEO.wing, frameM);
-  spine.scale.set(4, 2, 14);
-  const core = new THREE.Mesh(GEO.core, coreM);
-  core.scale.setScalar(2.6);
-  core.position.y = 1.6;
-  g.add(wing, spine, core);
+  // 母船: Blender のモデル (LaserWing) か、読み込む前は箱で
+  const made = bossModel('laserwing', ['WingGlass', 'WingFrame', 'WingCore']) || (() => {
+    const wingM = mat(0xd8f6ff, 0x1a4a6a, { transparent: true, opacity: 0.8 });
+    const frameM = mat(0x8a8fa8, 0x000000, { metalness: 0.7 });
+    const coreM = mat(0xffffff, 0x60e0ff);
+    const grp = new THREE.Group();
+    const wing = new THREE.Mesh(GEO.wing, wingM);
+    wing.scale.set(30, 0.8, 9);
+    const spine = new THREE.Mesh(GEO.wing, frameM);
+    spine.scale.set(4, 2, 14);
+    const core = new THREE.Mesh(GEO.core, coreM);
+    core.scale.setScalar(2.6);
+    core.position.y = 1.6;
+    grp.add(wing, spine, core);
+    return { mesh: grp, mats: [wingM, frameM, coreM] };
+  })();
+  const g = made.mesh;
   if (side) g.rotation.z = Math.PI / 2; // 横スクロールは翼を縦に
   g.scale.setScalar(k);
   const grp = { type: 'laserwing', t: 0, escape: Infinity, total: 1, kills: 0, leaving: false, bonus: 10000 };
   const body = {
-    kind: 'laserwing', mesh: g, mats: [wingM, frameM, coreM], r: 4 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 3,
+    kind: 'laserwing', mesh: g, mats: made.mats, r: 4 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 3,
     k, x: c.lastPlayer?.x ?? 0, z: SPAWN_Z, emitters: [], beamT: 3, bossGroup: grp,
   };
   grp.ratio = () => Math.max(0, body.hp / body.maxHp);
@@ -58,10 +65,14 @@ export function spawnLaserWing(c, def) {
   g.position.set(body.x, 14, SPAWN_Z);
   c.addEnemy(body, 8 * k);
   for (const sx of [-1, 1]) {
-    const m = mat(0xffb0a0, 0x802010);
-    const mesh = new THREE.Mesh(GEO.emitter, m);
+    // 発射口: mats[0] は光る結晶 (予告で赤く光らせる)
+    const emd = bossModel('emitter', ['EmitterGlow']) || (() => {
+      const m = mat(0xffb0a0, 0x802010);
+      return { mesh: new THREE.Mesh(GEO.emitter, m), mats: [m] };
+    })();
+    const mesh = emd.mesh;
     mesh.scale.setScalar(2 * k);
-    const em = { kind: 'emitter', mesh, mats: [m], r: 2.4 * k, hp: Infinity, score: 0, t: 0, flash: 0, fireT: Infinity, body, sx, beam: null, noLock: true };
+    const em = { kind: 'emitter', mesh, mats: emd.mats, r: 2.4 * k, hp: Infinity, score: 0, t: 0, flash: 0, fireT: Infinity, body, sx, beam: null, noLock: true };
     mesh.position.copy(g.position);
     c.addEnemy(em, 0);
     em.shadow.visible = false;
@@ -92,6 +103,7 @@ function startBeam(c, em, ctx, y, vertical = false) {
     const mark = new THREE.Line(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([P.x, 0, P.z - 12, P.x, top, P.z - 12], 3)), new THREE.LineBasicMaterial({ color: 0xff3020 }));
     mark.frustumCulled = false;
     c.scene.add(mark);
+    sfx.lock(); // 縦の光線の予告の音
     em.beam = {
       line, beam, mark, t: 0, warn: 1.0, dur: 0.9, hit: false, y, x: P.x, z: P.z, vertical: true,
       from: new THREE.Vector3(P.x, top, P.z), to: new THREE.Vector3(P.x, 0.3, P.z),

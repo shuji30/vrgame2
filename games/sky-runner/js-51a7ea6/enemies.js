@@ -164,6 +164,31 @@ export function veerAway(e, x, r, ctx, dt) {
   return x + e.veer * 30 * dt;
 }
 
+// ボスの部品: Blender のモデルを複製する (材質はボスごとに複製して、発光色で光らせる)。モデルは -Z が前なので 180 度回す。
+// first: mats の先頭に並べる材質の名前 (コードが mats[0]・mats[1] を見て光らせるため)
+export function bossModel(key, first = []) {
+  const tpl = MODELS[key];
+  if (!tpl) return null;
+  const inner = tpl.clone();
+  const copies = new Map();
+  inner.traverse((o) => {
+    if (!o.isMesh) return;
+    if (!copies.has(o.material)) {
+      const cm = o.material.clone();
+      cm.userData.base = cm.emissive.clone();
+      copies.set(o.material, cm);
+    }
+    o.material = copies.get(o.material);
+  });
+  inner.rotation.y = Math.PI;
+  const g = new THREE.Group();
+  g.add(inner);
+  const mats = [...copies.values()];
+  const order = (m) => { const i = first.indexOf(m.name); return i < 0 ? first.length : i; };
+  mats.sort((a, b) => order(a) - order(b));
+  return { mesh: g, mats };
+}
+
 export const EXTRA = {
   // ---- 水晶の矢 (CRYSTAL DART): 5 本が列になり、らせんを描きながら突っ込んでくる。近づくほど輪が小さくなる
   dart: {
@@ -581,7 +606,8 @@ export const EXTRA = {
     spawn(c, px) {
       const top = Math.min(9, (c.ceilingY ?? 40) - 3);
       for (let k = 0; k < 3; k++) {
-        const capM = mat(0xd8f6ff, 0x2a7aa0, { transparent: true, opacity: 0.6, side: THREE.DoubleSide, forceSinglePass: true });
+        // 笠は目の近くで薄くするので、クラゲごとの材質にする
+        const capM = mat(0xd8f6ff, 0x2a7aa0, { transparent: true, opacity: 0.6, side: THREE.DoubleSide, forceSinglePass: true, own: true });
         const glow = mat(0xffffff, 0x60e0ff);
         const g = new THREE.Group();
         const cap = new THREE.Mesh(GEO.jellyCap, capM);
@@ -601,7 +627,7 @@ export const EXTRA = {
           return t;
         });
         const side = k - 1;
-        const e = { kind: 'jelly', mesh: g, mats: [], flashMeshes: [cap, rim, core], r: 3, hp: 3, score: 700, t: rand(0, 3), flash: 0, fireT: Infinity,
+        const e = { kind: 'jelly', mesh: g, mats: [capM], flashMeshes: [rim, core], r: 3, hp: 3, score: 700, t: rand(0, 3), flash: 0, fireT: Infinity,
           x: px + side * 22 + rand(-3, 3), y: top - rand(0, 3), z: SPAWN_Z - Math.abs(side) * 14, tentacles, drop: 0, warn: -1, hitDone: false, capM, dmg: 10 };
         for (const m of e.flashMeshes) m.userData.mat = m.material;
         g.position.set(e.x, e.y, e.z);
@@ -614,6 +640,9 @@ export const EXTRA = {
       p.set(e.x + Math.sin(e.t * 0.6) * 1.2, e.y + Math.sin(e.t * 1.3) * 0.6, e.z);
       // 笠が脈打つ
       const pulse = 1 + Math.sin(e.t * 2.2) * 0.06;
+      // 幅 14 m の笠が頭の近くを通るときは、目から 6 m 以内で薄くする (迫力の決まり)
+      const near = p.distanceTo(P) - 7;
+      e.capM.opacity = 0.6 * THREE.MathUtils.clamp(near / 6, 0.12, 1);
       e.mesh.children[0].scale.set(7 * pulse, 2.6 / pulse, 7 * pulse);
       // 触手を垂らす: 120 m 先で笠が 0.8 秒明るく光り (予告)、0.5 秒で 10 m 伸びる
       if (e.warn < 0 && p.z > -120) e.warn = 0;
