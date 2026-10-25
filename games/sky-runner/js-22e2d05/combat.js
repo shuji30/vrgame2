@@ -433,6 +433,9 @@ export async function loadEnemyModels(url) {
 // yOff: モデルの原点が足元にあるものは、体の中心が原点になるよう下げる (当たり判定とロックの中心)
 // share: 材質をモデルと共有する (数の多い雑魚。被弾の光は材質の差し替え、flashMeshes で行う)。
 //        共有しないときは、敵ごとに材質を複製して発光色で光らせる (色を変えるボスや建設ロボの目)
+// 建設ロボの塗装 (Blender のモデルは黄色。編隊ごとに塗り替える)
+const MECH_PAINTS = [0xf2b814, 0x2a6ae0, 0xd8302a, 0x8a3ad0, 0x8a9098];
+
 export function instance(tpl, yOff = 0, share = false) {
   const inner = tpl.clone();
   inner.position.y = -yOff;
@@ -722,6 +725,9 @@ export class Combat {
     e.fireT = Infinity;
     e.mesh.rotation.set(0, Math.PI, 0);
     e.mesh.position.set(P.x, Math.max(e.r, P.y), P.z - 200);
+    // 原点から形の一番下までの深さ (砂時計や水晶塔は原点より下へ長く伸びる)。地面に埋まらないよう、これより上に置く
+    e.mesh.updateMatrixWorld(true);
+    e.display.floor = e.mesh.position.y - new THREE.Box3().setFromObject(e.mesh).min.y + 0.3;
   }
 
   updateShowcase(e, dt, ctx) {
@@ -732,7 +738,7 @@ export class Combat {
     const leave = D.t > D.life - 0.7;
     const k = Math.min(1, dt * (leave ? 2 : 3));
     p.x += (P.x - p.x) * k;
-    p.y += ((leave ? P.y + 30 : Math.max(e.r * 0.8, P.y - 1.5)) - p.y) * k;
+    p.y += ((leave ? P.y + 30 : Math.max(e.r * 0.8, D.floor || 0, P.y - 1.5)) - p.y) * k;
     p.z += ((leave ? P.z - 220 : P.z - Math.max(12, e.r * 3.5)) - p.z) * k;
     e.mesh.rotation.y += dt * 0.9;
     e.shadow.position.set(p.x, 0.05, p.z);
@@ -808,8 +814,10 @@ export class Combat {
   // 建設ロボの3機編隊: 縦一列で突っ込んできて、目の前まで迫りながら先頭から順に撃っては左右上へ散り、すぐ横をかすめて背後へ抜ける (DOMINO RUSH)
   spawnMechTrio(px) {
     const group = { phase: 'approach', lane: px, at: 0 };
+    const paint = MECH_PAINTS[Math.floor(Math.random() * MECH_PAINTS.length)]; // 編隊ごとに塗装の色を選ぶ (黄・青・赤・紫・グレー)
     for (let role = 0; role < 3; role++) {
       const made = TPL.mech ? instance(TPL.mech, 3) : fallback(0x4a2a6a, 2.8);
+      for (const m of made.mats) if (m.name === 'EN_DozerYellow') m.color.setHex(paint);
       const e = {
         kind: 'mech', ...made, r: 3.2 * MECH_SCALE, hp: 10 + this.level * 3, score: 1500, t: role * 0.4, flash: 0, fireT: Infinity,
         role, group, z: SPAWN_Z - role * 9, off: new THREE.Vector2(), offTo: new THREE.Vector2(), fired: 0, dustT: 0,

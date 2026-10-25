@@ -102,6 +102,9 @@ export class CockpitPanel {
     this.mesh.name = 'CockpitPanel';
 
     this.layout();
+    this.missiles = 0;
+    this.missileMax = 8;
+    this.locks = 0;
     this.t = 0;
     this.redrawT = 0;
     this.draw();
@@ -123,7 +126,6 @@ export class CockpitPanel {
     grid(14, my + 96, 7, 1, 10, 6, lamps, { round: true });
     grid(408, my + 96, 7, 1, 10, 6, lamps, { round: true });
     segs.push({ x: 196, y: my + 6, n: 3, key: 'spd' }, { x: 280, y: my + 6, n: 3, key: 'alt' });
-    bars.push({ x: 16, y: my + 122, w: 112, h: 14 }, { x: 386, y: my + 122, w: 112, h: 14 });
     // 左右の台: スイッチの列・ボタンの格子・ランプ・メーター
     for (const key of ['left', 'right']) {
       const [, y] = AREA[key];
@@ -257,6 +259,26 @@ export class CockpitPanel {
       }
       g.globalAlpha = 1;
     }
+    // ミサイルの残り (左下) とロックの数 (右下)。VR のコックピットでは画面の端の表示が見えないので、ここに出す
+    {
+      const y = AREA.main[1] + 123;
+      g.font = 'bold 11px monospace';
+      g.fillStyle = '#f0d040';
+      g.fillText('MISSILE', 16, y - 3);
+      for (let i = 0; i < this.missileMax; i++) {
+        g.fillStyle = '#0a0d10';
+        g.fillRect(14 + i * 14, y, 12, 22);
+        g.fillStyle = i < this.missiles ? '#f4f4f4' : 'rgba(255,255,255,0.12)';
+        g.fillRect(16 + i * 14, y + 2, 8, 18);
+      }
+      g.fillStyle = '#f0d040';
+      g.fillText('LOCK', 392, y - 3);
+      g.fillStyle = '#100604';
+      g.fillRect(392, y, 44, 22);
+      g.font = 'bold 18px monospace';
+      g.fillStyle = this.locks ? '#ff3a2a' : '#5a2010';
+      g.fillText(String(this.locks).padStart(2, '0'), 397, y + 18);
+    }
     // 7 セグメント風の数字 (橙)
     for (const s of this.segs) {
       g.fillStyle = '#100604';
@@ -270,8 +292,13 @@ export class CockpitPanel {
   }
 
   // ランプとレーダーは 1 秒に 10 回だけ描き直す (テクスチャを送る回数を少なく)
-  update(dt) {
+  update(dt, missiles = this.missiles, locks = this.locks) {
     this.t += dt;
+    if (missiles !== this.missiles || locks !== this.locks) { // ミサイルとロックは変わったらすぐ描き直す
+      this.missiles = missiles;
+      this.locks = locks;
+      this.redrawT = 0;
+    }
     this.redrawT -= dt;
     if (this.redrawT > 0) return;
     this.redrawT = 0.1;

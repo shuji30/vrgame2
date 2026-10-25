@@ -132,7 +132,7 @@ export class Avatar {
 
   // kind: 'ship' | 'human'、view: '1st' | '3rd'
   // sidePos: 横スクロールのときのプレイヤーの位置 (ワールド座標)
-  update(dt, { kind, view, vx, vy, thrust, presenting, sidePos }) {
+  update(dt, { kind, view, vx, vy, thrust, presenting, sidePos, missiles, locks }) {
     this.t += dt;
     this.radius = RADIUS[kind];
 
@@ -160,7 +160,7 @@ export class Avatar {
       } else if (view === '1st') {
         m.obj.position.copy(this.anchor).sub(m.eye);
         m.obj.rotation.set(0, 0, 0); // コックピットは傾けない (VR 酔い防止)
-        m.panel?.update(dt);
+        m.panel?.update(dt, missiles, locks);
       } else {
         m.obj.position.copy(this.anchor).add(THIRD_OFFSET[kind]);
         // 三人称ではモデルだけを傾ける。カメラは動かさない

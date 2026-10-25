@@ -2,6 +2,7 @@
 //   第 1 段階 (体力 3/4 まで): まわりを鏡が回り、弾を撃ち返す (ミラーコアの鏡をそのまま使う)。すき間から核を撃つ
 //   第 2 段階 (0.4 まで): 鏡が砕け、地面の岩と柱を浮かせて投げてくる (磁鉄の巨像の破片を使う)
 //   第 3 段階: 光の花びらを閉じて守り (弾を跳ね返す)、開いて水色に光っている間だけ倒せる。開くと渦巻き弾
+//   どの段階でも、花びらから 1 枚ずつ順にミサイルを撃つ (五月雨撃ち)
 import * as THREE from 'three';
 import { makeDebris, launchDebris } from './colossus.js';
 import { bossModel } from '../enemies.js';
@@ -26,7 +27,7 @@ function mat(color, emissive, extra = {}) {
 export function spawnSun(c, def) {
   const side = c.sideMode;
   const k = side ? 0.6 : 1;
-  const hp = def.hp || 600;
+  const hp = def.hp || 900;
   // 核: Blender のモデル (PrismSun。半径 5) か図形で。mats[0] は核 (段階と、倒せるときの色を変える)
   const cm = bossModel('sun', ['SunCore', 'SunGold']);
   const coreM = cm ? cm.mats[0] : mat(0xffe08a, 0xff9a20);
@@ -127,15 +128,25 @@ export const SUN_KINDS = {
         if (e.throwT <= 0 && e.held.length) {
           for (const d of e.held) if (!d.dead) launchDebris(d, ctx);
           e.held = [];
-          e.throwT = rand(3.5, 4.5);
+          e.throwT = rand(2.6, 3.4);
         }
       }
-      // 第 3 段階: 花びらを閉じる (1.9 秒) → 開く (1.9 秒)。開く 0.5 秒前に震えて予告
+      // 五月雨撃ち: 花びらから 1 枚ずつ順に (0.1 秒おきに) ミサイルを撃つ
+      if (e.rain) {
+        e.rain.t -= dt;
+        while (e.rain.t <= 0 && e.rain.n < e.rain.petals.length) {
+          e.rain.t += 0.1;
+          const from = e.rays[e.rain.petals[e.rain.n++]].getWorldPosition(new THREE.Vector3());
+          c.fireBullet(from, ctx.player, rand(-0.08, 0.08), 'shell');
+        }
+        if (e.rain.n >= e.rain.petals.length) e.rain = null;
+      }
+      // 第 3 段階: 花びらを閉じる (2.2 秒) → 開く (1.6 秒)。開く 0.5 秒前に震えて予告
       if (e.stage === 3) {
         e.petalT -= dt;
         if (e.petalT <= 0) {
           e.petal = e.petal === 'closed' ? 'open' : 'closed';
-          e.petalT = e.petal === 'open' ? 1.9 : 1.9;
+          e.petalT = e.petal === 'open' ? 1.6 : 2.2;
           if (e.petal === 'open') e.fireT = 0.2;
         }
         const want = e.petal === 'open' ? 1 : 0;
@@ -152,17 +163,26 @@ export const SUN_KINDS = {
     },
     fire(c, e, ctx, p) {
       if (e.stage === 3) {
-        // 開いている間だけ、渦巻き弾
-        if (e.petal !== 'open') { e.fireT = 0.3; return; }
-        e.fireT = 0.4;
+        // 開いている間は 4 本の渦巻き弾。閉じている間は、1 枚おきの花びらから五月雨撃ち
+        if (e.petal !== 'open') {
+          e.fireT = 2.2;
+          if (!e.rain) e.rain = { t: 0, n: 0, petals: [0, 2, 4, 6, 8, 10] };
+          return;
+        }
+        e.fireT = 0.3;
         e.spA = (e.spA || 0) + 0.7;
-        for (const s of [0, Math.PI * 2 / 3, Math.PI * 4 / 3]) c.fireBullet(p.clone(), ctx.player, Math.sin(e.spA + s) * 0.55);
+        for (let k = 0; k < 4; k++) c.fireBullet(p.clone(), ctx.player, Math.sin(e.spA + (k * Math.PI) / 2) * 0.55);
         return;
       }
-      // 第 1・2 段階: 扇 (投げている間は撃たない)
-      e.fireT = rand(2, 2.8);
-      if (e.held.length) return;
-      for (let s = -3; s <= 3; s++) c.fireBullet(p.clone(), ctx.player, s * 0.11);
+      // 第 1・2 段階: 9 発の扇と、12 枚の花びらからの五月雨撃ちをかわるがわる (投げている間は撃たない)
+      e.fireT = rand(1.3, 1.7);
+      if (e.held.length || e.rain) return;
+      e.volley = (e.volley || 0) + 1;
+      if (e.volley % 2) for (let s = -4; s <= 4; s++) c.fireBullet(p.clone(), ctx.player, s * 0.1);
+      else {
+        const first = Math.floor(Math.random() * 12), dir = Math.random() < 0.5 ? 1 : -1; // 回る向きに順に
+        e.rain = { t: 0, n: 0, petals: Array.from({ length: 12 }, (_, i) => (first + dir * i + 12) % 12) };
+      }
     },
     onDeath(c, e) {
       for (const x of [...e.mirrors, ...e.held]) if (!x.dead) { x.dead = true; c.explode(x.mesh.position, false); }

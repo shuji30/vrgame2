@@ -166,7 +166,7 @@ export const STAGES = [
       { type: 'mirror', hp: 180, tier: 2, escape: 0, diff: 3 },
       { type: 'squad', hp: 0, escape: 22, diff: 3 }, { type: 'geodering', tier: 1, escape: 22, diff: 4 },
       { type: 'mine', hp: 160, escape: 0, diff: 6 }, { type: 'colossus', hp: 280, escape: 0, diff: 6 },
-      { type: 'sun', hp: 600, escape: 0, diff: 8 }, // 最終ボス
+      { type: 'sun', hp: 900, escape: 0, diff: 8 }, // 最終ボス
     ],
   },
 ];

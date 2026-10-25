@@ -114,10 +114,6 @@ export class Hud {
       text(g, 'MISSILE', 24, 408, 22, '#fff');
       if (d.locks) text(g, `LOCK ${d.locks}`, 24 + d.missileMax * 22 + 16, 452, 34, '#ff4040');
 
-      // 速さ (右側)。速さは面ごとに決まっている
-      const sx = 968, sw = 30, sy1 = 400;
-      text(g, `${d.kmh}`, sx + sw, sy1 + 36, 30, '#fff', 'right');
-      text(g, 'km/h', sx + sw, sy1 + 62, 20, '#fff', 'right');
     }
 
     if (d.msg) text(g, d.msg, 512, 236, 70, '#ffe14a', 'center');
@@ -130,7 +126,7 @@ export class Hud {
     // お話の通信 (相棒のベリル): 下の方に、暗い帯の上の水色の文字で
     if (d.comm) {
       g.fillStyle = 'rgba(4, 12, 28, 0.6)';
-      g.fillRect(232, 416, 560, 46); // 左のミサイルと右の速さの表示にかからない幅
+      g.fillRect(232, 416, 560, 46); // 左のミサイルの表示にかからない幅
       g.fillStyle = 'rgba(96, 224, 255, 0.9)';
       g.fillRect(232, 416, 6, 46);
       text(g, d.comm, 515, 449, 28, '#8ff0ff', 'center', 540);
