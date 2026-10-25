@@ -72,10 +72,11 @@ export function spawnWhale(c, def) {
   c.addEnemy(w, 6 * k);
   w.shadow.visible = false;
   for (let i = 0; i < 3; i++) {
-    const m = mat(0xffd36a, 0xff6a10);
-    const mesh = new THREE.Mesh(GEO.hole, m);
+    // 潮吹き穴: Blender のモデル (WhaleBlowhole。黒曜石の口と光る結晶) か図形で。mats[0] は結晶 (浮上中だけ光らせる)
+    const hm = bossModel('blowhole', ['BlowholeGlow']) || (() => { const m = mat(0xffd36a, 0xff6a10); return { mesh: new THREE.Mesh(GEO.hole, m), mats: [m] }; })();
+    const mesh = hm.mesh;
     mesh.scale.setScalar(1.6 * k);
-    const h = { kind: 'blowhole', mesh, mats: [m], r: 2.2 * k, hp: holeHp, score: 2000, t: 0, flash: 0, fireT: Infinity, whale: w, slot: i, noItem: true };
+    const h = { kind: 'blowhole', mesh, mats: hm.mats, r: 2.2 * k, hp: holeHp, score: 2000, t: 0, flash: 0, fireT: Infinity, whale: w, slot: i, noItem: true };
     mesh.position.copy(g.position);
     c.addEnemy(h, 0);
     h.shadow.visible = false;
@@ -90,14 +91,16 @@ const G = 22; // 火の玉にかかる重さ (m/s²)
 function spawnFin(c, w, ctx) {
   const P = ctx.player;
   const z0 = P.z - 90, x = P.x;
-  const lavaM = mat(0xff8a30, 0xc03a00);
-  const mesh = new THREE.Mesh(GEO.fin, lavaM);
-  mesh.scale.set(1.6, 1, 0.7); // 高さ 3 m の背びれ (前後に薄い板を立てる)
+  // 背びれ: Blender のモデル (WhaleFin。高さ 3 m の溶岩の板) か図形で
+  const fm = bossModel('whaleFin', ['FinLava']);
+  const lavaM = fm ? fm.mats[0] : mat(0xff8a30, 0xc03a00);
+  const mesh = fm ? fm.mesh : new THREE.Mesh(GEO.fin, lavaM);
+  if (!fm) mesh.scale.set(1.6, 1, 0.7); // 高さ 3 m の背びれ (前後に薄い板を立てる)
   mesh.position.set(x, -2, z0);
   const line = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 90 - 8).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff7a20, transparent: true, opacity: 0.7, depthWrite: false }));
   line.position.set(x, 0.1, z0 + (90 - 8) / 2);
   c.scene.add(line);
-  const e = { kind: 'finrush', mesh, mats: [lavaM], r: 2, hp: 5, score: 500, t: 0, flash: 0, fireT: Infinity, x, z: z0, warn: 1, marker: line, whale: w, noItem: true, noHit: true };
+  const e = { kind: 'finrush', mesh, mats: fm ? fm.mats : [lavaM], r: 2, hp: 5, score: 500, t: 0, flash: 0, fireT: Infinity, x, z: z0, warn: 1, marker: line, whale: w, noItem: true, noHit: true };
   c.addEnemy(e, 0);
   e.shadow.visible = false;
   sfx.roar();

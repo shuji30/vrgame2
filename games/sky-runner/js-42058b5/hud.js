@@ -70,7 +70,7 @@ export class Hud {
 
       // ボーナスステージ: なぎ倒した木の本数と残り時間
       if (d.bonus) {
-        text(g, `TREES ${d.bonus.count}`, 512, 108, 40, '#8dff9a', 'center');
+        text(g, `${d.bonus.label || 'TREES'} ${d.bonus.count}` + (d.bonus.chain > 1 ? `  ${d.bonus.chain} CHAIN` : ''), 512, 108, 40, '#8dff9a', 'center');
         text(g, `${d.bonus.left}`, 512, 146, 30, '#fff', 'center');
       }
 
@@ -122,7 +122,11 @@ export class Hud {
 
     if (d.msg) text(g, d.msg, 512, 236, 70, '#ffe14a', 'center');
     // 2 行目は改行で何行かに分けられる (ゲームオーバーの面・点数・名前の入力)。長い行は横に縮める
-    if (d.sub) d.sub.split('\n').forEach((line, k) => text(g, line, 512, 296 + k * 40, 30, '#fff', 'center', 1000));
+    // 行が多いとき (ポーズ中の設定) は、行の間と文字を詰めて、下の案内に重ならないようにする
+    if (d.sub) {
+      const lines = d.sub.split('\n'), many = lines.length > 3;
+      lines.forEach((line, k) => text(g, line, 512, (many ? 276 : 296) + k * (many ? 31 : 40), many ? 25 : 30, '#fff', 'center', many ? 760 : 1000));
+    }
     if (d.hint) {
       g.globalAlpha = 0.85;
       text(g, d.hint, 512, 492, 21, '#fff', 'center');

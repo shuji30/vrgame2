@@ -3,7 +3,7 @@
 // 3D ではプレイヤーの前を左右に横切って飛び、横スクロールでは画面の面の中で前後に飛ぶ。頭が一番高い所で扇の弾を撃つ
 import * as THREE from 'three';
 import { sfx } from '../audio.js';
-import { bossModel } from '../enemies.js';
+import { bossModel, eyeGuard } from '../enemies.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const HIDE_Y = -60; // 潜っている間の置き場所 (当たらない)
@@ -94,9 +94,19 @@ export const WORM_KINDS = {
           // 次に飛び出す場所を決めて、地面に印を出す (1 秒の予告)
           e.dir *= -1;
           e.leaps = (e.leaps || 0) + 1;
-          e.charge = !ctx.side && e.leaps % 2 === 0; // 2 回に 1 回は、正面から頭の上すれすれを越えて背後へ潜る
+          // 跳び方は「横切る → 体当たり → 横切る → 頭上越え」のくり返し (横スクロールは横切るだけ)
+          const kind = ctx.side ? 'cross' : ['over', 'cross', 'lunge', 'cross'][e.leaps % 4];
+          e.charge = kind === 'over'; // 正面から頭の上を越えて背後へ潜る
+          e.lunge = kind === 'lunge'; // 体当たり: そのときいた所へ、まっすぐ突っ込んでくる
           const z = c.holdZ(rand(-44, -30));
-          if (e.charge) {
+          if (e.lunge) {
+            // 60 m 先の地面から飛び出し、プレイヤーのいた所 (高さも) へまっすぐ。最初の 0.3 秒で起き上がり、そのあとは毎秒 34 m
+            e.from.set(P.x + rand(-2, 2), -4, P.z - 60);
+            e.to.copy(P);
+            e.dur = 60 / 34 + 0.3;
+            e.eyeChecked = false;
+            e.veer = 0;
+          } else if (e.charge) {
             // プレイヤーの真上を 9 m ほどで通るよう、放物線の高さを決める (前 55 m から後ろ 25 m へ)
             const x = P.x + rand(-3, 3);
             e.from.set(x, -4, P.z - 55);
@@ -113,7 +123,7 @@ export const WORM_KINDS = {
             e.from.set(P.x - e.dir * span, -4, z);
             e.to.set(P.x + e.dir * span, -4, z + rand(-6, 6));
           }
-          if (!e.charge) {
+          if (!e.charge && !e.lunge) {
             e.apex = ctx.side ? 15 : rand(11, 16) + P.y * 0.5; // 高く飛んでいても届くように
             e.dur = Math.max(2.4, 2.9 - (c.level - 1) * 0.05); // 弾が届くよう、ゆっくり跳ぶ
           }
@@ -135,6 +145,7 @@ export const WORM_KINDS = {
           e.path = [];
         }
       } else {
+        if (e.lunge) { lunge(c, e, dt, ctx, p); return; }
         // 弧を描いて飛ぶ (放物線)。頭上を越えるときは、頂上の高さを今のプレイヤーの高さに合わせ直す (上へ動いても当たらない)
         if (e.charge) e.apex = (P.y + 9 + 4) / (4 * (55 / 80) * (25 / 80)) - 4;
         e.u += dt / e.dur;
@@ -191,3 +202,60 @@ export const WORM_KINDS = {
     },
   },
 };
+
+// 体当たり (LUNGE): 地面から飛び出して起き上がり (0.3 秒)、そのときいた所へまっすぐ突っ込む (追わない)。
+// 頭が目の 8 m 手前に来たら、当たる位置なら砂をはね上げて潜り 25 (目の中を通らない)。外れていれば横へそれて潜る
+function lunge(c, e, dt, ctx, p) {
+  const P = ctx.player;
+  e.u += dt;
+  const px = p.x, py = p.y, pz = p.z;
+  if (e.diving) {
+    // 潜る: 下へ急いで沈み、そのまま地面の中へ
+    e.diving += dt;
+    p.y -= 40 * dt;
+    p.x += (e.veer || 0) * 20 * dt;
+    p.z += 10 * dt;
+  } else if (e.u < 0.3) {
+    // 起き上がる: 地面から斜めに頭を出す (砂煙)
+    const k = e.u / 0.3;
+    p.set(e.from.x, -4 + (e.to.y + 4) * k * 0.8, e.from.z + 6 * k);
+    if (Math.random() < dt * 30) c.sparks.emit(_a.set(e.from.x + rand(-2, 2), 0.5, e.from.z + rand(-2, 2)), new THREE.Vector3(rand(-3, 3), rand(4, 9), rand(-1, 3)), new THREE.Color(0xc8a070), 1.6, 0.7);
+  } else {
+    if (!e.lungeVel) {
+      e.lungeVel = _b.subVectors(e.to, p).normalize().multiplyScalar(34).clone();
+      sfx.roar();
+    }
+    p.addScaledVector(e.lungeVel, dt);
+    if (!e.fired && p.z > P.z - 40) {
+      e.fired = true;
+      for (let s = -1; s <= 1; s++) c.fireBullet(p.clone(), P, s * 0.16); // 突っ込みながら 3 発
+    }
+    // 目の 8 m 手前: 当たる位置なら潜って 25。外れていれば横へそれて潜る
+    if (eyeGuard(c, e, ctx, p, e.r, 25, 0.8)) {
+      e.dead = false; // 頭は倒れない (eyeGuard は砕けた物を消すので、戻す)
+      e.noHit = true;
+      e.diving = 0.001;
+      c.sparks.emit(p.clone(), new THREE.Vector3(0, 8, 0), new THREE.Color(0xc8a070), 3, 0.8);
+    } else if (e.eyeChecked && !e.diving) {
+      e.diving = 0.001;
+    }
+  }
+  if (!e.diving || p.y > -2) {
+    _a.set(p.x + (p.x - px), p.y + (p.y - py), p.z + (p.z - pz));
+    if (_a.distanceToSquared(p) > 1e-6) e.mesh.lookAt(_a);
+  }
+  e.vel = e.vel || new THREE.Vector3();
+  e.vel.set(p.x - px, p.y - py, p.z - pz).divideScalar(Math.max(dt, 1e-3));
+  e.path.unshift(p.clone());
+  if (e.path.length > 200) e.path.length = 200;
+  // 頭も節もみな地面の下に入ったら、次の跳び方へ
+  if (e.diving && p.y < -6 && e.segs.every((sg) => sg.mesh.position.y < -1)) {
+    e.lunge = false;
+    e.lungeVel = null;
+    e.diving = 0;
+    e.noHit = false;
+    e.state = 'under';
+    e.timer = rand(1.2, 2) / (1 + (c.level - 1) * 0.05);
+    p.y = HIDE_Y;
+  }
+}

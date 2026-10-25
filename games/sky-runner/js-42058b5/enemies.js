@@ -606,30 +606,46 @@ export const EXTRA = {
     spawn(c, px) {
       const top = Math.min(9, (c.ceilingY ?? 40) - 3);
       for (let k = 0; k < 3; k++) {
-        // 笠は目の近くで薄くするので、クラゲごとの材質にする
-        const capM = mat(0xd8f6ff, 0x2a7aa0, { transparent: true, opacity: 0.6, side: THREE.DoubleSide, forceSinglePass: true, own: true });
-        const glow = mat(0xffffff, 0x60e0ff);
-        const g = new THREE.Group();
-        const cap = new THREE.Mesh(GEO.jellyCap, capM);
-        cap.scale.set(7, 2.6, 7);
-        const rim = new THREE.Mesh(GEO.jellyRim, glow);
-        rim.scale.setScalar(7);
-        const core = new THREE.Mesh(GEO.gem, glow);
-        core.scale.setScalar(1.1);
-        core.position.y = 1;
-        g.add(cap, rim, core);
-        const tentacles = [-6, 0, 6].map((x) => {
-          const t = new THREE.Mesh(GEO.tentacle, TENTACLE_MAT);
-          t.position.set(x, 0, 0);
-          t.scale.set(1, 0.01, 1);
-          t.visible = false;
-          g.add(t);
-          return t;
-        });
+        // Blender のモデル (CrystalJelly。笠 JellyCap と触手 JellyTent0〜2 は動かす部品) か、読み込む前は図形で。
+        // 笠は目の近くで薄くするので、材質はクラゲごと (mats[0] が笠)
+        const jm = bossModel('jelly', ['JellyCap', 'JellyGlow', 'JellyTentacle']);
+        let g, capM, cap, tentacles, mats, flashMeshes;
+        if (jm) {
+          g = jm.mesh;
+          mats = jm.mats;
+          capM = mats[0];
+          cap = g.getObjectByName('JellyCap');
+          tentacles = [0, 1, 2].map((i) => g.getObjectByName(`JellyTent${i}`));
+          for (const t of tentacles) { t.scale.set(1, 0.01, 1); t.visible = false; }
+          flashMeshes = null;
+        } else {
+          // 笠は目の近くで薄くするので、クラゲごとの材質にする
+          capM = mat(0xd8f6ff, 0x2a7aa0, { transparent: true, opacity: 0.6, side: THREE.DoubleSide, forceSinglePass: true, own: true });
+          const glow = mat(0xffffff, 0x60e0ff);
+          g = new THREE.Group();
+          cap = new THREE.Mesh(GEO.jellyCap, capM);
+          cap.scale.set(7, 2.6, 7);
+          const rim = new THREE.Mesh(GEO.jellyRim, glow);
+          rim.scale.setScalar(7);
+          const core = new THREE.Mesh(GEO.gem, glow);
+          core.scale.setScalar(1.1);
+          core.position.y = 1;
+          g.add(cap, rim, core);
+          tentacles = [-6, 0, 6].map((x) => {
+            const t = new THREE.Mesh(GEO.tentacle, TENTACLE_MAT);
+            t.position.set(x, 0, 0);
+            t.scale.set(1, 0.01, 1);
+            t.visible = false;
+            g.add(t);
+            return t;
+          });
+          mats = [capM];
+          flashMeshes = [rim, core];
+        }
         const side = k - 1;
-        const e = { kind: 'jelly', mesh: g, mats: [capM], flashMeshes: [rim, core], r: 3, hp: 3, score: 700, t: rand(0, 3), flash: 0, fireT: Infinity,
+        const e = { kind: 'jelly', mesh: g, mats, flashMeshes, cap, capBase: cap.scale.clone(), r: 3, hp: 3, score: 700, t: rand(0, 3), flash: 0, fireT: Infinity,
           x: px + side * 22 + rand(-3, 3), y: top - rand(0, 3), z: SPAWN_Z - Math.abs(side) * 14, tentacles, drop: 0, warn: -1, hitDone: false, capM, dmg: 10 };
-        for (const m of e.flashMeshes) m.userData.mat = m.material;
+        for (const m of e.flashMeshes || []) m.userData.mat = m.material;
         g.position.set(e.x, e.y, e.z);
         c.addEnemy(e, 4);
       }
@@ -643,7 +659,7 @@ export const EXTRA = {
       // 幅 14 m の笠が頭の近くを通るときは、目から 6 m 以内で薄くする (迫力の決まり)
       const near = p.distanceTo(P) - 7;
       e.capM.opacity = 0.6 * THREE.MathUtils.clamp(near / 6, 0.12, 1);
-      e.mesh.children[0].scale.set(7 * pulse, 2.6 / pulse, 7 * pulse);
+      e.cap.scale.set(e.capBase.x * pulse, e.capBase.y / pulse, e.capBase.z * pulse);
       // 触手を垂らす: 120 m 先で笠が 0.8 秒明るく光り (予告)、0.5 秒で 10 m 伸びる
       if (e.warn < 0 && p.z > -120) e.warn = 0;
       if (e.warn >= 0 && e.warn < 0.8) {

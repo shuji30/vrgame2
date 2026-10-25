@@ -108,7 +108,7 @@ export const STAGES = [
   },
   {
     name: 'NEON YARD', kind: 'bonus', length: 20, speed: 42, diff: 1, density: 0,
-    waves: [], obstacles: { tree: 1, lane: 0 },
+    waves: [], obstacles: { pylon: 1, lane: 0 }, // 12 面のボーナスは人工物 (ネオンの街灯) をなぎ倒す
     palette: { a: 0x6af0ff, b: 0xff4ad8, fog: 0xffd8f8, sky: 0x2a1a6a, mount: 0x5a3a9a, col: ['#ffffff', '#ff4ad8'], bush: 0x2ad0c0 },
     bgm: { key: 2, tempo: 164 },
   },

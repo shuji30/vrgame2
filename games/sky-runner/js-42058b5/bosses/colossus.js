@@ -108,10 +108,11 @@ export function spawnColossus(c, def) {
 
 function makeElectrodes(c, body) {
   body.electrodes = [-1, 1].map((sx) => {
-    const m = mat(0x9fe8ff, 0x3a9ad0);
-    const mesh = new THREE.Mesh(GEO.orb, m);
+    // 電極: Blender のモデル (ColElectrode。光る球と銅のコイル) か図形で
+    const em = bossModel('electrode', ['ElectrodeGlow']) || (() => { const m = mat(0x9fe8ff, 0x3a9ad0); return { mesh: new THREE.Mesh(GEO.orb, m), mats: [m] }; })();
+    const mesh = em.mesh;
     mesh.scale.setScalar(2.2 * body.k);
-    const e = { kind: 'electrode', mesh, mats: [m], r: 2.6 * body.k, hp: 10 + c.level, score: 1500, t: 0, flash: 0, fireT: Infinity, body, sx, big: true };
+    const e = { kind: 'electrode', mesh, mats: em.mats, r: 2.6 * body.k, hp: 10 + c.level, score: 1500, t: 0, flash: 0, fireT: Infinity, body, sx, big: true };
     mesh.position.copy(body.mesh.position);
     c.addEnemy(e, 1.5 * body.k);
     return e;
@@ -260,13 +261,17 @@ export const COLOSSUS_KINDS = {
 
 export function makeDebris(c, body, i, n) {
   const pillar = i % 3 === 1; // 3 つに 1 つは壊せない柱
-  const m = pillar ? mat(0x9a8a7a, 0x000000) : mat(0x6a5a4a, 0x000000);
-  const mesh = new THREE.Mesh(pillar ? GEO.pillar : GEO.rock, m);
+  // 岩と柱: Blender のモデル (DebrisRock / DebrisPillar) か図形で。mats[0] を光らせて予告する
+  const dm = bossModel(pillar ? 'debrisPillar' : 'debrisRock', [pillar ? 'DebrisPillarMat' : 'DebrisRockMat']) || (() => {
+    const m = pillar ? mat(0x9a8a7a, 0x000000) : mat(0x6a5a4a, 0x000000);
+    return { mesh: new THREE.Mesh(pillar ? GEO.pillar : GEO.rock, m), mats: [m] };
+  })();
+  const mesh = dm.mesh;
   if (pillar) mesh.scale.set(1.3, 6, 1.3);
   else mesh.scale.setScalar(rand(2, 2.8));
   mesh.scale.multiplyScalar(body.k);
   const d = {
-    kind: 'debris', mesh, mats: [m], r: (pillar ? 2.6 : 2.4) * body.k, hp: pillar ? Infinity : 3, score: pillar ? 0 : 300, t: 0, flash: 0, fireT: Infinity,
+    kind: 'debris', mesh, mats: dm.mats, r: (pillar ? 2.6 : 2.4) * body.k, hp: pillar ? Infinity : 3, score: pillar ? 0 : 300, t: 0, flash: 0, fireT: Infinity,
     body, lift: 0, ox: (i - (n - 1) / 2) * 9, oy: 8 + (i % 2) * 4, spin: rand(1, 2.5), glow: pillar ? 0xff8030 : 0xffd040, dmg: pillar ? 25 : 20,
     noLock: pillar, vel: null,
   };
@@ -294,8 +299,8 @@ function stomp(c, e, dt, ctx, p) {
       e.throwT += 2.5; // 踏みつけの間は投げない
       const ring = new THREE.Mesh(new THREE.RingGeometry(3, 4.2, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff3020, transparent: true, opacity: 0.8, depthWrite: false }));
       c.scene.add(ring);
-      const gm = mat(0xffb0a0, 0xff2a10);
-      const gem = { kind: 'stompGem', mesh: new THREE.Mesh(GEO.rock, gm), mats: [gm], r: 2.2 * e.k, hp: 6 + Math.floor(c.level / 2), score: 800, t: 0, flash: 0, fireT: Infinity, body: e, leg, noItem: true };
+      const gmd = bossModel('stompGem', ['StompGemMat']) || (() => { const gm = mat(0xffb0a0, 0xff2a10); return { mesh: new THREE.Mesh(GEO.rock, gm), mats: [gm] }; })();
+      const gem = { kind: 'stompGem', mesh: gmd.mesh, mats: gmd.mats, r: 2.2 * e.k, hp: 6 + Math.floor(c.level / 2), score: 800, t: 0, flash: 0, fireT: Infinity, body: e, leg, noItem: true };
       gem.mesh.scale.setScalar(1.6 * e.k);
       gem.mesh.position.copy(p);
       e.stompS = { t: 0, ring, broken: false };
