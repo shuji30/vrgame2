@@ -2,7 +2,7 @@
 // モデルは Blender で作った assets/ship.glb と assets/harrier.glb (blender の元データは assets/models.blend)
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { CockpitPanel } from './cockpit.js';
+import { CockpitPanel, makeSeatAndPedals } from './cockpit.js';
 
 // 三人称で、目の高さから見てモデルをどこに置くか (rig の中の座標)
 const THIRD_OFFSET = {
@@ -93,10 +93,10 @@ export class Avatar {
       this.models[kind] = { obj, eye, flames, muzzles };
       if (kind === 'human') this.models[kind].legs = makeLimbs(obj);
       if (kind === 'ship') {
-        // コックピットの計器 (ボタンいっぱい)。前の台の小さな画面 3 つは、計器の板の下に隠れるので消す
+        // コックピットの計器 (ボタンいっぱい) とシート・ペダル。前の黒い台と小さな画面 3 つ、元の背もたれは消す
         const panel = new CockpitPanel();
-        (obj.getObjectByName('Ship') || obj).add(panel.mesh);
-        for (const n of ['ScreenL', 'ScreenC', 'ScreenR']) { const o = obj.getObjectByName(n); if (o) o.visible = false; }
+        (obj.getObjectByName('Ship') || obj).add(panel.mesh, makeSeatAndPedals());
+        for (const n of ['Dashboard', 'ScreenL', 'ScreenC', 'ScreenR', 'Seat']) { const o = obj.getObjectByName(n); if (o) o.visible = false; }
         Object.assign(this.models[kind], { panel, arch: obj.getObjectByName('CanopyArch') });
       }
     }));

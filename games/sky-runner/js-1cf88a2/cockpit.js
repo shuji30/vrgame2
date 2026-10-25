@@ -10,6 +10,34 @@ const AREA = { main: [0, 0, 512, 160], left: [0, 168, 512, 164], right: [0, 340,
 const COLORS = ['#ff3a2a', '#ffd23a', '#36e070', '#f4f4f4', '#ff8a1a', '#3ab0ff'];
 const rand = (a, b) => a + Math.random() * (b - a);
 
+// シートとペダル: 箱を並べて、色は頂点に持たせて 1 つにまとめる (描画 1 回)。床 (CockpitTub の上の面) は y = 0.23
+export function makeSeatAndPedals() {
+  const parts = [];
+  const box = (w, h, d, color, x, y, z, rx = 0) => {
+    const g = new THREE.BoxGeometry(w, h, d).toNonIndexed();
+    g.applyMatrix4(new THREE.Matrix4().makeRotationX(rx)).translate(x, y, z);
+    const c = new THREE.Color(color), n = g.attributes.position.count;
+    g.setAttribute('color', new THREE.Float32BufferAttribute(Array.from({ length: n * 3 }, (_, i) => [c.r, c.g, c.b][i % 3]), 3));
+    parts.push(g);
+  };
+  // シート: 座面・背もたれ・頭当て (目のすぐ下と後ろ)、座面の横の黄色い取っ手
+  box(0.15, 0.03, 0.15, 0x2e3c56, 0, 0.245, -0.235);
+  box(0.13, 0.008, 0.13, 0x3d4f70, 0, 0.263, -0.235);
+  box(0.15, 0.17, 0.03, 0x2e3c56, 0, 0.33, -0.15, -0.2);
+  box(0.13, 0.15, 0.008, 0x3d4f70, 0, 0.33, -0.167, -0.2);
+  box(0.09, 0.05, 0.035, 0x1c2230, 0, 0.44, -0.125, -0.2);
+  for (const sx of [-1, 1]) box(0.012, 0.012, 0.09, 0xf0c020, sx * 0.081, 0.258, -0.24);
+  // ペダル: シートの前の床に、寝かせた足の板 (黒いゴムのすじ入り) と根元の軸。下を向くと見える (正面の計器はふさがない)
+  for (const sx of [-1, 1]) {
+    box(0.04, 0.055, 0.008, 0x8a949e, sx * 0.05, 0.245, -0.36, -1.2);
+    for (const k of [-1, 0, 1]) box(0.034, 0.006, 0.004, 0x15191e, sx * 0.05, 0.25 + k * 0.0065, -0.358 - k * 0.017, -1.2);
+  }
+  box(0.14, 0.01, 0.016, 0x3a434c, 0, 0.236, -0.385);
+  const mesh = new THREE.Mesh(mergeGeometries(parts), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0.2 }));
+  mesh.name = 'CockpitSeat';
+  return mesh;
+}
+
 // 板を作り、UV をキャンバスの中のその場所に合わせる
 function plate(w, h, [x, y, aw, ah]) {
   const g = new THREE.PlaneGeometry(w, h);
@@ -28,9 +56,9 @@ export class CockpitPanel {
     this.tex.colorSpace = THREE.SRGBColorSpace;
     this.tex.anisotropy = 4;
 
-    // 正面: 前の台の斜めの面 (30 度) に重ねる。左右: 床の縁に、内側へ傾けて置く
+    // 正面: 上の縁を奥へ 30 度倒して、目の方へ向ける (下の縁は床の高さ)。左右: 床の縁に、内側へ傾けて置く
     const main = plate(0.3, 0.094, AREA.main).applyMatrix4(new THREE.Matrix4().compose(
-      new THREE.Vector3(0, 0.247, -0.47), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 6), new THREE.Vector3(1, 1, 1)));
+      new THREE.Vector3(0, 0.272, -0.47), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 6), new THREE.Vector3(1, 1, 1)));
     const side = (sx, area) => plate(0.26, 0.083, area).applyMatrix4(new THREE.Matrix4().makeRotationZ(-Math.PI / 2 * sx)) // 長い方を前後に
       .applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2)) // 上を向ける
       .applyMatrix4(new THREE.Matrix4().makeRotationZ(sx * 0.55)) // 内側 (目の方) へ傾ける
