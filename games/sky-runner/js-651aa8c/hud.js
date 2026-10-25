@@ -127,6 +127,14 @@ export class Hud {
       const lines = d.sub.split('\n'), many = lines.length > 3;
       lines.forEach((line, k) => text(g, line, 512, (many ? 276 : 296) + k * (many ? 31 : 40), many ? 25 : 30, '#fff', 'center', many ? 760 : 1000));
     }
+    // お話の通信 (相棒のベリル): 下の方に、暗い帯の上の水色の文字で
+    if (d.comm) {
+      g.fillStyle = 'rgba(4, 12, 28, 0.6)';
+      g.fillRect(232, 416, 560, 46); // 左のミサイルと右の速さの表示にかからない幅
+      g.fillStyle = 'rgba(96, 224, 255, 0.9)';
+      g.fillRect(232, 416, 6, 46);
+      text(g, d.comm, 515, 449, 28, '#8ff0ff', 'center', 540);
+    }
     if (d.hint) {
       g.globalAlpha = 0.85;
       text(g, d.hint, 512, 492, 21, '#fff', 'center');

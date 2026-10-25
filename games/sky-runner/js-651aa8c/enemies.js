@@ -87,7 +87,7 @@ GEO.tusk = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
 // マテリアルは同じ色どうしで共有する (敵ごとに作らない。被弾の光は combat の applyFlash が白い材質に差し替える)。
 // own: 敵ごとに色や形を変えるもの (二十面体の装甲の開き、衛星コアの核の色) は、敵ごとに作って発光色で光らせる
 const SHARED = new Map();
-function mat(color, emissive = 0x000000, { own = false, ...extra } = {}) {
+export function mat(color, emissive = 0x000000, { own = false, ...extra } = {}) {
   const key = own ? null : JSON.stringify([color, emissive, extra.metalness, extra.roughness, extra.opacity, extra.side]);
   if (key && SHARED.has(key)) return SHARED.get(key);
   const m = new THREE.MeshStandardMaterial({ color, emissive, flatShading: true, roughness: 0.2, metalness: 0.2, ...extra });
@@ -113,7 +113,7 @@ function build(parts) {
 
 // Blender のモデルがあればそれを、なければ図形 (parts) で組み立てる。モデルはほかの敵と同じく -Z が前なので 180 度回す。
 // own: 敵ごとに色を変えるもの (衛星コアの核) は材質を複製して、発光色で光らせる
-function model(key, parts, own = false) {
+export function model(key, parts, own = false) {
   const tpl = MODELS[key];
   if (!tpl) return build(parts);
   const inner = tpl.clone();

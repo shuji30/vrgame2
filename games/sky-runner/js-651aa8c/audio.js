@@ -112,6 +112,20 @@ const APPEAR = {
   mammoth: (t) => [0, 0.32, 0.64].forEach((d, i) => { osc('sine', 70, t + d, 0.25, 0.18 + i * 0.06, appearBus, 40); noise(t + d, 0.2, 0.15 + i * 0.05, 220, appearBus); }),
   // 水晶のクラゲ: ゆっくり揺れる、やわらかい鈴の音
   jelly: (t) => [76, 79, 83].forEach((m, i) => osc('sine', mtof(m), t + i * 0.22, 0.6, 0.05, appearBus, mtof(m) * 0.97)),
+  // 岩の亀: 重い足音 2 つ
+  tortoise: (t) => [0, 0.4].forEach((d) => { osc('sine', 55, t + d, 0.3, 0.2, appearBus, 35); noise(t + d, 0.2, 0.12, 300, appearBus); }),
+  // 砂時計の番人: さらさら流れる砂と、時計の鐘
+  hourglass: (t) => { noise(t, 1.0, 0.12, 3500, appearBus, 'bandpass'); osc('triangle', mtof(84), t + 0.2, 0.8, 0.06, appearBus); },
+  // 巨大オニヤンマ: ぶうんという羽音
+  dragonfly: (t) => { osc('sawtooth', 110, t, 1.0, 0.08, appearBus, 130); osc('sawtooth', 113, t, 1.0, 0.06, appearBus, 125); },
+  // 地を走る巨大蜘蛛: かさかさと速い足音
+  gspider: (t) => { for (let i = 0; i < 8; i++) noise(t + i * 0.06, 0.04, 0.18, 2200, appearBus, 'bandpass'); },
+  // 黒曜石のエイ: 地面をすべる低いうなり
+  ray: (t) => { noise(t, 0.9, 0.15, 500, appearBus); osc('sine', 90, t, 0.9, 0.1, appearBus, 70); },
+  // 雷の結晶球: ぱちぱちという放電
+  stormorb: (t) => { for (let i = 0; i < 5; i++) noise(t + i * 0.09, 0.03, 0.2, 5000, appearBus); },
+  // 磁石の浮遊機雷: ゆっくりした警告音
+  magnetmine: (t) => [0, 0.5].forEach((d) => osc('square', 440, t + d, 0.15, 0.04, appearBus, 430)),
   // 衛星コア: 不思議な電子のうねり
   orbiter: (t) => { osc('sine', 500, t, 0.7, 0.08, appearBus, 1000); osc('sine', 750, t, 0.7, 0.05, appearBus, 1500); },
 };
@@ -324,6 +338,13 @@ export const sfx = {
       osc('square', 880, t + i * 0.5, 0.22, 0.15, sfxBus);
       osc('square', 660, t + i * 0.5 + 0.25, 0.22, 0.15, sfxBus);
     }
+  },
+  // 通信の文が出るときの音 (ピピッ)
+  comm() {
+    if (!ctx) return;
+    const t = now();
+    osc('sine', 1760, t, 0.06, 0.06, sfxBus);
+    osc('sine', 2350, t + 0.09, 0.07, 0.06, sfxBus);
   },
   clear() {
     if (!ctx) return;
@@ -923,7 +944,50 @@ const genres = () => (genreSongs ||= makeSongs({
   mtof, osc, noise, kick, snare, hat, crash, clap, bassNote, powerChord, leadNote, popLead, sustainEnv,
 }));
 
+// ---- 録音した曲 (mp3): ジャンルに録音の曲があれば、そのジャンルの面の通常の区間で、プログラムの曲の代わりに流す
+// (WARNING からはボスの曲に切りかわる)。ステージ表の bgm.song に 'file:曲のパス' と書いて、1 つの面だけに付けることもできる。
+// WebAudio の BGM の出口につなぐので、音量・消音・ポーズは今の BGM と同じように効く。
+// ファイルの番号は docs/music/midi の番号と同じ (01 ロック、02 クラシック、03 ジャズ、04 ポップス、05 オルタナティブ、06 ボサノバ、07 レゲエ、08 メタル、09 グランジ、
+// 10 ボス、11 ボーナス、12 ゲームオーバー、13 最終ボス、14 エンディング)
+const RECORDED_SONGS = {
+  rock: './assets/music/01_Gravity_Left_Behind.mp3',
+  classical: './assets/music/02_The_Weight_of_Stillness.mp3',
+  jazz: './assets/music/03_Midnight_Mallets.mp3',
+  pops: './assets/music/04_Golden_Hour_High_Score.mp3',
+  boss: './assets/music/10_boss_PRISM_MENACE.mp3', // ボス戦の曲 (最終ボスの太陽は専用の曲のまま)
+};
+// リアルミュージック (タイトル画面で切りかえる): オフのときは録音の曲を使わず、すべてゲームの音源 (プログラム) の曲で鳴らす
+let realMusic = true;
+export function setRealMusic(on) {
+  realMusic = on;
+}
+const RECORDED_GAIN = 1.2; // 録音の曲の音量 (プログラムの曲と同じくらいに聞こえるよう)
+const recorded = {}; // パス → audio 要素
+let recordedNow = null;
+function recordedEl(url) {
+  if (!recorded[url]) {
+    const el = new Audio(url);
+    el.loop = true;
+    const g = ctx.createGain();
+    g.gain.value = RECORDED_GAIN;
+    ctx.createMediaElementSource(el).connect(g).connect(bgmBus);
+    recorded[url] = el;
+  }
+  return recorded[url];
+}
+// 今の曲の状態に合わせて、録音の曲を流す / 止める (曲が変わったら頭から)
+function syncRecorded(restart = false) {
+  const want = ctx && timer && song.startsWith('file:') ? recordedEl(song.slice(5)) : null;
+  if (recordedNow && recordedNow !== want) recordedNow.pause();
+  if (want && (want !== recordedNow || restart)) {
+    want.currentTime = 0;
+    want.play().catch(() => { /* まだ操作がなく、鳴らせない */ });
+  }
+  recordedNow = want;
+}
+
 function schedule() {
+  if (song.startsWith('file:')) return; // 録音の曲を流している間は、プログラムの曲を鳴らさない
   const songs = {
     rock: [playStep, tempo, STEPS],
     boss: [bossStep, BOSS_TEMPO, BOSS_STEPS],
@@ -959,11 +1023,13 @@ export function startBGM() {
   step = 0;
   nextTime = ctx.currentTime + 0.1;
   timer = setInterval(schedule, 25);
+  syncRecorded(true);
 }
 
 export function stopBGM() {
   clearInterval(timer);
   timer = null;
+  syncRecorded();
 }
 
 export function setBGMEnabled(on) {
@@ -978,6 +1044,7 @@ export function setBGMMode(mode, opts) {
   if (opts && opts.song !== undefined) stageSong = opts.song || 'rock';
   let next = mode === true ? 'boss' : mode === false ? 'rock' : mode;
   if (next === 'rock') next = stageSong; // 通常の曲は、そのステージのジャンルの曲
+  if (realMusic && RECORDED_SONGS[next]) next = 'file:' + RECORDED_SONGS[next]; // 録音の曲があるジャンルは、録音の曲で (サウンドテストの試聴も)
   if (opts) {
     transpose = opts.key || 0;
     tempo = opts.tempo || 152;
@@ -985,6 +1052,7 @@ export function setBGMMode(mode, opts) {
   if (next === song) return;
   song = next;
   step = 0;
+  syncRecorded(true);
   // フランジャーを止めておく (前の曲の途中でかかっていた場合)
   if (band) for (const side of [band.gtrL, band.gtrR]) side.fx.flanger.wet.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
 }
@@ -992,6 +1060,7 @@ export function setBGMMode(mode, opts) {
 // ポーズ中は音をすべて止める (BGM の位置もそのまま止まる)
 export function setPaused(p) {
   if (!ctx) return;
+  if (recordedNow) { if (p) recordedNow.pause(); else recordedNow.play().catch(() => {}); } // 録音の曲も、その位置で止める
   if (p) ctx.suspend();
   else ctx.resume();
 }
@@ -1081,6 +1150,7 @@ export function previewBGM(id) {
   step = 0;
   nextTime = ctx.currentTime + 0.1;
   timer = setInterval(schedule, 25);
+  syncRecorded(true);
 }
 
 // 開発用: ゲームの音を MediaStream として取り出す (プロモーション動画の録画用)

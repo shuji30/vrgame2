@@ -1,9 +1,11 @@
 // 戦闘: 敵、敵弾、自機の機関砲、ロックオン、追尾ミサイル、爆発と煙
 import * as THREE from 'three';
 import { EXTRA, MODELS } from './enemies.js';
+import { LATE_KINDS } from './enemies-late.js';
 import { BOSSES } from './bosses/index.js';
 
 for (const b of Object.values(BOSSES)) Object.assign(EXTRA, b.kinds); // 新しいボスの部品も、追加の敵と同じ形で動かす
+Object.assign(EXTRA, LATE_KINDS); // 後半の面の新しい敵 (enemies-late.js)
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { sfx, playAt } from './audio.js';
@@ -402,6 +404,11 @@ export async function loadEnemyModels(url) {
     jelly: ['CrystalJelly', ['JellyCap', 'JellyTent0', 'JellyTent1', 'JellyTent2']], // 水晶のクラゲ (笠は脈打ち、触手は伸びる)
     electrode: ['ColElectrode'], debrisRock: ['DebrisRock'], debrisPillar: ['DebrisPillar'], stompGem: ['StompGem'], // 巨像の部品
     blowhole: ['WhaleBlowhole'], whaleFin: ['WhaleFin'], // 鯨の部品
+    // 後半の面の新しい敵 (enemies-late.js)。名前の付いた部品は動かすもの
+    tortoise: ['RockTortoise', ['TortoiseHead']], hourglass: ['Hourglass', ['HGSandTop', 'HGSandBot']],
+    dragonfly: ['GiantDragonfly', ['DragonWing0', 'DragonWing1', 'DragonWing2', 'DragonWing3']],
+    gspider: ['GiantSpider', ['GSpiderLeg0', 'GSpiderLeg1', 'GSpiderLeg2', 'GSpiderLeg3', 'GSpiderLeg4', 'GSpiderLeg5', 'GSpiderLeg6', 'GSpiderLeg7']],
+    ray: ['ObsidianRay'], stormorb: ['StormOrb'], magnetmine: ['MagnetMine'],
   };
   for (const [key, [name, parts]] of Object.entries(extra)) {
     const node = gltf.scene.getObjectByName(name);

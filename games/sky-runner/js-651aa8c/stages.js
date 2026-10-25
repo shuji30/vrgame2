@@ -76,7 +76,7 @@ export const STAGES = [
   },
   {
     name: 'STONE VALLEY', kind: 'normal', length: 50, speed: 45, diff: 5, density: 1.2,
-    waves: [['moai', 2], ['turret', 2], ['ptero', 1]],
+    waves: [['moai', 2], ['turret', 2], ['ptero', 1], ['tortoise', 1.6]],
     obstacles: { column: 1.5, rock: 1.5, arch: 1, lane: 0.3 },
     palette: { a: 0xbfae94, b: 0x6a5a48, fog: 0xd8ccb8, sky: 0x7a6a8a, mount: 0x6a5a5a, col: ['#efe6d8', '#7a5a3a'], bush: 0x6a7a4a },
     bgm: { key: 3, tempo: 160, song: 'reggae' },
@@ -100,7 +100,7 @@ export const STAGES = [
   },
   {
     name: 'DUSK RUINS', kind: 'normal', length: 55, speed: 47, diff: 7, density: 1.35,
-    waves: [['ptero', 2], ['bat', 2], ['moai', 1]],
+    waves: [['ptero', 2], ['bat', 2], ['moai', 1], ['hourglass', 1.6]],
     obstacles: { column: 2, arch: 1.5, rock: 1, lane: 0.32 },
     palette: { a: 0xf3a986, b: 0x7a3a5a, fog: 0xf8c8a8, sky: 0x4a2a6a, mount: 0x6a3a5a, col: ['#fff0e8', '#a03a5a'], bush: 0x7a5a3a },
     bgm: { key: 4, tempo: 162, song: 'classical' },
@@ -114,7 +114,7 @@ export const STAGES = [
   },
   {
     name: 'CHROME BAY', kind: 'normal', length: 50, speed: 45, diff: 5, density: 1.2,
-    waves: [['lens', 2], ['orbiter', 1.5], ['gunship', 1], ['fighter', 1], ['dart', 1]],
+    waves: [['lens', 2], ['orbiter', 1.5], ['gunship', 1], ['fighter', 1], ['dart', 1], ['dragonfly', 1.8]],
     obstacles: { monolith: 2, crystal: 1.5, ring: 1, lane: 0.3 },
     palette: { a: 0xd6e4f2, b: 0x3a5a8a, fog: 0xe0ecf8, sky: 0x1a3a7a, mount: 0x3a5a7a, col: ['#ffffff', '#2a4a8a'], bush: 0x3a6a8a },
     bgm: { key: 5, tempo: 162, song: 'pops' },
@@ -122,7 +122,7 @@ export const STAGES = [
   },
   {
     name: 'SHADOW HALL', kind: 'normal', length: 45, speed: 48, diff: 6, density: 1.3, ceiling: true,
-    waves: [['bat', 2], ['icosa', 3.5], ['gremlin', 2], ['turret', 1]],
+    waves: [['bat', 2], ['icosa', 3.5], ['gremlin', 2], ['turret', 1], ['gspider', 1.4]],
     obstacles: { column: 2, crystal: 1.5, mushroom: 0.8, lane: 0.33 },
     palette: { a: 0x6a5a8a, b: 0x2a2040, fog: 0x3a2a50, sky: 0x0a0418, mount: 0x2a1a3a, col: ['#c8b8e8', '#3a2058'], bush: 0x5a3a7a },
     bgm: { key: 5, tempo: 166, song: 'metal' },
@@ -130,7 +130,7 @@ export const STAGES = [
   },
   {
     name: 'CRIMSON WASTE', kind: 'normal', length: 55, speed: 49, diff: 7, density: 1.4,
-    waves: [['dart', 2], ['bouncer', 1.5], ['ptero', 1], ['mech', 1]],
+    waves: [['dart', 2], ['bouncer', 1.5], ['ptero', 1], ['mech', 1], ['ray', 1.6]],
     obstacles: { rock: 2, spike: 1.5, column: 1.5, lane: 0.33 },
     palette: { a: 0xd8583a, b: 0x401818, fog: 0x8a5040, sky: 0x300808, mount: 0x501818, col: ['#ffd8c8', '#601010'], bush: 0x6a3a1a },
     bgm: { key: 6, tempo: 166, song: 'grunge' },
@@ -138,7 +138,7 @@ export const STAGES = [
   },
   {
     name: 'STORM DECK', kind: 'normal', length: 50, speed: 50, diff: 7, density: 1.4,
-    waves: [['gunship', 2], ['orbiter', 1.5], ['lens', 1], ['mech', 1], ['bat', 1.5]],
+    waves: [['gunship', 2], ['orbiter', 1.5], ['lens', 1], ['mech', 1], ['bat', 1.5], ['stormorb', 1.6]],
     obstacles: { column: 2, ring: 1.5, monolith: 1, lane: 0.33 },
     palette: { a: 0x7a8298, b: 0x202838, fog: 0x505870, sky: 0x101828, mount: 0x283040, col: ['#e0e4ee', '#283040'], bush: 0x3a4a5a },
     bgm: { key: 6, tempo: 168, song: 'jazz' },
@@ -146,7 +146,7 @@ export const STAGES = [
   },
   {
     name: 'BONE DESERT', kind: 'normal', length: 60, speed: 52, diff: 8, density: 1.5,
-    waves: [['fighter', 1.5], ['dart', 1], ['bat', 1], ['bouncer', 1], ['turret', 1], ['lens', 0.8], ['orbiter', 0.8], ['moai', 0.8], ['mech', 0.8]],
+    waves: [['fighter', 1.5], ['dart', 1], ['bat', 1], ['bouncer', 1], ['turret', 1], ['lens', 0.8], ['orbiter', 0.8], ['moai', 0.8], ['mech', 0.8], ['magnetmine', 1.4]],
     obstacles: { crystal: 1.5, column: 1.5, arch: 1, rock: 1, monolith: 1, lane: 0.36 },
     palette: { a: 0xebe3d3, b: 0x404040, fog: 0xc8c0b0, sky: 0x282018, mount: 0x4a4038, col: ['#ffffff', '#202020'], bush: 0x5a5a4a },
     bgm: { key: 7, tempo: 170, song: 'rock' },
@@ -209,4 +209,72 @@ export const ENEMY_INFO = {
   lens: ['PRISM LENS', 'ガラスのレンズ'],
   orbiter: ['ORBIT CORE', '衛星コア'],
   jelly: ['CRYSTAL JELLY', '水晶のクラゲ'],
+  tortoise: ['ROCK TORTOISE', '岩の亀'],
+  hourglass: ['HOURGLASS', '砂時計の番人'],
+  dragonfly: ['GIANT DRAGONFLY', '巨大オニヤンマ'],
+  gspider: ['GIANT SPIDER', '地を走る巨大蜘蛛'],
+  ray: ['OBSIDIAN RAY', '黒曜石のエイ'],
+  stormorb: ['STORM ORB', '雷の結晶球'],
+  magnetmine: ['MAGNET MINE', '磁石の浮遊機雷'],
+};
+
+// ---- お話 (案 A「ひびの入った太陽」。docs/story-proposal.md)。
+// 空のガラスの太陽にひびが入り、こぼれた光のかけらが石や虫や機械に宿ってあばれだした。ランナーは 18 の土地をこえて太陽へ向かう。
+// 文は相棒の通信士ベリル (灯台から文字で通信してくる) のことば。1 行は全角 20 文字まで (VR で一目で読める長さ)
+export const STORY = {
+  // プロローグ (初めて 1 面から出撃したときだけ。飛ばせる)
+  prologue: [
+    'むかし、空にはガラスの太陽があった',
+    'ある朝、その太陽にひびが入った',
+    'こぼれた光は、石や虫に宿ってあばれだした',
+    '行こう、ランナー。太陽まで 18 の土地をこえて',
+  ],
+  // 面のはじめの 1 行 (1〜18 面)
+  stage: [
+    '聞こえる? まずは撃って、よけて、体を慣らそう',
+    '海べりの鏡は光を返してくる。気をつけて',
+    '甘い色の森。でも結晶はかたいよ',
+    '天井のある谷。上にはにげられない',
+    'ひと休み。そりで雲の庭をすべって',
+    'こはくの砂丘。空で群れが回ってる',
+    'ここから光がうすい。寒くなるよ',
+    '岩が歩いてる…亀だ。首を出したら撃って',
+    '鉄のトンネル。刃の音をよく聞いて',
+    '胞子の沼。光るクラゲの間をぬけて',
+    '砂時計の番人が、時を数えてる',
+    'つけっぱなしの街灯、ぜんぶ倒しちゃって',
+    '太陽が見えてきた。トンボの編隊が来る',
+    '暗い広間。床を走る足音…蜘蛛だ',
+    '黒曜石のエイが、低くすべってくる',
+    '嵐の中だ。雷の帯は上か下へよけて',
+    '磁石の機雷は、はじける前に撃って',
+    'ここが太陽の前。かけらが集まってくる',
+  ],
+  // ボスを倒したとき (逃げられたとき) の 1 行
+  boss: {
+    serpent: ['連珠がほどけて、光の粒に戻った'],
+    mirror: ['鏡のくもりが晴れた'],
+    twin: ['2 つの頭が、1 つの石に戻った'],
+    squad: ['部隊は止まった。もう掘らない', '部隊は谷の奥へ帰っていった'],
+    swarm: ['群れがほどけて、砂に光が降った', '群れは空の向こうへ散った'],
+    crown: ['冠がとけて、平原に朝が来た'],
+    worm: ['大蛇は谷の底でねむった'],
+    turbine: ['刃が止まった。静かになったね'],
+    geodering: ['輪が閉じて、沼の光が落ち着いた', '輪は沼の底へしずんだ'],
+    phantom: ['分身が消えて、夕日が戻った'],
+    laserwing: ['母船が翼をたたんだ'],
+    mantis: ['カマキリが鎌を下ろした'],
+    whale: ['鯨が潜った。熱が冷めていく'],
+    mine: ['出撃口が閉じた。嵐が弱まる'],
+    colossus: ['巨像がひざをついた。太陽はすぐそこ'],
+    sun: ['太陽が光を 7 色に分け直した'],
+  },
+  // 章の区切り (6 面と 12 面のあと。初回だけ)
+  chapter: {
+    6: ['ひびが広がってる。光がうすくなってきた', 'ここからは寒いよ。がんばって'],
+    12: ['太陽が見えてきた。もう少しだよ', '…帰ったら、街灯のこと怒られないかな'],
+  },
+  // エンディング (はじめと終わりの 2 行ずつ。敵の見送りに重ねて出す)
+  endingStart: ['空に色が戻った', 'かけらが抜けて、みんな元の姿に戻っていく'],
+  endingEnd: ['おかえり、ランナー', '明日の太陽は、きっときれいだよ'],
 };
