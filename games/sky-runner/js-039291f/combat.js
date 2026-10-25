@@ -1,6 +1,6 @@
 // 戦闘: 敵、敵弾、自機の機関砲、ロックオン、追尾ミサイル、爆発と煙
 import * as THREE from 'three';
-import { EXTRA } from './enemies.js';
+import { EXTRA, MODELS } from './enemies.js';
 import { BOSSES } from './bosses/index.js';
 
 for (const b of Object.values(BOSSES)) Object.assign(EXTRA, b.kinds); // 新しいボスの部品も、追加の敵と同じ形で動かす
@@ -259,7 +259,7 @@ const MAT = {
 };
 
 function makeFighter() {
-  if (TPL.fighter) return instance(TPL.fighter);
+  if (TPL.fighter) return instance(TPL.fighter, 0, true);
   const mat = new THREE.MeshStandardMaterial({ color: 0x40444c, metalness: 0.5, roughness: 0.45, flatShading: true });
   const wingMat = new THREE.MeshStandardMaterial({ color: 0x8a1c1c, metalness: 0.3, roughness: 0.5, flatShading: true });
   const g = new THREE.Group();
@@ -275,7 +275,7 @@ function makeFighter() {
 }
 
 function makeGunship() {
-  if (TPL.gunship) return instance(TPL.gunship);
+  if (TPL.gunship) return instance(TPL.gunship, 0, true);
   const mat = new THREE.MeshStandardMaterial({ color: 0x5a5048, metalness: 0.6, roughness: 0.4, flatShading: true });
   const podMat = new THREE.MeshStandardMaterial({ color: 0x2a2e36, metalness: 0.7, roughness: 0.35, flatShading: true });
   const g = new THREE.Group();
@@ -382,6 +382,12 @@ export async function loadEnemyModels(url) {
     const node = gltf.scene.getObjectByName(name);
     if (node) TPL[key] = bake(node, parts);
   }
+  // マンモスは動かす軸ごとの部品 (胴・頭・鼻の節・脚)。それぞれ原点が軸。組み立ては enemies.js
+  const mam = ['MammothBody', 'MammothHead', 'MammothTrunk', 'MammothLeg'].map((n) => gltf.scene.getObjectByName(n));
+  if (mam.every(Boolean)) {
+    const [body, head, trunk, leg] = mam.map((n) => bake(n));
+    MODELS.mammoth = { body, head, trunk, leg };
+  }
   const mech = gltf.scene.getObjectByName('DozerBot');
   if (mech) TPL.mechMuzzle = localPoint(mech, 'DozerMuzzle');
   // ダンゴムシの節を1つずつ (割れたあとに使う)
@@ -391,24 +397,47 @@ export async function loadEnemyModels(url) {
   });
 }
 
-// モデルを複製する。マテリアルは被弾時に光らせるため敵ごとに複製し、元の発光色を覚えておく。
-// モデルは -Z が前なので、内側で 180 度回して +Z (プレイヤーの方) を前にする
+// モデルを複製する。モデルは -Z が前なので、内側で 180 度回して +Z (プレイヤーの方) を前にする
 // yOff: モデルの原点が足元にあるものは、体の中心が原点になるよう下げる (当たり判定とロックの中心)
-function instance(tpl, yOff = 0) {
+// share: 材質をモデルと共有する (数の多い雑魚。被弾の光は材質の差し替え、flashMeshes で行う)。
+//        共有しないときは、敵ごとに材質を複製して発光色で光らせる (色を変えるボスや建設ロボの目)
+function instance(tpl, yOff = 0, share = false) {
   const inner = tpl.clone();
   inner.position.y = -yOff;
-  const mats = [];
+  const mats = [], flashMeshes = [];
   inner.traverse((o) => {
     if (!o.isMesh) return;
+    if (share) {
+      o.userData.mat = o.material;
+      flashMeshes.push(o);
+      return;
+    }
     o.material = o.material.clone();
     o.material.userData.base = o.material.emissive.clone();
     mats.push(o.material);
   });
+  if (share) return wrap(inner, { mats, flashMeshes });
+  return wrap(inner, { mats });
+}
+function wrap(inner, made) {
   inner.rotation.y = Math.PI;
   const g = new THREE.Group();
   g.add(inner);
-  return { mesh: g, mats };
+  return { mesh: g, ...made };
 }
+
+// 被弾で一瞬白く光らせる。材質を共有している敵は、光っている間だけ白い材質に差し替える
+const FLASH_MAT = new THREE.MeshBasicMaterial({ color: 0xffffff });
+function applyFlash(e) {
+  const on = e.flash > 0;
+  if (e.flashMeshes && on !== e.flashOn) {
+    e.flashOn = on;
+    for (const m of e.flashMeshes) m.material = on ? FLASH_MAT : m.userData.mat;
+  }
+  for (const m of e.mats) m.emissive.copy(on ? WHITE : m.userData.base || BLACK);
+}
+
+const MAMMOTH = { first: 10, every: 8, max: 5 }; // マンモスを必ず出す時刻 (面の始まりからの秒) と数
 
 export class Combat {
   constructor(scene) {
@@ -500,10 +529,10 @@ export class Combat {
     const behind = Math.random() < 0.35; // 後ろから追い越してくる
     const w = rand(1.6, 2.8);
     for (let k = 0; k < n; k++) {
-      const { mesh, mats } = makeFighter();
+      const { mesh, mats, flashMeshes } = makeFighter();
       mesh.scale.setScalar(FIGHTER_SCALE);
       const e = {
-        kind: 'fighter', mesh, mats, r: 3.0, hp: 1, score: 100,
+        kind: 'fighter', mesh, mats, flashMeshes, r: 3.0, hp: 1, score: 100,
         t: k * 0.3, w, phase: k * 0.45, fireT: rand(1.5, 4), flash: 0,
         state: behind ? 'behind' : 'approach', z: behind ? 40 + k * 9 : SPAWN_Z - k * 9,
         ox: rand(-7, 7), oy: rand(3, 6), yaw: behind ? Math.PI : 0, jink: 0, jinkTo: 0, jinkT: rand(0.3, 1), lastX: px,
@@ -579,10 +608,10 @@ export class Combat {
   }
 
   spawnGunship(px, py) {
-    const { mesh, mats } = makeGunship();
+    const { mesh, mats, flashMeshes } = makeGunship();
     mesh.scale.setScalar(GUNSHIP_SCALE);
     const e = {
-      kind: 'gunship', mesh, mats, r: 3.6 * GUNSHIP_SCALE, hp: 6 + this.level * 2, score: 1000,
+      kind: 'gunship', mesh, mats, flashMeshes, r: 3.6 * GUNSHIP_SCALE, hp: 6 + this.level * 2, score: 1000,
       t: 0, x: px + rand(-6, 6), y: THREE.MathUtils.clamp(py + rand(1, 5), 4, 22), z: SPAWN_Z,
       hover: 0, fireT: 2, flash: 0,
     };
@@ -626,7 +655,7 @@ export class Combat {
     e.mesh.rotation.y += dt * 0.9;
     e.shadow.position.set(p.x, 0.05, p.z);
     e.flash -= dt;
-    for (const m of e.mats) m.emissive.copy(e.flash > 0 ? WHITE : m.userData.base || BLACK);
+    applyFlash(e);
     if (D.t > D.life) e.dead = true;
   }
 
@@ -640,13 +669,15 @@ export class Combat {
     const ok = (k) => (k === 'mech' ? mechGroups === 0 : isHeavy(k) ? heavy - mechGroups < 2 : true);
     // ステージ表の組み合わせ (なければ全種類)
     const base = this.waveTable || [['fighter', 3], ['gremlin', 2.2], ['pill', 2], ['moai', 1.6], ['ptero', 1.8], ['mech', 1.3], ['gunship', 1]];
-    let table = base.filter(([k]) => ok(k) && !(k === 'mammoth' && this.stageT < 15)); // マンモスは面の最初の 15 秒は出さない
+    // マンモスは面の最初の 10 秒は出さない。同時に出るのは 1 体まで
+    const mammothLive = live.some((e) => e.kind === 'mammoth');
+    let table = base.filter(([k]) => ok(k) && !(k === 'mammoth' && (this.stageT < MAMMOTH.first || mammothLive)));
     if (!table.length) table = base.filter(([k]) => !isHeavy(k)); // 上限で出せないときは、表の中の重くない敵から選び直す
     if (!table.length) table = [['fighter', 1]];
     let r = Math.random() * table.reduce((a, [, w]) => a + w, 0);
     let kind = this.forceWave || table.find(([, w]) => (r -= w) < 0)?.[0] || table[0][0];
-    // マンモスのいる面では、15 秒と 30 秒をすぎたら必ず 1 体ずつ出す (くじ運で 1 体も出ないことがないように)
-    if (!this.forceWave && table.some(([k]) => k === 'mammoth') && this.mammothN < 2 && this.stageT >= 15 + this.mammothN * 15) kind = 'mammoth';
+    // マンモスのいる面では、10 秒すぎから 8 秒ごとに必ず 1 体ずつ出す (くじ運で少なくならないように)
+    if (!this.forceWave && table.some(([k]) => k === 'mammoth') && this.mammothN < MAMMOTH.max && this.stageT >= MAMMOTH.first + this.mammothN * MAMMOTH.every) kind = 'mammoth';
     if (kind === 'mammoth') this.mammothN++;
     if (EXTRA[kind]) return EXTRA[kind].spawn(this, px, py); // 追加の敵 (enemies.js)
     ({
@@ -664,7 +695,7 @@ export class Combat {
   spawnMoai(px) {
     const xs = Math.random() < 0.6 ? [px - rand(7, 11), px + rand(7, 11)] : [px + rand(-9, 9)];
     for (const [i, x] of xs.entries()) {
-      const made = TPL.moai ? instance(TPL.moai, GEODE_Y) : fallback(0x4a403a, 2.2);
+      const made = TPL.moai ? instance(TPL.moai, GEODE_Y, true) : fallback(0x4a403a, 2.2);
       const e = { kind: 'moai', ...made, r: 2.4 * MOAI_SCALE, hp: 6 + this.level * 2, score: 800, t: 0, fireT: rand(1.5, 3) + i * 0.6, mouth: 0, openT: 0, flash: 0 };
       e.mesh.scale.setScalar(MOAI_SCALE);
       e.mesh.position.set(x, GEODE_Y * MOAI_SCALE, SPAWN_Z - i * 10);
@@ -677,7 +708,7 @@ export class Combat {
   spawnGremlins(px, py) {
     const n = 3 + Math.floor(Math.random() * 3);
     for (let k = 0; k < n; k++) {
-      const made = TPL.gremlin ? instance(TPL.gremlin) : fallback(0x337a28, 0.8);
+      const made = TPL.gremlin ? instance(TPL.gremlin, 0, true) : fallback(0x337a28, 0.8);
       const e = {
         kind: 'gremlin', ...made, r: 1.1 * GREMLIN_SCALE * 0.75, hp: 2, score: 300, t: rand(0, 3), flash: 0, fireT: Infinity,
         cx: px + rand(-12, 12), cy: THREE.MathUtils.clamp(py + rand(-1, 4), 1.5, 18), z: SPAWN_Z - k * 6, dash: null,
@@ -710,7 +741,7 @@ export class Combat {
   spawnPteros(px) {
     const n = 2 + Math.floor(Math.random() * 2);
     for (let k = 0; k < n; k++) {
-      const made = TPL.ptero ? instance(TPL.ptero) : fallback(0x73331f, 1.2);
+      const made = TPL.ptero ? instance(TPL.ptero, 0, true) : fallback(0x73331f, 1.2);
       const e = {
         kind: 'ptero', ...made, r: 2.2 * PTERO_SCALE, hp: 4 + this.level, score: 600, t: rand(0, 6), flash: 0, fireT: rand(1, 2.5) + k * 0.7,
         state: 'glide', z: SPAWN_Z - k * 18, alt: Math.min(this.ceilingY, rand(16, 26)), phase: k * 1.3, vel: new THREE.Vector3(),
@@ -761,7 +792,7 @@ export class Combat {
   spawnPills(px) {
     const n = 2 + Math.floor(Math.random() * 2);
     for (let k = 0; k < n; k++) {
-      const made = TPL.pill ? instance(TPL.pill) : fallback(0x40485a, 1.5);
+      const made = TPL.pill ? instance(TPL.pill, 0, true) : fallback(0x40485a, 1.5);
       const e = this.makePill(made, 'roll');
       e.x = px + rand(-10, 10);
       e.mesh.position.set(e.x, 1.5 * PILL_SCALE, SPAWN_Z - k * 14);
@@ -772,7 +803,7 @@ export class Combat {
   // 3 匹が空中で三角形に並び、ゆっくり回りながら 1 匹ずつ順に殻を開いて玉を吐く。しばらくすると転がって突っ込んでくる
   spawnPillTriangle(px, py) {
     for (let slot = 0; slot < 3; slot++) {
-      const made = TPL.pill ? instance(TPL.pill) : fallback(0x40485a, 1.5);
+      const made = TPL.pill ? instance(TPL.pill, 0, true) : fallback(0x40485a, 1.5);
       const e = this.makePill(made, 'tri');
       e.slot = slot;
       e.openT = 1.5 + slot * 0.9; // 順番に開く
@@ -837,7 +868,7 @@ export class Combat {
   splitPill(e) {
     const segs = [0, 1, 2].map((i) => e.mesh.getObjectByName(`PillSeg${i}`));
     for (let i = 0; i < 3; i++) {
-      const made = TPL.pillSeg?.[i] ? instance(TPL.pillSeg[i]) : fallback(0x40485a, 0.9);
+      const made = TPL.pillSeg?.[i] ? instance(TPL.pillSeg[i], 0, true) : fallback(0x40485a, 0.9);
       const part = { kind: 'pillpart', ...made, r: 1.1 * PILL_SCALE, hp: 2, score: 200, t: 0, flash: 0, fireT: Infinity };
       part.mesh.scale.setScalar(PILL_SCALE);
       if (segs[i]) segs[i].getWorldPosition(part.mesh.position);
@@ -1130,10 +1161,10 @@ export class Combat {
       }
     } else {
       for (let i = 0; i < 8; i++) {
-        const { mesh, mats } = makeFighter();
+        const { mesh, mats, flashMeshes } = makeFighter();
         mesh.scale.setScalar(FIGHTER_SCALE * 1.2);
         const e = {
-          kind: 'fighter', mesh, mats, r: 3.4, hp: 6 + this.level, score: 500,
+          kind: 'fighter', mesh, mats, flashMeshes, r: 3.4, hp: 6 + this.level, score: 500,
           t: 0, fireT: rand(1, 3), flash: 0, state: 'orbit', ring: i % 2, slot: Math.floor(i / 2), yaw: 0, bank: 0, lastX: 0,
         };
         mesh.position.set(0, 10, SPAWN_Z);
@@ -1716,7 +1747,7 @@ export class Combat {
 
       // 被弾したら一瞬白く光らせる
       e.flash -= dt;
-      for (const m of e.mats) m.emissive.copy(e.flash > 0 ? WHITE : m.userData.base || BLACK);
+      applyFlash(e);
 
       // 敵の攻撃
       e.fireT -= dt;

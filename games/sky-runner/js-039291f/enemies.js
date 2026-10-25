@@ -14,6 +14,9 @@ const _a = new THREE.Vector3(), _b = new THREE.Vector3();
 const DUST = new THREE.Color(0xb89a70);
 const K = 1.8; // 敵の大きさの倍率 (近づいたときに画面いっぱいに迫って見えるように)
 
+// Blender で作ったモデル (assets/enemies.glb を combat.js が読んで入れる)。読み込むまでは下の図形で組み立てる
+export const MODELS = {};
+
 // 共有するジオメトリ (敵ごとに作り直さない)
 const GEO = {
   dart: new THREE.OctahedronGeometry(1, 0).scale(0.55, 0.55, 2.2),
@@ -56,7 +59,7 @@ GEO.icoShell = (() => {
 })();
 // 二十面体の装甲板の材質: userData.open (0〜0.15) の分だけ、板を中心から外へずらす
 function icoShellMat() {
-  const m = mat(0x4a4258, 0x120c22, { metalness: 0.85, roughness: 0.35, side: THREE.DoubleSide }); // 鈍く光る黒鉄の装甲
+  const m = mat(0x4a4258, 0x120c22, { metalness: 0.85, roughness: 0.35, side: THREE.DoubleSide, own: true }); // 鈍く光る黒鉄の装甲 (開き具合は敵ごと)
   m.userData.open = { value: 0 };
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uOpen = m.userData.open;
@@ -76,22 +79,31 @@ GEO.tusk = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
   [0, 0, 0], [0.15, -0.9, 0.5], [0.35, -1.2, 1.4], [0.55, -0.7, 2.2], [0.6, 0.2, 2.5],
 ].map((v) => new THREE.Vector3(...v))), 14, 0.2, 6);
 
-// 被弾で白く光らせるため、マテリアルは敵ごとに作る (元の発光色を覚えておく)
-function mat(color, emissive = 0x000000, extra = {}) {
+// マテリアルは同じ色どうしで共有する (敵ごとに作らない。被弾の光は combat の applyFlash が白い材質に差し替える)。
+// own: 敵ごとに色や形を変えるもの (二十面体の装甲の開き、衛星コアの核の色) は、敵ごとに作って発光色で光らせる
+const SHARED = new Map();
+function mat(color, emissive = 0x000000, { own = false, ...extra } = {}) {
+  const key = own ? null : JSON.stringify([color, emissive, extra.metalness, extra.roughness, extra.opacity, extra.side]);
+  if (key && SHARED.has(key)) return SHARED.get(key);
   const m = new THREE.MeshStandardMaterial({ color, emissive, flatShading: true, roughness: 0.2, metalness: 0.2, ...extra });
   m.userData.base = m.emissive.clone();
+  m.userData.shared = !own;
+  if (key) SHARED.set(key, m);
   return m;
 }
 function build(parts) {
   const g = new THREE.Group();
-  const mats = [];
+  const mats = [], flashMeshes = [];
   for (const [geo, m, setup] of parts) {
     const mesh = new THREE.Mesh(geo, m);
     setup?.(mesh);
     g.add(mesh);
-    if (!mats.includes(m)) mats.push(m);
+    if (m.userData.shared) {
+      mesh.userData.mat = m;
+      flashMeshes.push(mesh);
+    } else if (!mats.includes(m)) mats.push(m);
   }
-  return { mesh: g, mats };
+  return { mesh: g, mats, flashMeshes };
 }
 
 export const EXTRA = {
@@ -354,10 +366,15 @@ export const EXTRA = {
     spawn(c, px) {
       const n = 1;
       for (let k = 0; k < n; k++) {
-        const fur = mat(0x6e4429, 0x000000, { roughness: 0.95, metalness: 0 });
-        const dark = mat(0x4a2c1a, 0x000000, { roughness: 0.95, metalness: 0 });
-        const tusk = mat(0xf6efdc, 0x2a2618, { roughness: 0.3, side: THREE.DoubleSide }); // 左の牙は裏返して使うので両面
-        const eye = mat(0xff6030, 0xff3010);
+        // Blender のモデルがないとき (読み込む前) だけ、図形と材質で組み立てる
+        const M = MODELS.mammoth;
+        const own = { own: true };
+        const [fur, dark, tusk, eye] = M ? [] : [
+          mat(0x6e4429, 0x000000, { roughness: 0.95, metalness: 0, ...own }),
+          mat(0x4a2c1a, 0x000000, { roughness: 0.95, metalness: 0, ...own }),
+          mat(0xf6efdc, 0x2a2618, { roughness: 0.3, side: THREE.DoubleSide, ...own }), // 左の牙は裏返して使うので両面
+          mat(0xff6030, 0xff3010, own),
+        ];
         const g = new THREE.Group();
         const add = (parent, geo, m, pos, scale, rot) => {
           const mesh = new THREE.Mesh(geo, m);
@@ -367,19 +384,41 @@ export const EXTRA = {
           parent.add(mesh);
           return mesh;
         };
+        // Blender のモデルがあれば、部品を軸の位置に置く。材質はモデルと共有し、被弾の光は差し替えで行う (combat の applyFlash)
+        const mats = M ? [] : [fur, dark, tusk, eye];
+        const flashMeshes = [];
+        const part = (parent, tpl, pos, scale) => {
+          const o = tpl.clone();
+          o.traverse((m) => {
+            if (!m.isMesh) return;
+            m.userData.mat = m.material;
+            flashMeshes.push(m);
+          });
+          o.position.set(...pos);
+          o.rotation.y = Math.PI; // モデルはほかの敵と同じく -Z が前なので、+Z (プレイヤーの方) へ向ける
+          if (scale) o.scale.set(...scale);
+          parent.add(o);
+          return o;
+        };
         // 胴 (原点 = 胴の真ん中。当たり・ロックはここを見る)、背中のこぶ、しっぽ
-        add(g, GEO.blob, fur, [0, 0, 0], [2.3, 2.0, 3.1]);
-        add(g, GEO.blob, fur, [0, 1.5, 0.9], [1.7, 1.4, 1.7]);
-        add(g, GEO.trunkSeg, dark, [0, 0.4, -3], [0.4, 1.4, 0.4], [-0.5, 0, 0]);
+        if (M) part(g, M.body, [0, 0, 0]);
+        else {
+          add(g, GEO.blob, fur, [0, 0, 0], [2.3, 2.0, 3.1]);
+          add(g, GEO.blob, fur, [0, 1.5, 0.9], [1.7, 1.4, 1.7]);
+          add(g, GEO.trunkSeg, dark, [0, 0.4, -3], [0.4, 1.4, 0.4], [-0.5, 0, 0]);
+        }
         // 頭は首を軸に上下に振る
         const head = new THREE.Group();
         head.position.set(0, 0.8, 2.6);
         g.add(head);
-        add(head, GEO.blob, fur, [0, 0.3, 0.8], [1.5, 1.6, 1.4]);
-        for (const sx of [-1, 1]) {
-          add(head, GEO.blob, dark, [sx * 1.4, 0.4, 0.4], [0.25, 1.0, 0.8]); // 耳
-          add(head, GEO.blob, eye, [sx * 0.75, 0.75, 1.95], [0.18, 0.18, 0.18]); // 光る目
-          add(head, GEO.tusk, tusk, [sx * 0.55, -0.4, 1.7], [sx, 1, 1]); // 牙は左右で外へ反る
+        if (M) part(head, M.head, [0, 0, 0]);
+        else {
+          add(head, GEO.blob, fur, [0, 0.3, 0.8], [1.5, 1.6, 1.4]);
+          for (const sx of [-1, 1]) {
+            add(head, GEO.blob, dark, [sx * 1.4, 0.4, 0.4], [0.25, 1.0, 0.8]); // 耳
+            add(head, GEO.blob, eye, [sx * 0.75, 0.75, 1.95], [0.18, 0.18, 0.18]); // 光る目
+            add(head, GEO.tusk, tusk, [sx * 0.55, -0.4, 1.7], [sx, 1, 1]); // 牙は左右で外へ反る
+          }
         }
         // 鼻: 4 つの節。根元から順に曲げて、垂らしたり振り上げたりする
         const trunk = [];
@@ -388,7 +427,9 @@ export const EXTRA = {
           const seg = new THREE.Group();
           seg.position.set(0, i ? -0.95 : -0.2, i ? 0 : 2.1);
           parent.add(seg);
-          add(seg, GEO.trunkSeg, dark, [0, 0, 0], [1 - i * 0.15, 1, 1 - i * 0.15]);
+          const w = 1 - i * 0.15;
+          if (M) part(seg, M.trunk, [0, 0, 0], [w, 1, w]);
+          else add(seg, GEO.trunkSeg, dark, [0, 0, 0], [w, 1, w]);
           trunk.push(seg);
           parent = seg;
         }
@@ -398,13 +439,14 @@ export const EXTRA = {
           const leg = new THREE.Group();
           leg.position.set(lx, -1.2, lz);
           g.add(leg);
-          add(leg, GEO.leg, dark, [0, 0, 0]);
+          if (M) part(leg, M.leg, [0, 0, 0]);
+          else add(leg, GEO.leg, dark, [0, 0, 0]);
           legs.push(leg);
         }
         const S = 1.5 * (c.sideMode ? 0.7 : 1);
         g.scale.setScalar(S);
         const e = {
-          kind: 'mammoth', mesh: g, mats: [fur, dark, tusk, eye], r: 3.2 * S, hp: 14 + c.level * 4, score: 2000, t: rand(0, 2), flash: 0, fireT: Infinity, dmg: 25,
+          kind: 'mammoth', mesh: g, mats, flashMeshes: M ? flashMeshes : null, r: 3.2 * S, hp: 14 + c.level * 4, score: 2000, t: rand(0, 2), flash: 0, fireT: Infinity, dmg: 25,
           S, head, trunk, legs, state: 'walk', timer: 0, step: 0, x: px + (n > 1 ? (k ? 1 : -1) * rand(10, 14) : rand(-6, 6)), z: SPAWN_Z - k * 25,
         };
         g.position.set(e.x, 3.8 * S, e.z);
@@ -468,7 +510,7 @@ export const EXTRA = {
   orbiter: {
     heavy: true, big: true,
     spawn(c, px, py) {
-      const core = mat(0x80ffd0, 0x20a070);
+      const core = mat(0x80ffd0, 0x20a070, { own: true }); // 守りがなくなると赤く光らせるので敵ごと
       const e = { kind: 'orbiter', ...build([[GEO.orb, core]]), r: 2 * K, hp: 8 + c.level * 2, score: 1500, t: 0, flash: 0, fireT: Infinity,
         cx: px + rand(-5, 5), cy: THREE.MathUtils.clamp(py + rand(2, 5), 5, 13), z: SPAWN_Z, sats: [] };
       e.mesh.scale.setScalar(1.8 * K);
