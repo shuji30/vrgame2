@@ -137,18 +137,20 @@ function model(key, parts, own = false) {
 // 目の手前で砕く (迫力の決まり: 目の 6 m 以内に大きな物を入れない)。体当たりしてくる大きな物に使う。
 // 物の前の面 (中心 + r) が目の 8 m 手前に来たら 1 回だけ見て、当たる位置なら砕けてダメージ。外れていれば、
 // それる向き (e.veer) を決める。呼んだ側は、それる向きへ横に動かして、表面から目まで 6 m 以上あける (veerAway)
-export function eyeGuard(c, e, ctx, pos, r, dmg = 25) {
+// core: 当たる範囲 (半径の何割)。1 で今までの体当たりと同じ
+export function eyeGuard(c, e, ctx, pos, r, dmg = 25, core = 1) {
   const P = ctx.player;
   if (e.eyeChecked || ctx.side || pos.z + r < P.z - 8) return false;
   e.eyeChecked = true;
   e.noHit = true; // 当たりはここで見た (このあとは通り抜けない)
-  if (Math.hypot(pos.x - P.x, pos.y - P.y) < r * 0.7 + ctx.playerR) {
+  const d = Math.hypot(pos.x - P.x, pos.y - P.y);
+  if (d < r * core + ctx.playerR) {
     ctx.onPlayerHit(dmg);
     c.explode(pos.clone(), true);
     e.dead = true; // 倒したことにはしない (点は入らない)
     return true;
   }
-  e.veer = Math.sign(pos.x - P.x) || 1;
+  if (d < r + 6) e.veer = Math.sign(pos.x - P.x) || 1; // 表面から目まで 6 m ないときだけ、横へそれる
   return false;
 }
 // それる: x を返す。表面から目まで 6 m 以上あくまで、毎秒 30 m で横へ
@@ -396,7 +398,7 @@ export const EXTRA = {
       }
       e.x = veerAway(e, e.x, e.R, ctx, dt);
       p.set(e.x, e.ceil ? CEIL_Y - e.R : e.R, e.z);
-      if (eyeGuard(c, e, ctx, p, e.R, e.dmg)) return;
+      if (eyeGuard(c, e, ctx, p, e.r, e.dmg)) return;
       // 転がる: 地面に対する速さの分だけ回す (天井では逆向き)
       const ground = (e.z - z0) / Math.max(dt, 1e-4) - scroll;
       e.mesh.rotation.x += (ground / e.R) * dt * (e.ceil ? -1 : 1); // 開いている間も転がり続ける
@@ -540,7 +542,7 @@ export const EXTRA = {
         const front = 4.8 * e.S; // 胴の中心から鼻先まで
         // 上下は体の高さ (地面から背中まで) の中なら当たる
         const hy = THREE.MathUtils.clamp(P.y, 1, 5.8 * e.S);
-        if (eyeGuard(c, e, ctx, _a.set(e.x, hy, e.z + front * 0.4), front * 0.6, 25)) { sfx.trumpet(); return; }
+        if (eyeGuard(c, e, ctx, _a.set(e.x, hy, e.z + front * 0.4), front * 0.6, 25, 0.7)) { sfx.trumpet(); return; }
         e.x = veerAway(e, e.x, 2.3 * e.S, ctx, dt); // 胴の横 (半幅 3.5 m) から目まで 6 m 以上
         gait = 11;
         swing = 0.6;
