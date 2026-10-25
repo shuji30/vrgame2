@@ -10,7 +10,7 @@
 //   diff     難しさ (1〜8)。敵の体力・撃つ頻度・出る間隔に効く
 //   density  敵の群れが出る間隔の倍率 (大きいほど多く出る)
 //   waves    出てくる敵と重み (fighter 戦闘機、gremlin 結晶の小虫、pill ダンゴムシ、moai 晶洞岩、ptero 翼竜、mech 建設ロボ 3 機、gunship ガンシップ、
-//            dart 水晶の矢、lens ガラスのレンズ、turret 水晶塔、bat 結晶コウモリ、bouncer 跳ねる結晶、orbiter 衛星コア、mammoth マンモス)
+//            dart 水晶の矢、lens ガラスのレンズ、turret 水晶塔、bat 結晶コウモリ、bouncer 跳ねる結晶、orbiter 衛星コア、mammoth マンモス、jelly 水晶のクラゲ)
 //   obstacles 障害物の重み (column 柱 / bush 茂み / tree 木 / rock 浮遊岩 / mushroom 巨大キノコ / crystal 水晶 / arch ガラスのアーチ /
 //            monolith 黒曜石の石板 / spike 地面のトゲ / ring 浮遊リング (くぐるとボーナス))。lane: 進路上に置く確率
 //   ceiling  天井がある面
@@ -92,7 +92,7 @@ export const STAGES = [
   },
   {
     name: 'SPORE MARSH', kind: 'normal', length: 55, speed: 46, diff: 5, density: 1.3,
-    waves: [['bouncer', 2], ['pill', 2], ['gremlin', 1]],
+    waves: [['bouncer', 2], ['pill', 2], ['gremlin', 1], ['jelly', 1.8]],
     obstacles: { mushroom: 3, bush: 1.5, spike: 1, lane: 0.3 },
     palette: { a: 0xb4dd6a, b: 0x7a7a2a, fog: 0xd8ecc0, sky: 0x5a8a6a, mount: 0x4a6a5a, col: ['#f0ffe0', '#6a9a2a'], bush: 0x3a8a3a },
     bgm: { key: 4, tempo: 160, song: 'alternative' },
@@ -170,3 +170,43 @@ export const STAGES = [
 
 export const STAGE_COUNT = STAGES.length;
 export const stageAt = (n) => STAGES[Math.max(1, Math.min(STAGE_COUNT, Number.isInteger(n) ? n : 1)) - 1];
+
+// ボスの名前と、倒し方のひとこと (初めて会ったときだけ WARNING の 2 行目に出す)
+export const BOSS_INFO = {
+  serpent: ['プリズム連珠', '頭を狙え'],
+  twin: ['双晶', '2 つの頭を狙え'],
+  squad: ['ロボット部隊', '縦一列の突進をよけて撃て'],
+  swarm: ['旋回する群れ', '逃げる前に全部落とせ'],
+  mirror: ['ミラーコア', '鏡は弾を撃ち返す。すき間から核を撃て'],
+  geodering: ['晶洞の輪', '殻が開いて光ったときだけ倒せる'],
+  mine: ['浮遊鉱山', '出撃口を壊して、本体を撃て'],
+  colossus: ['磁鉄の巨像', '電極を先に壊せ'],
+  sun: ['プリズムの太陽', '最後の戦い'],
+  crown: ['氷晶の冠', '赤い印をよけろ。つららを壊せば雨が減る'],
+  worm: ['砂岩の大蛇', '頭だけが弱点。進む先を狙え'],
+  turbine: ['双子の回転刃', '刃は戻ってくる。真ん中の核を撃て'],
+  phantom: ['水晶の亡霊', '目が水色の本物を撃て。分身は紫'],
+  laserwing: ['光翼の母船', '光線は上下によけろ。翼の先を壊せ'],
+  mantis: ['硝子のカマキリ', '斬撃をよけたら、光る腹を撃て'],
+  whale: ['溶岩の結晶鯨', '浮上したら背中の潮吹き穴を撃て'],
+};
+
+// エンディングで紹介する敵の名前と、ひとこと
+export const ENEMY_INFO = {
+  fighter: ['FIGHTER', '戦闘機'],
+  dart: ['CRYSTAL DART', '水晶の矢'],
+  gremlin: ['CRYSTAL BUG', '結晶の小虫'],
+  mammoth: ['MAMMOTH', 'マンモス'],
+  moai: ['GEODE', '晶洞岩'],
+  bouncer: ['BOUNCE GEM', '跳ねる結晶'],
+  pill: ['PILL BUG', 'ダンゴムシ'],
+  bat: ['GLASS BAT', '結晶コウモリ'],
+  ptero: ['PTERO', '翼竜'],
+  mech: ['BUILDER ROBO', '建設ロボ'],
+  icosa: ['PRISM ICOSA', '結晶の二十面体'],
+  turret: ['SPIRE TURRET', '水晶塔'],
+  gunship: ['GUNSHIP', 'ガンシップ'],
+  lens: ['PRISM LENS', 'ガラスのレンズ'],
+  orbiter: ['ORBIT CORE', '衛星コア'],
+  jelly: ['CRYSTAL JELLY', '水晶のクラゲ'],
+};

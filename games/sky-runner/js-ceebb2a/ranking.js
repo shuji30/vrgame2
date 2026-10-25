@@ -35,3 +35,9 @@ export async function submitScore({ name, score, mode, stage, cleared, player, v
   const [above, total] = await Promise.all([count(`&score=gt.${score}`), count('')]);
   return { rank: above + 1, total };
 }
+
+// 管理者用のダッシュボード (admin.html): 新しい順に limit 件 (全部の列)
+export async function fetchRecent(limit = 1000) {
+  const res = await call(`${URL_BASE}?select=name,score,mode,stage,cleared,player,version,created_at&order=created_at.desc&limit=${limit}`);
+  return res.json();
+}

@@ -302,6 +302,7 @@ function fallback(color, r) {
 
 // ---- Blender で作った敵のモデル (assets/enemies.glb)。読み込むまでは上の簡易モデルを使う
 const TPL = {};
+export const enemyModel = (key) => TPL[key]; // ボスの部品にも敵のモデルを使い回す (晶洞の輪は晶洞岩)
 const WHITE = new THREE.Color(0xffffff), BLACK = new THREE.Color(0x000000), DUST = new THREE.Color(0.55, 0.5, 0.42);
 const ITEM_COL = new THREE.Color(0.3, 1, 0.5);
 // ボスの色 (頭のプリズムと、光の帯の色相)。単頭は水色、双晶は青と紫
@@ -387,6 +388,12 @@ export async function loadEnemyModels(url) {
   const extra = {
     dart: ['CrystalDart'], lens: ['GlassLens'], turret: ['CrystalSpire', ['TowerHead']], bat: ['GlassBat', ['BatWingL', 'BatWingR']],
     bouncer: ['BounceGem'], orbiter: ['OrbitCore'], satellite: ['OrbitSat'],
+    mirrorCore: ['MirrorCore'], mirrorPlate: ['MirrorPlate'], // ボス: ミラーコア
+    turbineCore: ['TurbineCore'], turbineBlade: ['TurbineBlade'], // ボス: 双子の回転刃
+    colossus: ['ColossusBody', ['ColArmL', 'ColArmR', 'legL', 'magnet']], // ボス: 磁鉄の巨像 (腕・左脚・磁石は動かす)
+    crown: ['CrystalCrown'], icicle: ['CrownIcicle'], // ボス: 氷晶の冠とつらら
+    ghost: ['CrystalGhost'], // ボス: 水晶の亡霊 (本物も分身も)
+    laserwing: ['LaserWing'], emitter: ['LaserEmitter'], // ボス: 光翼の母船と発射口
   };
   for (const [key, [name, parts]] of Object.entries(extra)) {
     const node = gltf.scene.getObjectByName(name);
@@ -411,7 +418,7 @@ export async function loadEnemyModels(url) {
 // yOff: モデルの原点が足元にあるものは、体の中心が原点になるよう下げる (当たり判定とロックの中心)
 // share: 材質をモデルと共有する (数の多い雑魚。被弾の光は材質の差し替え、flashMeshes で行う)。
 //        共有しないときは、敵ごとに材質を複製して発光色で光らせる (色を変えるボスや建設ロボの目)
-function instance(tpl, yOff = 0, share = false) {
+export function instance(tpl, yOff = 0, share = false) {
   const inner = tpl.clone();
   inner.position.y = -yOff;
   const mats = [], flashMeshes = [];
@@ -504,6 +511,7 @@ export class Combat {
   }
 
   reset() {
+    if (this.bossGroup?.wall) this.scene.remove(this.bossGroup.wall.guide); // ロボの壁の道しるべ
     for (const list of [this.enemies, this.bullets, this.shots, this.missiles, this.items]) {
       list.forEach((o) => this.remove(o));
       list.length = 0;
@@ -1075,6 +1083,8 @@ export class Combat {
       e.wallX = x0 + i * 16;
       e.wallI = i;
       e.wallFrom = e.mesh.position.clone();
+      // うしろ (背後 20 m) で待っていたロボは、プレイヤーの所を通らないよう、遠くの上空から並ぶ
+      if (e.wallFrom.z > P.z - 30) e.wallFrom.set(x0 + i * 16, 30, P.z - 140);
       e.wallHit = false;
       e.ram = e.passing = null;
       e.noHit = true; // 当たりは目の手前で見る
@@ -1096,15 +1106,14 @@ export class Combat {
     } else {
       this.setMechEye(e, true);
       p.set(e.wallX, y, W.z);
-      // 目の 8 m 手前で、当たる位置なら砕けて 25 (抜け道にいれば、ロボの表面まで 8 m 以上)
+      // 目の 8 m 手前で、列のロボは全部砕ける (外れたロボも、目の横を通らない)。当たる位置なら 25
+      // (抜け道にいれば、ロボの表面まで 8 m 以上)
       if (!e.wallHit && p.z + e.r > P.z - 8) {
         e.wallHit = true;
-        if (Math.abs(p.x - P.x) < e.r * 0.8 + ctx.playerR && P.y < 9 + ctx.playerR) {
-          ctx.onPlayerHit(25);
-          this.explode(p.clone(), true);
-          e.mesh.visible = e.shadow.visible = false;
-          e.noLock = true;
-        }
+        if (Math.abs(p.x - P.x) < e.r * 0.8 + ctx.playerR && P.y < 9 + ctx.playerR) ctx.onPlayerHit(25);
+        this.explode(p.clone(), true);
+        e.mesh.visible = e.shadow.visible = false;
+        e.noLock = true;
       }
     }
     e.mesh.rotation.set(0, 0, 0);
@@ -1337,7 +1346,7 @@ export class Combat {
           o.off.set(0, 0);
           o.offTo.set(0, 0);
           this.setMechEye(o, false);
-          o.group.phase = 'approach';
+          o.group.phase = g.leaving ? 'retreat' : 'approach'; // 逃げ始めていたら、攻め直さずに去る
           o.group.at = 0;
         }
       }

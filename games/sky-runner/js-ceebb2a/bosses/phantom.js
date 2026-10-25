@@ -5,6 +5,7 @@
 // いた所へまっすぐ飛んでくる (毎秒 35 m)。目の 10 m 手前で砕けて、線の近く (横 3 m) にいれば 15。本物はその場に残る
 import * as THREE from 'three';
 import { sfx } from '../audio.js';
+import { bossModel } from '../enemies.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
@@ -25,6 +26,17 @@ function mat(color, emissive, extra = {}) {
 // decoy: 分身は薄く (本物と見分けやすく)
 function makeGhost(k, eyeColor, decoy = false) {
   const op = decoy ? [0.55, 0.35] : [0.85, 0.6];
+  // Blender のモデル (CrystalGhost) があればそれを。mats は [体, 外套, 目] の順 (setFade と目の色で使う)
+  const model = bossModel('ghost', ['GhostBody', 'GhostCloak', 'GhostEye']);
+  if (model) {
+    const [bodyM, cloakM, eyeM] = model.mats;
+    bodyM.opacity = op[0];
+    cloakM.opacity = op[1];
+    eyeM.emissive.setHex(eyeColor);
+    eyeM.userData.base = eyeM.emissive.clone();
+    model.mesh.scale.setScalar(k);
+    return { mesh: model.mesh, mats: model.mats, op };
+  }
   const bodyM = mat(0xd8e8ff, 0x3a3a8a, { opacity: op[0] });
   const cloakM = mat(0xb8c8ff, 0x2a2a6a, { side: THREE.DoubleSide, opacity: op[1] });
   const eyeM = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: eyeColor, transparent: true }); // 目の色は発光で (被弾の光り方を共通にするため)
@@ -127,7 +139,8 @@ export const PHANTOM_KINDS = {
           e.state = 'show';
           e.timer = Math.max(2.6, 4 - (c.level - 1) * 0.1);
           // 分身の突撃 (体力が半分を切ってから。横スクロールではしない)
-          if (e.hp < e.maxHp * 0.5 && !ctx.side) {
+          e.shows = (e.shows || 0) + 1;
+          if (e.hp < e.maxHp * 0.5 && !ctx.side && e.shows % 2 === 0) { // 2 回に 1 回
             for (const d of e.decoys) if (!d.dead) d.dive = { state: 'warn', t: 0 };
             if (e.decoys.length) sfx.roar();
           }

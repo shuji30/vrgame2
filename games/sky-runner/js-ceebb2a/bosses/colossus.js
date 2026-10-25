@@ -6,7 +6,7 @@
 // 足元に赤い輪 (1.5 秒。結晶を壊せば止まる)。踏みつけると、地面に沿って琥珀色の薄い光の壁 (高さ 6 m) の輪が毎秒 30 m で広がる。
 // 高さ 6.6 m より低くにいれば 20 (上へ逃げる)
 import * as THREE from 'three';
-import { eyeGuard, veerAway } from '../enemies.js';
+import { eyeGuard, veerAway, bossModel } from '../enemies.js';
 import { sfx } from '../audio.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -31,44 +31,57 @@ export function spawnColossus(c, def) {
   const side = c.sideMode;
   const k = side ? 0.6 : 1;
   const hp = def.hp || 320;
-  const ironM = mat(0x3a3a48, 0x000000);
-  const darkM = mat(0x24242e, 0x000000);
-  const magM = mat(0xc83a3a, 0x300808, { metalness: 0.6 });
-  const tipM = mat(0xe8ecf4, 0x202430, { metalness: 0.8 });
-  const eyeM = mat(0x80ffd0, 0x40c090);
-  // 原点 = 胸 (当たりの中心)。脚と頭は上下に伸ばす
-  const g = new THREE.Group();
-  const add = (geo, m, x, y, z, sx, sy, sz, name) => {
-    const mesh = new THREE.Mesh(geo, m);
-    mesh.position.set(x, y, z);
-    mesh.scale.set(sx, sy, sz);
-    if (name) mesh.name = name;
-    g.add(mesh);
-    return mesh;
-  };
-  add(GEO.box, ironM, 0, 0, 0, 10, 8, 6);            // 胴
-  add(GEO.box, darkM, 0, -5.5, 0, 7, 3, 5);          // 腰
-  add(GEO.box, ironM, -2.6, -11, 0, 2.6, 8, 3, 'legL'); // 左脚 (踏みつけで上げる)
-  add(GEO.box, ironM, 2.6, -11, 0, 2.6, 8, 3);       // 右脚
-  add(GEO.box, darkM, 0, 6, 0, 5, 4, 4.5);           // 頭
-  add(GEO.box, eyeM, 0, 6.3, 2.3, 3.4, 0.7, 0.2);    // 目の光
-  const magnet = add(GEO.magnet, magM, 0, 9.2, 0, 3.4, 3.4, 3.4, 'magnet');
-  for (const sx of [-1, 1]) add(GEO.box, tipM, sx * 3.4, 9.2, 0, 1.6, 1.4, 1.6); // 磁石の先
-  const arms = [];
-  for (const sx of [-1, 1]) {
-    const arm = new THREE.Group(); // 肩を軸に回す
-    arm.position.set(sx * 6.4, 2.5, 0);
-    const a = new THREE.Mesh(GEO.box, ironM);
-    a.scale.set(2.4, 9, 2.6);
-    a.position.y = -4;
-    arm.add(a);
-    g.add(arm);
-    arms.push(arm);
+  // Blender のモデル (ColossusBody) があればそれを、なければ箱で組み立てる。
+  // mats は [鉄, 暗い鉄, 磁石, 磁石の先, 目] の順 (目は mats[4]: 倒せるときは水色)
+  const model = bossModel('colossus', ['ColIron', 'ColDark', 'ColMagnet', 'ColTip', 'ColEye']);
+  let g, mats, magnet, arms;
+  if (model) {
+    g = model.mesh;
+    mats = model.mats;
+    magnet = g.getObjectByName('magnet');
+    arms = ['ColArmL', 'ColArmR'].map((n) => g.getObjectByName(n));
+  } else {
+    const ironM = mat(0x3a3a48, 0x000000);
+    const darkM = mat(0x24242e, 0x000000);
+    const magM = mat(0xc83a3a, 0x300808, { metalness: 0.6 });
+    const tipM = mat(0xe8ecf4, 0x202430, { metalness: 0.8 });
+    const eyeM = mat(0x80ffd0, 0x40c090);
+    // 原点 = 胸 (当たりの中心)。脚と頭は上下に伸ばす
+    g = new THREE.Group();
+    const add = (geo, m, x, y, z, sx, sy, sz, name) => {
+      const mesh = new THREE.Mesh(geo, m);
+      mesh.position.set(x, y, z);
+      mesh.scale.set(sx, sy, sz);
+      if (name) mesh.name = name;
+      g.add(mesh);
+      return mesh;
+    };
+    add(GEO.box, ironM, 0, 0, 0, 10, 8, 6);            // 胴
+    add(GEO.box, darkM, 0, -5.5, 0, 7, 3, 5);          // 腰
+    add(GEO.box, ironM, -2.6, -11, 0, 2.6, 8, 3, 'legL'); // 左脚 (踏みつけで上げる)
+    add(GEO.box, ironM, 2.6, -11, 0, 2.6, 8, 3);       // 右脚
+    add(GEO.box, darkM, 0, 6, 0, 5, 4, 4.5);           // 頭
+    add(GEO.box, eyeM, 0, 6.3, 2.3, 3.4, 0.7, 0.2);    // 目の光
+    magnet = add(GEO.magnet, magM, 0, 9.2, 0, 3.4, 3.4, 3.4, 'magnet');
+    for (const sx of [-1, 1]) add(GEO.box, tipM, sx * 3.4, 9.2, 0, 1.6, 1.4, 1.6); // 磁石の先
+    arms = [];
+    for (const sx of [-1, 1]) {
+      const arm = new THREE.Group(); // 肩を軸に回す
+      arm.position.set(sx * 6.4, 2.5, 0);
+      const a = new THREE.Mesh(GEO.box, ironM);
+      a.scale.set(2.4, 9, 2.6);
+      a.position.y = -4;
+      arm.add(a);
+      g.add(arm);
+      arms.push(arm);
+    }
+    mats = [ironM, darkM, magM, tipM, eyeM];
   }
+  const magM = mats[2];
   g.scale.setScalar(k);
   const grp = { type: 'colossus', t: 0, escape: Infinity, total: 1, kills: 0, leaving: false, bonus: 12000 };
   const body = {
-    kind: 'colossus', mesh: g, mats: [ironM, darkM, magM, tipM, eyeM], r: 7 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 5,
+    kind: 'colossus', mesh: g, mats, r: 7 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 5,
     k, magM, magnet, arms, x: c.lastPlayer?.x ?? 0, z: SPAWN_Z, electrodes: [], revived: false,
     throwT: 4, raise: 0, held: [], bossGroup: grp, noAssist: true,
   };
@@ -188,7 +201,8 @@ export const COLOSSUS_KINDS = {
       const b = e.body;
       if (b.dead || !b.stompS) { e.dead = true; return; }
       e.leg.updateMatrixWorld();
-      p.copy(_a.set(0, -0.55, 0)).applyMatrix4(e.leg.matrixWorld); // 上げた足の裏
+      // 上げた足の裏 (箱の脚は縦に 8 倍、Blender の脚は等倍で足の裏が 4.5 m 下)
+      p.copy(_a.set(0, e.leg.scale.y > 2 ? -0.55 : -4.5, 0)).applyMatrix4(e.leg.matrixWorld);
       e.mats[0].userData.base.setHex(0xff2a10).multiplyScalar(0.5 + 0.5 * Math.abs(Math.sin(e.t * 12)));
       e.mesh.rotation.y += dt * 3;
     },
@@ -285,6 +299,7 @@ function stomp(c, e, dt, ctx, p) {
       gem.mesh.scale.setScalar(1.6 * e.k);
       gem.mesh.position.copy(p);
       e.stompS = { t: 0, ring, broken: false };
+      e.marker = ring; // 巨像が倒れたときも、ふだんの片付けで消える
       c.addEnemy(gem, 0);
       gem.shadow.visible = false;
       sfx.roar();
@@ -302,6 +317,7 @@ function stomp(c, e, dt, ctx, p) {
     c.scene.remove(S.ring);
     S.ring.geometry.dispose();
     S.ring.material.dispose();
+    e.marker = null;
     if (!S.broken) {
       // 踏む: 衝撃波
       const ring = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 48, 1, true).translate(0, 0.5, 0), new THREE.MeshBasicMaterial({ color: 0xffb040, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));

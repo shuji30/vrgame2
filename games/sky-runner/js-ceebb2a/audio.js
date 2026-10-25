@@ -110,6 +110,8 @@ const APPEAR = {
   icosa: (t) => { noise(t, 1.4, 0.45, 180, appearBus); osc('sine', 45, t, 1.4, 0.3, appearBus, 35); osc('square', 90, t, 0.2, 0.06, appearBus, 60); },
   // マンモス: 重い足音が 3 つ近づいてくる
   mammoth: (t) => [0, 0.32, 0.64].forEach((d, i) => { osc('sine', 70, t + d, 0.25, 0.18 + i * 0.06, appearBus, 40); noise(t + d, 0.2, 0.15 + i * 0.05, 220, appearBus); }),
+  // 水晶のクラゲ: ゆっくり揺れる、やわらかい鈴の音
+  jelly: (t) => [76, 79, 83].forEach((m, i) => osc('sine', mtof(m), t + i * 0.22, 0.6, 0.05, appearBus, mtof(m) * 0.97)),
   // 衛星コア: 不思議な電子のうねり
   orbiter: (t) => { osc('sine', 500, t, 0.7, 0.08, appearBus, 1000); osc('sine', 750, t, 0.7, 0.05, appearBus, 1500); },
 };

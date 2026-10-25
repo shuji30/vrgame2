@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SKY RUNNER 管理</title>
+<meta name="robots" content="noindex">
+<style>
+  :root {
+    --bg: #0b1030; --panel: #141a40; --panel2: #1b2250; --line: rgba(255, 255, 255, 0.12);
+    --text: #e8ecff; --sub: #9aa4d0; --accent: #ffd34a; --ok: #3ee08a; --warn: #ff6a6a; --blue: #5ab8ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", "Hiragino Sans", "Meiryo", sans-serif; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: 0.04em; }
+  header .ver { color: var(--sub); font-size: 13px; }
+  header a { color: var(--blue); margin-left: auto; }
+  main { display: grid; gap: 16px; padding: 16px 20px 40px; max-width: 1200px; margin: 0 auto; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+  section h2 { margin: 0 0 10px; font-size: 16px; color: var(--accent); }
+  section h3 { margin: 14px 0 6px; font-size: 14px; color: var(--sub); font-weight: 600; }
+  .grid2 { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+  label { color: var(--sub); font-size: 13px; }
+  select, input[type=number] { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; }
+  button, .btn { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font: inherit; cursor: pointer; text-decoration: none; display: inline-block; }
+  button:hover, .btn:hover { border-color: var(--accent); }
+  .primary { background: var(--accent); color: #1a1400; border-color: var(--accent); font-weight: 700; }
+  .danger { color: var(--warn); border-color: rgba(255, 106, 106, 0.4); }
+  .url { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--sub); word-break: break-all; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--sub); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .scroll { overflow-x: auto; }
+  .kpis { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+  .kpi { background: var(--panel2); border-radius: 10px; padding: 10px 12px; }
+  .kpi b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+  .kpi span { color: var(--sub); font-size: 12px; }
+  .bar { display: grid; grid-template-columns: 150px 1fr 48px; gap: 8px; align-items: center; margin: 3px 0; font-size: 12px; }
+  .bar i { display: block; height: 12px; border-radius: 3px; background: var(--blue); min-width: 1px; }
+  .bar .lbl { color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .muted { color: var(--sub); }
+  td.wrap { white-space: normal; min-width: 180px; }
+  .ok { color: var(--ok); } .ng { color: var(--warn); }
+  pre { background: var(--panel2); border-radius: 8px; padding: 8px; overflow: auto; font-size: 12px; margin: 0; }
+  @media (max-width: 600px) { main, header { padding-left: 12px; padding-right: 12px; } .bar { grid-template-columns: 110px 1fr 40px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>SKY RUNNER XR 管理</h1>
+  <span class="ver" id="ver"></span>
+  <a href="./index.html">ゲームへ →</a>
+</header>
+<main>
+  <!-- 起動: 面・ボス戦・エンディングなどを、開発用の URL ですぐ始める -->
+  <section>
+    <h2>起動 (デバッグ)</h2>
+    <p class="muted">開いたページで「出撃」を押すと始まります。開発用の起動では、ハイスコア・ランキング・面の記録・到達した面は残りません。</p>
+    <div class="row">
+      <label>面 <select id="lStage"></select></label>
+      <label>始める所 <select id="lStart">
+        <option value="normal">面の頭から</option>
+        <option value="boss">ボス戦から</option>
+        <option value="short">ボスまで 10 秒</option>
+      </select></label>
+      <label id="lRushWrap" hidden>ボスラッシュの <select id="lRush"></select> から</label>
+      <label>敵を固定 <select id="lWave"><option value="">しない</option></select></label>
+    </div>
+    <div class="row">
+      <label>機体 <select id="lPlayer"><option value="">設定のまま</option><option value="ship">宇宙船</option><option value="human">人間</option></select></label>
+      <label>視点 <select id="lView"><option value="">設定のまま</option><option value="1st">一人称</option><option value="3rd">三人称</option></select></label>
+      <label>モード <select id="lMode"><option value="">設定のまま</option><option value="3d">3D</option><option value="side">横スクロール</option></select></label>
+      <label><input type="checkbox" id="lDebug"> デバッグ表示 (fps・描画回数・重かった 5 秒)</label>
+    </div>
+    <div class="row">
+      <a class="btn primary" id="lGo" target="_blank" rel="noopener">この設定で開く</a>
+      <a class="btn" id="lEnding" target="_blank" rel="noopener">エンディングを見る</a>
+      <span class="url" id="lUrl"></span>
+    </div>
+    <h3>面とボスの一覧</h3>
+    <div class="scroll"><table id="stageTable"></table></div>
+  </section>
+
+  <!-- オンラインのランキング -->
+  <section>
+    <h2>オンラインのランキング <button id="rReload" style="margin-left:8px">読み直す</button></h2>
+    <p class="muted" id="rStatus">読み込み中…</p>
+    <div class="kpis" id="rKpis"></div>
+    <div class="grid2">
+      <div><h3>どの面まで行ったか</h3><div id="rStages"></div></div>
+      <div><h3>版ごと</h3><div id="rVersions"></div><h3>機体</h3><div id="rPlayers"></div></div>
+    </div>
+    <div class="grid2">
+      <div><h3>上位 20 (ふつう)</h3><div class="scroll"><table id="rTopNormal"></table></div></div>
+      <div><h3>上位 20 (難しいモード)</h3><div class="scroll"><table id="rTopHard"></table></div></div>
+    </div>
+    <h3>新しい順 30 件</h3>
+    <div class="scroll"><table id="rRecent"></table></div>
+    <p class="muted">消す・書きかえるには Supabase の管理画面を使います (ゲームの鍵では、読むことと 1 件追加することしかできません)。</p>
+  </section>
+
+  <!-- このブラウザに保存されているもの -->
+  <section>
+    <h2>このブラウザの記録と設定</h2>
+    <p class="muted">ゲームと同じ場所 (同じドメイン) のブラウザに保存されている値です。ほかの端末 (Quest など) の値は、その端末でこのページを開くと見られます。</p>
+    <div class="kpis" id="lKpis"></div>
+    <div class="grid2">
+      <div><h3>面ごとの記録 (ふつう)</h3><div class="scroll"><table id="recNormal"></table></div></div>
+      <div><h3>面ごとの記録 (難しいモード)</h3><div class="scroll"><table id="recHard"></table></div></div>
+    </div>
+    <h3>設定</h3>
+    <pre id="settings"></pre>
+    <div class="row" style="margin-top:12px">
+      <button class="danger" data-reset="records">面と章の記録を消す</button>
+      <button class="danger" data-reset="progress">到達した面と CONTINUE を消す</button>
+      <button class="danger" data-reset="hi">ハイスコアを消す</button>
+      <button class="danger" data-reset="cleared">全面クリア (ごほうび) を消す</button>
+      <button class="danger" data-reset="all">すべて消す (設定も)</button>
+    </div>
+  </section>
+</main>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
+</script>
+<script type="module">
+import { STAGES, STAGE_COUNT, BOSS_INFO, ENEMY_INFO } from './js-ceebb2a/stages.js';
+import { VERSION } from './js-ceebb2a/version.js';
+import { fetchRecent } from './js-ceebb2a/ranking.js';
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, attrs = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) if (k === 'class') e.className = v; else e.setAttribute(k, v);
+  e.append(...kids);
+  return e;
+};
+const fmt = (n) => Number(n).toLocaleString();
+const bossName = (st) => st.kind === 'bonus' ? 'ボーナス' : st.kind === 'rush' ? 'ボスラッシュ' : BOSS_INFO[st.boss?.type]?.[0] || st.boss?.type || '';
+
+// ---- 版
+$('ver').textContent = `v${VERSION}`;
+fetch('./version.json').then((r) => (r.ok ? r.json() : null)).then((v) => {
+  if (v) $('ver').textContent = `v${v.version}  ${v.commit}  公開 ${new Date(v.deployed).toLocaleString()}`;
+}).catch(() => {});
+
+// ---- 起動
+STAGES.forEach((st, i) => $('lStage').add(new Option(`${String(i + 1).padStart(2, '0')}  ${st.name}  (${bossName(st)})`, String(i + 1))));
+STAGES.at(-1).rush.forEach((b, i) => $('lRush').add(new Option(`${i + 1} 体目 ${BOSS_INFO[b.type]?.[0] || b.type}`, String(i))));
+for (const [k, v] of Object.entries(ENEMY_INFO)) $('lWave').add(new Option(`${v[1]} (${k})`, k));
+
+function launchUrl(stage, start, extra = {}) {
+  const q = new URLSearchParams();
+  q.set('stage', stage);
+  if (start === 'boss') q.set('boss', '');
+  if (start === 'short') q.set('stageLen', '10');
+  for (const [k, v] of Object.entries(extra)) if (v !== '' && v != null) q.set(k, v);
+  for (const [k, id] of [['player', 'lPlayer'], ['view', 'lView'], ['mode', 'lMode']]) if ($(id).value) q.set(k, $(id).value);
+  if ($('lDebug').checked) q.set('debug', '');
+  return `./index.html?${q.toString().replace(/=(&|$)/g, '$1')}`;
+}
+function refreshLaunch() {
+  const stage = Number($('lStage').value);
+  const rush = stage === STAGE_COUNT;
+  $('lRushWrap').hidden = !(rush && $('lStart').value === 'boss');
+  const url = launchUrl(stage, $('lStart').value, { wave: $('lWave').value, rush: rush && $('lStart').value === 'boss' ? $('lRush').value : '' });
+  $('lGo').href = url;
+  $('lUrl').textContent = url.replace('./index.html', '');
+  $('lEnding').href = launchUrl(1, 'normal', { ending: '' });
+}
+for (const id of ['lStage', 'lStart', 'lRush', 'lWave', 'lPlayer', 'lView', 'lMode', 'lDebug']) $(id).addEventListener('change', refreshLaunch);
+refreshLaunch();
+
+// 面とボスの一覧 (それぞれすぐ開ける)
+{
+  const t = $('stageTable');
+  t.append(el('tr', {}, el('th', {}, '面'), el('th', {}, '名前'), el('th', {}, 'ボス'), el('th', {}, '敵'), el('th', {}, '開く')));
+  STAGES.forEach((st, i) => {
+    const open = el('td');
+    open.append(el('a', { class: 'btn', href: launchUrl(i + 1, 'normal'), target: '_blank', rel: 'noopener' }, '頭から'), ' ');
+    if (st.kind !== 'bonus') open.append(el('a', { class: 'btn', href: launchUrl(i + 1, 'boss'), target: '_blank', rel: 'noopener' }, 'ボス戦'));
+    if (st.kind === 'rush') st.rush.forEach((b, k) => open.append(' ', el('a', { class: 'btn', href: launchUrl(i + 1, 'boss', { rush: k }), target: '_blank', rel: 'noopener', title: BOSS_INFO[b.type]?.[0] || b.type }, String(k + 1))));
+    const waves = (st.waves || []).map(([k]) => ENEMY_INFO[k]?.[1] || k).join('・');
+    t.append(el('tr', {}, el('td', { class: 'num' }, String(i + 1)), el('td', {}, st.name), el('td', {}, bossName(st)), el('td', { class: 'muted wrap' }, waves), open));
+  });
+}
+
+// ---- オンラインのランキング
+function bars(box, entries, total) {
+  box.replaceChildren();
+  const max = Math.max(1, ...entries.map(([, n]) => n));
+  for (const [label, n] of entries) {
+    const i = el('i');
+    i.style.width = `${(n / max) * 100}%`;
+    box.append(el('div', { class: 'bar' }, el('span', { class: 'lbl', title: label }, label), el('span', {}, i), el('span', { class: 'num' }, `${n}`)));
+  }
+  if (!entries.length) box.append(el('p', { class: 'muted' }, 'まだありません'));
+}
+function scoreTable(t, rows, cols) {
+  t.replaceChildren(el('tr', {}, ...cols.map(([h, , num]) => el('th', num ? { class: 'num' } : {}, h))));
+  rows.forEach((r, i) => t.append(el('tr', {}, ...cols.map(([, f, num]) => el('td', num ? { class: 'num' } : {}, f(r, i))))));
+  if (!rows.length) t.append(el('tr', {}, el('td', { class: 'muted' }, 'まだありません')));
+}
+const when = (r) => new Date(r.created_at).toLocaleString();
+async function loadRanking() {
+  $('rStatus').textContent = '読み込み中…';
+  let rows;
+  try {
+    rows = await fetchRecent(1000);
+  } catch (e) {
+    $('rStatus').textContent = `読み込めませんでした (${e.message})`;
+    return;
+  }
+  $('rStatus').textContent = `${rows.length} 件 (新しい 1000 件まで) を読みました。`;
+  const today = new Date().toDateString();
+  const kpis = [
+    ['送られた点', rows.length],
+    ['ふつう', rows.filter((r) => r.mode === 'normal').length],
+    ['難しいモード', rows.filter((r) => r.mode === 'hard').length],
+    ['全面クリア', rows.filter((r) => r.cleared).length],
+    ['今日', rows.filter((r) => new Date(r.created_at).toDateString() === today).length],
+    ['最高点', rows.length ? fmt(Math.max(...rows.map((r) => r.score))) : '-'],
+  ];
+  $('rKpis').replaceChildren(...kpis.map(([k, v]) => el('div', { class: 'kpi' }, el('b', {}, String(v)), el('span', {}, k))));
+  const count = (key) => { const m = new Map(); for (const r of rows) m.set(key(r), (m.get(key(r)) || 0) + 1); return m; };
+  const st = count((r) => r.stage);
+  bars($('rStages'), STAGES.map((s, i) => [`${String(i + 1).padStart(2, '0')} ${s.name}`, st.get(i + 1) || 0]), rows.length);
+  bars($('rVersions'), [...count((r) => r.version || '(なし)')].sort((a, b) => String(b[0]).localeCompare(String(a[0]), undefined, { numeric: true })).slice(0, 12));
+  bars($('rPlayers'), [...count((r) => ({ ship: '宇宙船', human: '人間' })[r.player] || '(なし)')]);
+  const cols = [['順位', (r, i) => String(i + 1), true], ['名前', (r) => r.name], ['点', (r) => fmt(r.score), true], ['面', (r) => (r.cleared ? '★ ALL' : String(r.stage)), true], ['機体', (r) => ({ ship: '宇宙船', human: '人間' })[r.player] || ''], ['版', (r) => r.version || ''], ['日時', when]];
+  for (const [mode, id] of [['normal', 'rTopNormal'], ['hard', 'rTopHard']]) {
+    scoreTable($(id), rows.filter((r) => r.mode === mode).sort((a, b) => b.score - a.score).slice(0, 20), cols);
+  }
+  scoreTable($('rRecent'), rows.slice(0, 30), [['日時', when], ['名前', (r) => r.name], ['点', (r) => fmt(r.score), true], ['モード', (r) => (r.mode === 'hard' ? '難しい' : 'ふつう')], ['面', (r) => (r.cleared ? '★ ALL' : String(r.stage)), true], ['機体', (r) => ({ ship: '宇宙船', human: '人間' })[r.player] || ''], ['版', (r) => r.version || '']]);
+}
+$('rReload').addEventListener('click', loadRanking);
+loadRanking();
+
+// ---- このブラウザの記録と設定
+const ls = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
+function loadLocal() {
+  let records = {}, settings = {}, seen = [];
+  try { records = JSON.parse(ls('skyrunner.records') || '{}'); } catch (_) { /* */ }
+  try { settings = JSON.parse(ls('skyrunner.settings') || '{}'); } catch (_) { /* */ }
+  try { seen = JSON.parse(ls('skyrunner.bossSeen') || '[]'); } catch (_) { /* */ }
+  const kpis = [
+    ['到達した面', ls('skyrunner.progress') || '1'],
+    ['全面クリア', ls('skyrunner.cleared') === '1' ? '★ した' : 'まだ'],
+    ['ハイスコア', fmt(ls('skyrunner.hi') || 0)],
+    ['難しいモード', fmt(ls('skyrunner.hiHard') || 0)],
+    ['最終ボスの前から', ls('skyrunner.sun') === '1' ? 'できる' : '—'],
+    ['会ったボス', `${seen.length} / ${Object.keys(BOSS_INFO).length}`],
+  ];
+  $('lKpis').replaceChildren(...kpis.map(([k, v]) => el('div', { class: 'kpi' }, el('b', {}, String(v)), el('span', {}, k))));
+  for (const [mode, id] of [['normal', 'recNormal'], ['hard', 'recHard']]) {
+    const tbl = records[mode] || {};
+    const rows = [...STAGES.map((s, i) => [`${String(i + 1).padStart(2, '0')} ${s.name}`, tbl[i + 1]]), ...[1, 2, 3].map((k) => [`CHAPTER ${k}`, tbl[`c${k}`]])];
+    scoreTable($(id), rows, [['面', (r) => r[0]], ['最高点', (r) => (r[1]?.clear ? fmt(r[1].best) : '—'), true], ['被弾なし', (r) => (r[1]?.nohit ? '◆' : '')]]);
+  }
+  $('settings').textContent = JSON.stringify(settings, null, 2);
+}
+const RESET = {
+  records: ['skyrunner.records'],
+  progress: ['skyrunner.progress', 'skyrunner.sun'],
+  hi: ['skyrunner.hi', 'skyrunner.hiHard'],
+  cleared: ['skyrunner.cleared'],
+};
+for (const b of document.querySelectorAll('[data-reset]')) {
+  b.addEventListener('click', () => {
+    const what = b.dataset.reset;
+    if (!confirm(`「${b.textContent}」を実行します。元に戻せません。よろしいですか？`)) return;
+    try {
+      if (what === 'all') Object.keys(localStorage).filter((k) => k.startsWith('skyrunner.')).forEach((k) => localStorage.removeItem(k));
+      else RESET[what].forEach((k) => localStorage.removeItem(k));
+    } catch (_) { /* 保存不可 */ }
+    loadLocal();
+  });
+}
+loadLocal();
+</script>
+</body>
+</html>

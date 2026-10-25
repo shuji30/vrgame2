@@ -5,6 +5,8 @@
 // 4 個倒したか 15 秒たったら「晶洞の行進」(GEODE MARCH): 輪から 1 個ずつ、25 m 先まで 1.2 秒でまっすぐ出てきて、
 // 殻が震えて光り (0.8 秒)、開いて 1.6 秒 (倒せる)、光の輪を 3 発の扇で吐いて閉じ、輪へ戻る
 import * as THREE from 'three';
+import { enemyModel, instance } from '../combat.js';
+import { sfx } from '../audio.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
@@ -19,6 +21,35 @@ const TIERS = {
   2: { open: 1.3, closed: [2.4, 2.4], R: [14, 8], speed: 0.65, alternate: true }, // 交互に開くよう、閉じている時間は一定
 };
 
+// 晶洞 1 個: Blender の晶洞岩 (上の殻 GeodeTop が開く) か、読み込む前は図形で。size は半径
+function makeGeode(size) {
+  const tpl = enemyModel('moai');
+  if (tpl) {
+    const made = instance(tpl, 1.6, false); // 材質は晶洞ごと (結晶を光らせるため)。原点を体の中心へ
+    made.mesh.scale.setScalar(size / 2.4);
+    const gems = made.mats.filter((m) => /Crystal/.test(m.name));
+    return { mesh: made.mesh, mats: made.mats, lid: made.mesh.getObjectByName('GeodeTop'), lidSign: -1, gems };
+  }
+  const rock = new THREE.MeshStandardMaterial({ color: 0x5a4a5a, emissive: 0x000000, flatShading: true, roughness: 0.9 });
+  const gemM = new THREE.MeshStandardMaterial({ color: 0xcff8ff, emissive: 0x206080, flatShading: true, roughness: 0.1, metalness: 0.2 });
+  for (const m of [rock, gemM]) m.userData.base = m.emissive.clone();
+  const g = new THREE.Group();
+  const bottom = new THREE.Mesh(GEO.half, rock);
+  bottom.rotation.x = Math.PI; // 下のお椀
+  const lid = new THREE.Group(); // 上の殻 (うしろの縁を軸に開く)
+  const top = new THREE.Mesh(GEO.half, rock);
+  top.position.z = 1;
+  lid.position.z = -1;
+  lid.add(top);
+  g.add(bottom, lid, new THREE.Mesh(GEO.gem, gemM));
+  g.scale.setScalar(size);
+  return { mesh: g, mats: [rock, gemM], lid, lidSign: 1, gems: [gemM] };
+}
+// 中の結晶の光 (倒せるときは明るい水色)
+function setGems(e, hex) {
+  for (const m of e.gems) m.userData.base.setHex(hex);
+}
+
 export function spawnGeodeRing(c, def) {
   const tier = TIERS[def.tier || 1];
   const side = c.sideMode;
@@ -27,23 +58,12 @@ export function spawnGeodeRing(c, def) {
   const center = { x: c.lastPlayer?.x ?? 0, y: THREE.MathUtils.clamp((c.lastPlayer?.y ?? 6) + 4, 8, 13), z: SPAWN_Z, a: 0, members: [], marchGap: 0 };
   for (let i = 0; i < 8; i++) {
     const ring = i % 2, slot = Math.floor(i / 2);
-    const rock = new THREE.MeshStandardMaterial({ color: 0x5a4a5a, emissive: 0x000000, flatShading: true, roughness: 0.9 });
-    const gemM = new THREE.MeshStandardMaterial({ color: 0xcff8ff, emissive: 0x206080, flatShading: true, roughness: 0.1, metalness: 0.2 });
-    for (const m of [rock, gemM]) m.userData.base = m.emissive.clone();
-    const g = new THREE.Group();
-    const bottom = new THREE.Mesh(GEO.half, rock);
-    bottom.rotation.x = Math.PI; // 下のお椀
-    const lid = new THREE.Group(); // 上の殻 (うしろの縁を軸に開く)
-    const top = new THREE.Mesh(GEO.half, rock);
-    top.position.z = 1;
-    lid.position.z = -1;
-    lid.add(top);
-    const gem = new THREE.Mesh(GEO.gem, gemM);
-    g.add(bottom, lid, gem);
-    g.scale.setScalar(side ? 2.2 : 3);
+    // 晶洞岩のモデル (Blender) を使い回す。開いたときに光らせる結晶は、晶洞ごとの材質にする。読み込む前は図形で
+    const made = makeGeode(side ? 2.2 : 3);
+    const g = made.mesh;
     const e = {
-      kind: 'geode', mesh: g, mats: [rock, gemM], r: side ? 2.4 : 3.2, hp: 3 + Math.floor(c.level / 3), score: 600, t: 0, flash: 0, fireT: Infinity,
-      center, tier, ring, slot, lid, gemM, open: 0, phase: 'closed',
+      kind: 'geode', mesh: g, mats: made.mats, r: side ? 2.4 : 3.2, hp: 3 + Math.floor(c.level / 3), score: 600, t: 0, flash: 0, fireT: Infinity,
+      center, tier, ring, slot, lid: made.lid, lidSign: made.lidSign, gems: made.gems, open: 0, phase: 'closed',
       // 交互に開く tier では、2 つ目の輪を半周期ずらす
       timer: (tier.alternate ? 1 + ring * (tier.open + tier.closed[0]) / 2 : rand(...tier.closed)) + slot * 0.25,
       bossGroup: grp,
@@ -103,9 +123,9 @@ export const GEODERING_KINDS = {
       e.open += THREE.MathUtils.clamp(want - e.open, -dt * 5, dt * 6);
       // 開く 0.45 秒前の予告: 殻が小刻みに震えて、すき間から光が漏れる
       const warn = e.phase === 'closed' && e.timer < 0.45 && !e.bossGroup.leaving;
-      e.lid.rotation.x = -1.2 * e.open - (warn ? 0.12 + Math.sin(e.t * 50) * 0.06 : 0);
+      e.lid.rotation.x = e.lidSign * (-1.2 * e.open - (warn ? 0.12 + Math.sin(e.t * 50) * 0.06 : 0));
       // 倒せるときは中の結晶が明るい水色に光る (閉じている間は暗い、予告の間は少し光る)
-      e.gemM.userData.base.setHex(e.open > 0.6 ? 0x60f0ff : warn ? 0x2a8aa8 : 0x103040);
+      setGems(e, e.open > 0.6 ? 0x60f0ff : warn ? 0x2a8aa8 : 0x103040);
       e.mesh.lookAt(ctx.player.x, ctx.player.y, ctx.player.z + 40); // 開いた口をこちらへ向ける
     },
     fire(c, e, ctx, p) {
@@ -123,7 +143,7 @@ function march(c, e, dt, ctx, p) {
   let want = 0, shake = 0;
   if (M.state === 'out') {
     p.lerpVectors(M.from, M.to, ease(Math.min(1, M.u / 1.2)));
-    if (M.u >= 1.2) { M.state = 'warn'; M.u = 0; }
+    if (M.u >= 1.2) { M.state = 'warn'; M.u = 0; sfx.lock(); }
   } else if (M.state === 'warn') {
     p.copy(M.to);
     shake = 0.12 + Math.sin(e.t * 50) * 0.06; // 殻が震えて、すき間から光が漏れる
@@ -151,8 +171,8 @@ function march(c, e, dt, ctx, p) {
   e.phase = want ? 'open' : 'closed';
   e.fireT = Infinity; // 行進の間は、いつもの 1 発は撃たない
   e.open += THREE.MathUtils.clamp(want - e.open, -dt * 5, dt * 6);
-  e.lid.rotation.x = -1.2 * e.open - shake;
-  e.gemM.userData.base.setHex(e.open > 0.6 ? 0x60f0ff : shake ? 0x2a8aa8 : 0x103040);
+  e.lid.rotation.x = e.lidSign * (-1.2 * e.open - shake);
+  setGems(e, e.open > 0.6 ? 0x60f0ff : shake ? 0x2a8aa8 : 0x103040);
   e.mesh.lookAt(ctx.player.x, ctx.player.y, ctx.player.z + 40);
   return true;
 }

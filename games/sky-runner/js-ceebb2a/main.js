@@ -5,7 +5,7 @@ import { Hud, DebugPanel } from './hud.js';
 import { Avatar } from './avatar.js';
 import { SledRide } from './ride.js';
 import { Combat, MISSILE_MAX, loadEnemyModels, FLASH_MAT } from './combat.js';
-import { STAGES, STAGE_COUNT, stageAt } from './stages.js';
+import { BOSS_INFO, ENEMY_INFO, STAGES, STAGE_COUNT, stageAt } from './stages.js';
 import { Vignette, VIGNETTE_LEVELS } from './comfort.js';
 import { CEIL_Y } from './world.js';
 import { TouchControls, isTouchDevice } from './touch.js';
@@ -36,7 +36,11 @@ const SIDE_CAM = new THREE.Vector3(26, 8.5, -8);
 const SIDE_Z_MIN = -24, SIDE_Z_MAX = 10, SIDE_Z_START = 6; // 画面に収まる範囲
 const SIDE_SCROLL = 0.3; // 横スクロールでは地面の流れを遅くする (映る範囲が狭いため)
 const READY_TIME = 2.5;    // 開始時に 0 から基準速度までゆっくり加速する時間 (s)
-const DEV_STAGE_LEN = Number(new URLSearchParams(location.search).get('stageLen')) || 0; // 開発用: ?stageLen=10 でボスまでを短くする
+const DEV_ENDING = new URLSearchParams(location.search).has('ending'); // 開発用: ?ending ですぐエンディングを見る
+const DEV_BOSS = new URLSearchParams(location.search).has('boss'); // 開発用: ?boss で、出撃してすぐボス戦 (?stage=N と組み合わせる。ボスラッシュは ?rush=N で何体目から)
+const DEV_STAGE_LEN = DEV_BOSS ? 0.3 : Number(new URLSearchParams(location.search).get('stageLen')) || 0; // 開発用: ?stageLen=10 でボスまでを短くする
+// 開発用の起動 (ボス・エンディング・ボスまでの長さ・敵の固定) では、ハイスコア・ランキング・面の記録を残さない
+const DEV_RUN = DEV_ENDING || DEV_BOSS || DEV_STAGE_LEN > 0 || new URLSearchParams(location.search).has('wave');
 const NO_HUD = new URLSearchParams(location.search).has('nohud'); // 開発用: プロモーション用の撮影で HUD を消す
 const DEV_START_STAGE = Number(new URLSearchParams(location.search).get('stage')) || 1; // 開発用: ?stage=7 で途中のステージから
 const LIVES = 3;
@@ -200,7 +204,7 @@ function startPlay(stageNo) {
   stopPreview();
   wheelPanel.open = false; // ハンコン設定を閉じる (開いている間は、ハンコンをゲームの操作として読まないため)
   input.wheel.panelOpen = false;
-  S.fromStart = stageNo === 1;
+  S.fromStart = stageNo === 1 && !DEV_RUN;
   initAudio();
   Object.assign(S, {
     mode: 'play', paused: false, entry: null, chapterHead: 0, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0, pz: SIDE_Z_START, vz: 0,
@@ -221,12 +225,13 @@ function startPlay(stageNo) {
   stopBGM();
   startBGM();
   applyStage(stageNo, true);
+  if (DEV_ENDING) allClear(); // 開発用: ?ending で、出撃してすぐエンディング (確認用。記録とごほうびは残さない)
 }
 
 // ステージ表の内容を反映する
 function applyStage(n, first = false) {
   S.stage = n;
-  if (n > progress && n <= STAGE_COUNT) {
+  if (n > progress && n <= STAGE_COUNT && !DEV_RUN) { // 開発用の起動では、到達した面を進めない
     progress = n;
     try { localStorage.setItem('skyrunner.progress', String(n)); } catch (_) { /* 保存不可 */ }
   }
@@ -289,6 +294,7 @@ const records = { normal: {}, hard: {} };
 try { Object.assign(records, JSON.parse(localStorage.getItem('skyrunner.records') || '{}')); } catch (_) { /* 保存なし */ }
 // 面をクリアしたときに呼ぶ。STAGE CLEAR の下に足す行 (新記録・被弾なし) を返す
 function recordStage() {
+  if (DEV_RUN) return '';
   const table = (records[combat.hard ? 'hard' : 'normal'] ||= {});
   const r = (table[S.stage] ||= { best: 0, nohit: false, clear: false });
   const pts = combat.score - (S.stageScore0 ?? 0);
@@ -520,6 +526,7 @@ function allClear() {
   setBGMMode('ending', { key: 0, tempo: 152 }); // エンディングの曲 (ステージのテンポの影響を受けない)
   startBGM(); // STAGE CLEAR で止めた曲を、エンディングの曲で始める
   combat.clearHostiles();
+  if (DEV_ENDING) return; // 確認用 (?ending) は、クリアしたことにしない
   try { localStorage.setItem('skyrunner.cleared', '1'); } catch (_) { /* 保存不可 */ } // クリアのごほうび用
   // 読み込み直さなくても、タイトルに戻ったらごほうびが出るように
   if (!cleared) {
@@ -529,24 +536,6 @@ function allClear() {
   }
 }
 
-// エンディングで紹介する敵の名前と、ひとこと
-const ENEMY_INFO = {
-  fighter: ['FIGHTER', '戦闘機'],
-  dart: ['CRYSTAL DART', '水晶の矢'],
-  gremlin: ['CRYSTAL BUG', '結晶の小虫'],
-  mammoth: ['MAMMOTH', 'マンモス'],
-  moai: ['GEODE', '晶洞岩'],
-  bouncer: ['BOUNCE GEM', '跳ねる結晶'],
-  pill: ['PILL BUG', 'ダンゴムシ'],
-  bat: ['GLASS BAT', '結晶コウモリ'],
-  ptero: ['PTERO', '翼竜'],
-  mech: ['BUILDER ROBO', '建設ロボ'],
-  icosa: ['PRISM ICOSA', '結晶の二十面体'],
-  turret: ['SPIRE TURRET', '水晶塔'],
-  gunship: ['GUNSHIP', 'ガンシップ'],
-  lens: ['PRISM LENS', 'ガラスのレンズ'],
-  orbiter: ['ORBIT CORE', '衛星コア'],
-};
 // 紹介する順番: 初めて出てくる面の順 (stage はその面の番号。景色の色もその面にする)
 const ENDING_LIST = (() => {
   const list = [];
@@ -577,25 +566,6 @@ function updateEnding() {
 }
 const endingStage = () => (S.phase === 'ending' && S.endingStep >= 0 && S.endingStep < ENDING_LIST.length ? ENDING_LIST[S.endingStep].stage : -1);
 
-// ボスの名前と、倒し方のひとこと (初めて会ったときだけ WARNING の 2 行目に出す)
-const BOSS_INFO = {
-  serpent: ['プリズム連珠', '頭を狙え'],
-  twin: ['双晶', '2 つの頭を狙え'],
-  squad: ['ロボット部隊', '縦一列の突進をよけて撃て'],
-  swarm: ['旋回する群れ', '逃げる前に全部落とせ'],
-  mirror: ['ミラーコア', '鏡は弾を撃ち返す。すき間から核を撃て'],
-  geodering: ['晶洞の輪', '殻が開いて光ったときだけ倒せる'],
-  mine: ['浮遊鉱山', '出撃口を壊して、本体を撃て'],
-  colossus: ['磁鉄の巨像', '電極を先に壊せ'],
-  sun: ['プリズムの太陽', '最後の戦い'],
-  crown: ['氷晶の冠', '赤い印をよけろ。つららを壊せば雨が減る'],
-  worm: ['砂岩の大蛇', '頭だけが弱点。進む先を狙え'],
-  turbine: ['双子の回転刃', '刃は戻ってくる。真ん中の核を撃て'],
-  phantom: ['水晶の亡霊', '目が水色の本物を撃て。分身は紫'],
-  laserwing: ['光翼の母船', '光線は上下によけろ。翼の先を壊せ'],
-  mantis: ['硝子のカマキリ', '斬撃をよけたら、光る腹を撃て'],
-  whale: ['溶岩の結晶鯨', '浮上したら背中の潮吹き穴を撃て'],
-};
 let bossSeen = new Set();
 try { bossSeen = new Set(JSON.parse(localStorage.getItem('skyrunner.bossSeen') || '[]')); } catch (_) { /* 保存なし */ }
 function warningText(def) {

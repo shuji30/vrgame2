@@ -157,7 +157,7 @@ export const WHALE_KINDS = {
           for (const h of e.holes) h.fireT = Infinity;
           if (e.bossGroup.ratio() < 0.5 && !ctx.side) {
             spawnFin(c, e, ctx); // 潜っている間に、背びれの突進を 1 回
-            e.timer += 2.4; // 背びれが通り過ぎてから浮上する
+            e.timer += 1.2; // 背びれが通り過ぎるころに浮上する
           }
         }
       }
