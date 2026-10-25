@@ -1,5 +1,5 @@
 // バージョン番号。公開するたびに上げる (scripts/publish.mjs が、コミットと公開日時と一緒に version.json へ書き出す)
-export const VERSION = '1.8.26';
+export const VERSION = '1.8.28';
 
 // 公開した版の情報を読む。手元で開いたとき (version.json がない) は開発版として表示する
 export async function loadBuildInfo() {
