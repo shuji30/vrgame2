@@ -6,7 +6,7 @@ import { BOSSES } from './bosses/index.js';
 for (const b of Object.values(BOSSES)) Object.assign(EXTRA, b.kinds); // 新しいボスの部品も、追加の敵と同じ形で動かす
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { sfx } from './audio.js';
+import { sfx, playAt } from './audio.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
@@ -394,6 +394,11 @@ export async function loadEnemyModels(url) {
     crown: ['CrystalCrown'], icicle: ['CrownIcicle'], // ボス: 氷晶の冠とつらら
     ghost: ['CrystalGhost'], // ボス: 水晶の亡霊 (本物も分身も)
     laserwing: ['LaserWing'], emitter: ['LaserEmitter'], // ボス: 光翼の母船と発射口
+    wormHead: ['WormHead'], wormSeg: ['WormSeg'], // ボス: 砂岩の大蛇
+    mantis: ['GlassMantis', ['MantisArmL', 'MantisArmR', 'MantisBelly']], // ボス: 硝子のカマキリ (鎌と腹は動かす)
+    whale: ['MagmaWhale'], // ボス: 溶岩の結晶鯨
+    mine: ['FloatingMine'], hatch: ['MineHatch'], drone: ['MiningDrone'], // ボス: 浮遊鉱山と出撃口・採掘ドローン
+    sun: ['PrismSun'], sunPetal: ['SunPetal'], // 最終ボス: プリズムの太陽 (核と花びら 1 枚)
   };
   for (const [key, [name, parts]] of Object.entries(extra)) {
     const node = gltf.scene.getObjectByName(name);
@@ -469,6 +474,11 @@ export class Combat {
     this.missileStock = MISSILE_MAX;
     this.regenT = 0;
     this.gunT = 0;
+    // マズルフラッシュ: 撃つたびに銃口で 0.05 秒光る (1 つを使い回す)
+    this.muzzleFlash = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0), new THREE.MeshBasicMaterial({ color: 0x9ffcff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
+    this.muzzleFlash.visible = false;
+    this.muzzleFlashT = 0;
+    scene.add(this.muzzleFlash);
     this.gunSide = 0;
     this.spawn = { wave: 3 };
     this.time = 0;
@@ -1253,7 +1263,9 @@ export class Combat {
       b.rush = -1;
       b.volleyT = 0;
     }
-    for (let i = 0; i < 9 + lv * 2; i++) b.body.push(make(TPL.segment, 1.4, 1.6, false));
+    // 胴の節 (1 節で描画 3 回)。双晶は首が 12 節あるので、胴は短くして描画回数を抑える (Quest でボス戦 150 回以下)
+    const nBody = twin ? 6 + lv : 9 + lv * 2;
+    for (let i = 0; i < nBody; i++) b.body.push(make(TPL.segment, 1.4, 1.6, false));
     b.body.push(make(TPL.tail, 1.1, 1.3, false));
     this.boss = b;
     this.bossDefeated = false;
@@ -1698,7 +1710,13 @@ export class Combat {
       grey.setScalar(rand(0.2, 0.4));
       this.smoke.emit(p, v, grey, rand(1.5, 3), rand(1, 1.8), 3, 0.95);
     }
-    sfx.explode(big);
+    playAt(this.panOf(p), () => sfx.explode(big)); // 爆発は、起きた側から聞こえる
+  }
+
+  // 立体音響の向き: プレイヤーから見て左右どちらにあるか (-1 左 〜 1 右。30 m 横で振り切る)
+  panOf(p) {
+    if (this.sideMode || !this.lastPlayer) return 0;
+    return THREE.MathUtils.clamp((p.x - this.lastPlayer.x) / 30, -1, 1) * 0.8;
   }
 
   // 二首のボスの首を 1 本壊す (頭から付け根へ順に爆発)。残った首は真ん中へ寄り、怒ってよく迫ってくる
@@ -1902,7 +1920,7 @@ export class Combat {
         e.announced = true;
         if ((this.appearAt[e.kind] ?? -9) < this.time - 2) {
           this.appearAt[e.kind] = this.time;
-          sfx.appear(e.kind);
+          playAt(this.panOf(p), () => sfx.appear(e.kind)); // 出現音は、敵のいる側から
         }
       }
       if (!e.whooshed && e.kind !== 'boss' && p.distanceTo(ctx.eye) < e.r + 9) {
@@ -2013,7 +2031,15 @@ export class Combat {
       if (near?.vel) aimAt.addScaledVector(near.vel, g.origin.distanceTo(aimAt) / (ctx.gunStyle === 'fireball' ? FIREBALL_SPEED : GUN_SPEED)); // 火の玉は遅いので、その分先を狙う
       this.fireGun(g.origin, aimAt, ctx.gunStyle);
       sfx.shot();
+      const mf = this.muzzleFlash;
+      mf.position.copy(g.origin);
+      mf.rotation.set(rand(0, 3), rand(0, 3), rand(0, 3));
+      mf.scale.setScalar(rand(0.8, 1.3));
+      mf.material.color.setHex(ctx.gunStyle === 'fireball' ? 0xffa040 : 0x9ffcff);
+      this.muzzleFlashT = 0.05;
     }
+    this.muzzleFlashT -= dt;
+    this.muzzleFlash.visible = this.muzzleFlashT > 0;
     for (const s of this.shots) {
       s.prev.copy(s.pos);
       s.pos.addScaledVector(s.vel, dt);

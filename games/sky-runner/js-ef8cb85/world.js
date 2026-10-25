@@ -86,7 +86,7 @@ function stripeTexture(c1, c2) {
 }
 
 // 障害物の種類 (ステージ表 obstacles の重みの名前)
-export const OBSTACLE_KINDS = ['column', 'bush', 'tree', 'rock', 'mushroom', 'crystal', 'arch', 'monolith', 'spike', 'ring'];
+export const OBSTACLE_KINDS = ['column', 'bush', 'tree', 'rock', 'mushroom', 'crystal', 'arch', 'monolith', 'spike', 'ring', 'pylon'];
 
 export class World {
   constructor(scene) {
@@ -166,6 +166,9 @@ export class World {
       ring: new THREE.TorusGeometry(1, 0.12, 8, 32),
     };
     this.mat = {
+      // ネオンの街灯 (12 面のボーナスでなぎ倒す人工物): 金属の柱と、光るランプ
+      pylon: new THREE.MeshStandardMaterial({ color: 0x8a8fa8, metalness: 0.7, roughness: 0.35 }),
+      lamp: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xff4ad8, emissiveIntensity: 1.2 }),
       column: new THREE.MeshStandardMaterial({ roughness: 0.5 }),
       cap: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 }),
       bush: new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.9 }),
@@ -230,6 +233,7 @@ export class World {
   // ステージごとの障害物の出方 ({ column, bush, tree, rock, mushroom, lane })
   setObstacles(table) {
     this.obstacleTable = table || null;
+    this.bonusKind = table?.pylon ? 'pylon' : 'tree'; // ボーナスでなぎ倒す物 (12 面はネオンの街灯)
   }
 
   pickKind() {
@@ -271,7 +275,24 @@ export class World {
     const tallH = (lo, hi) => Math.min(Math.random() < 0.5 ? rand(0.45, 0.75) * reach : rand(lo, hi), this.ceiling.visible ? CEIL_Y - 0.6 : Infinity, top - 1);
     const size = lane ? 0.7 : 1; // 進路上のものは小さめに
     let o;
-    if (kind === 'rock') {
+    if (kind === 'pylon') {
+      // ネオンの街灯: 細い金属の柱、上に横の腕と光るランプ (12 面のボーナスで、なぎ倒す人工物)
+      const h = Math.min(rand(9, 16) * size, top);
+      const pole = new THREE.Mesh(this.geo.column, this.mat.pylon);
+      pole.scale.set(0.35, h, 0.35);
+      pole.position.y = h / 2;
+      const arm = new THREE.Mesh(this.geo.cap, this.mat.pylon);
+      arm.scale.set(3.2, 0.3, 0.3);
+      arm.position.y = h;
+      g.add(pole, arm);
+      for (const sx of [-1, 1]) {
+        const lamp = new THREE.Mesh(this.geo.cap, this.mat.lamp);
+        lamp.scale.set(0.9, 0.5, 0.9);
+        lamp.position.set(sx * 1.4, h - 0.4, 0);
+        g.add(lamp);
+      }
+      o = { kind: 'pylon', group: g, r: 1.6, h, parts: [{ c: 'cyl', r: 0.45, y0: 0, y1: h }, { c: 'box', hx: 1.8, hz: 0.5, y0: h - 0.8, y1: h + 0.3 }] };
+    } else if (kind === 'rock') {
       // 浮遊岩: 空中に浮かぶ大岩。ゆっくり回る。撃って壊せる
       const r = rand(2.6, 5.5) * size;
       const m = new THREE.Mesh(this.geo.rock, this.mat.rock);
@@ -522,14 +543,14 @@ export class World {
         const z = spawnZ + this.spawnAcc;
         if (this.side) {
           // 横スクロール: カメラは +X 側から見るので、手前 (x > 0) には置かない
-          if (Math.random() < (bonus ? 0.7 : 0.3)) this.spawnOne(0, z, bonus ? 'tree' : undefined);
-          this.spawnOne(-rand(12, 70), z - rand(0, 5), bonus ? 'tree' : undefined);
+          if (Math.random() < (bonus ? 0.7 : 0.3)) this.spawnOne(0, z, bonus ? this.bonusKind : undefined);
+          this.spawnOne(-rand(12, 70), z - rand(0, 5), bonus ? this.bonusKind : undefined);
           continue;
         }
         if (bonus) {
           // ボーナスステージ: 木だけを、プレイヤーの進路のまわりに密に並べる
-          this.spawnOne(camPos.x + rand(-16, 16), z, 'tree');
-          if (Math.random() < 0.6) this.spawnOne(camPos.x + rand(-5, 5), z - rand(0, 3), 'tree');
+          this.spawnOne(camPos.x + rand(-16, 16), z, this.bonusKind);
+          if (Math.random() < 0.6) this.spawnOne(camPos.x + rand(-5, 5), z - rand(0, 3), this.bonusKind);
           continue;
         }
         this.spawnOne(camPos.x + rand(-38, 38), z); // プレイヤーのまわりに出す (端へ行っても障害物がある)
@@ -577,6 +598,19 @@ export class World {
   removeObstacle(o) {
     this.scene.remove(o.group);
     this.scene.remove(o.shadow);
+  }
+
+  // 障害物の区間のパターン (群れが休んでいる間に 1 つ出す。planner-review-v1.0 の M2)
+  //   row: 柱の列。1 か所だけ 12 m あいた通り道がある / corridor: 左右の柱の壁と、真ん中の通路
+  spawnPattern(type, cx) {
+    if (this.side) return; // 横スクロールは横によけられないので出さない
+    const z0 = this.ceiling.visible ? CEIL_SPAWN_Z : SPAWN_Z;
+    if (type === 'row') {
+      const gap = cx + rand(-14, 14);
+      for (let x = cx - 42; x <= cx + 42; x += 7) if (Math.abs(x - gap) >= 6) this.spawnOne(x, z0, 'column');
+    } else {
+      for (let i = 0; i < 6; i++) for (const sx of [-1, 1]) this.spawnOne(cx + sx * 11, z0 - i * 14, 'column');
+    }
   }
 
   knockDown(o) {

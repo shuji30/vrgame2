@@ -2,6 +2,7 @@
 // 横に長い三日月の斬撃を飛ばしてくる (プレイヤーのいた高さを飛ぶので、上下に動いてよける)。体力が半分を切ると両方の鎌で 2 段。
 // 腹の結晶は、ふだんは弾を跳ね返す。鎌を振り終わった直後の 1.6 秒だけ水色に光って開き、倒せる
 import * as THREE from 'three';
+import { bossModel } from '../enemies.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
@@ -23,40 +24,60 @@ export function spawnMantis(c, def) {
   const side = c.sideMode;
   const k = side ? 0.65 : 1.4; // 3D は大きく
   const hp = def.hp || 380;
-  const glassM = mat(0xc8ffd8, 0x1a5a3a, { transparent: true, opacity: 0.85 });
-  const darkM = mat(0x2a4a3a, 0x000000);
-  const gemM = mat(0xe8fff0, 0x103a2a);
-  const g = new THREE.Group();
-  const add = (geo, m, x, y, z, sx, sy, sz) => {
-    const mesh = new THREE.Mesh(geo, m);
-    mesh.position.set(x, y, z);
-    mesh.scale.set(sx, sy, sz);
-    g.add(mesh);
-    return mesh;
-  };
-  add(GEO.box, glassM, 0, 2.5, 0, 3, 5, 3);        // 胸
-  const belly = add(GEO.gem, gemM, 0, -2, -1, 3.2, 4, 3.2); // 腹の結晶 (弱点)
-  add(GEO.head, darkM, 0, 6, 1.5, 2.2, 2.2, 2.2);   // 頭
-  for (const sx of [-1, 1]) add(GEO.box, darkM, sx * 1.6, -6, 0, 0.6, 6, 0.6); // 脚
-  const arms = [-1, 1].map((sx) => {
-    const arm = new THREE.Group();
-    arm.position.set(sx * 2.4, 4, 1);
-    const upper = new THREE.Mesh(GEO.box, glassM);
-    upper.scale.set(1, 6, 1);
-    upper.position.y = 3;
-    const blade = new THREE.Mesh(GEO.box, mat(0xe8fff0, 0x2a8a5a, { metalness: 0.8 }));
-    blade.scale.set(0.5, 7, 1.4);
-    blade.position.set(0, 6, 2.5);
-    blade.rotation.x = 1.2;
-    arm.add(upper, blade);
-    g.add(arm);
-    return { arm, sx, blade };
-  });
+  // Blender のモデル (GlassMantis) があればそれを。mats は [ガラス, 暗い殻, 腹の結晶, 左の刃, 右の刃]
+  const model = bossModel('mantis', ['MantisGlass', 'MantisDark', 'MantisGem', 'MantisBladeL', 'MantisBladeR']);
+  let g, mats, gemM, belly, arms, armSign;
+  if (model) {
+    g = model.mesh;
+    mats = model.mats;
+    gemM = mats[2];
+    belly = g.getObjectByName('MantisBelly');
+    // モデルは 180 度回して置くので、左右と、振り上げる向きが図形と逆になる
+    arms = [['MantisArmL', 'MantisBladeL'], ['MantisArmR', 'MantisBladeR']].map(([an, bn]) => {
+      const arm = g.getObjectByName(an);
+      let blade = null;
+      arm.traverse((o) => { if (o.isMesh && o.material.name === bn) blade = o; });
+      return { arm, sx: -Math.sign(arm.position.x), blade };
+    });
+    armSign = -1;
+  } else {
+    const glassM = mat(0xc8ffd8, 0x1a5a3a, { transparent: true, opacity: 0.85 });
+    const darkM = mat(0x2a4a3a, 0x000000);
+    gemM = mat(0xe8fff0, 0x103a2a);
+    g = new THREE.Group();
+    const add = (geo, m, x, y, z, sx, sy, sz) => {
+      const mesh = new THREE.Mesh(geo, m);
+      mesh.position.set(x, y, z);
+      mesh.scale.set(sx, sy, sz);
+      g.add(mesh);
+      return mesh;
+    };
+    add(GEO.box, glassM, 0, 2.5, 0, 3, 5, 3);        // 胸
+    belly = add(GEO.gem, gemM, 0, -2, -1, 3.2, 4, 3.2); // 腹の結晶 (弱点)
+    add(GEO.head, darkM, 0, 6, 1.5, 2.2, 2.2, 2.2);   // 頭
+    for (const sx of [-1, 1]) add(GEO.box, darkM, sx * 1.6, -6, 0, 0.6, 6, 0.6); // 脚
+    arms = [-1, 1].map((sx) => {
+      const arm = new THREE.Group();
+      arm.position.set(sx * 2.4, 4, 1);
+      const upper = new THREE.Mesh(GEO.box, glassM);
+      upper.scale.set(1, 6, 1);
+      upper.position.y = 3;
+      const blade = new THREE.Mesh(GEO.box, mat(0xe8fff0, 0x2a8a5a, { metalness: 0.8 }));
+      blade.scale.set(0.5, 7, 1.4);
+      blade.position.set(0, 6, 2.5);
+      blade.rotation.x = 1.2;
+      arm.add(upper, blade);
+      g.add(arm);
+      return { arm, sx, blade };
+    });
+    mats = [glassM, darkM, gemM, ...arms.map((a) => a.blade.material)];
+    armSign = 1;
+  }
   g.scale.setScalar(k);
   const grp = { type: 'mantis', t: 0, escape: Infinity, total: 1, kills: 0, leaving: false, bonus: 10000 };
   const body = {
-    kind: 'mantis', mesh: g, mats: [glassM, darkM, gemM, ...arms.map((a) => a.blade.material)], r: 4 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 3,
-    k, arms, gemM, belly, x: c.lastPlayer?.x ?? 0, z: SPAWN_Z, state: 'idle', timer: 2.5, open: 0, turn: 0, bossGroup: grp, // 盾のある間はアシストが選ばない (開いている間だけ効く)
+    kind: 'mantis', mesh: g, mats, r: 4 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 3,
+    k, arms, gemM, belly, bellyBase: belly.scale.clone(), armSign, x: c.lastPlayer?.x ?? 0, z: SPAWN_Z, state: 'idle', timer: 2.5, open: 0, turn: 0, bossGroup: grp, // 盾のある間はアシストが選ばない (開いている間だけ効く)
   };
   grp.ratio = () => Math.max(0, body.hp / body.maxHp);
   c.bossGroup = grp;
@@ -105,7 +126,7 @@ export const MANTIS_KINDS = {
         // 予告: 鎌を振り上げて光る
         const both = e.hp < e.maxHp * 0.5;
         for (const a of e.arms) if (both || (e.turn % 2 === 0) === (a.sx > 0)) {
-          a.arm.rotation.x = -1.6 * (1 - e.timer / 0.8);
+          a.arm.rotation.x = -1.6 * (1 - e.timer / 0.8) * e.armSign;
           a.blade.material.userData.base.setHex(0xff4060);
         }
         if (e.timer <= 0) {
@@ -116,7 +137,7 @@ export const MANTIS_KINDS = {
         }
       } else if (e.state === 'open') {
         for (const a of e.arms) {
-          a.arm.rotation.x = Math.min(0.4, a.arm.rotation.x + dt * 8); // 振り下ろす
+          a.arm.rotation.x = e.armSign * Math.min(0.4, e.armSign * a.arm.rotation.x + dt * 8); // 振り下ろす
           a.blade.material.userData.base.setHex(0x2a8a5a);
         }
         if (e.timer <= 0) { e.state = 'idle'; e.timer = rand(1.4, 2.2) / (1 + (c.level - 1) * 0.05); }
@@ -126,7 +147,7 @@ export const MANTIS_KINDS = {
       const want = e.state === 'open' ? 1 : 0;
       e.open += THREE.MathUtils.clamp(want - e.open, -dt * 4, dt * 6);
       e.gemM.userData.base.setHex(e.open > 0.6 ? 0x60f0ff : 0x103a2a); // 倒せるときは水色
-      e.belly.scale.set(3.2 + e.open * 0.8, 4 + e.open * 0.8, 3.2 + e.open * 0.8);
+      e.belly.scale.copy(e.bellyBase).multiplyScalar(1 + e.open * 0.22); // 開くと腹の結晶がふくらむ
     },
     fire(c, e, ctx, p) {
       e.fireT = rand(2.6, 3.4);

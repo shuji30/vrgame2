@@ -4,6 +4,7 @@
 //   第 3 段階: 光の花びらを閉じて守り (弾を跳ね返す)、開いて水色に光っている間だけ倒せる。開くと渦巻き弾
 import * as THREE from 'three';
 import { makeDebris, launchDebris } from './colossus.js';
+import { bossModel } from '../enemies.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
@@ -26,15 +27,22 @@ export function spawnSun(c, def) {
   const side = c.sideMode;
   const k = side ? 0.6 : 1;
   const hp = def.hp || 600;
-  const coreM = mat(0xffe08a, 0xff9a20);
-  const rayM = mat(0xfff2c4, 0xff7a10, { metalness: 0.5 });
+  // 核: Blender のモデル (PrismSun。半径 5) か図形で。mats[0] は核 (段階と、倒せるときの色を変える)
+  const cm = bossModel('sun', ['SunCore', 'SunGold']);
+  const coreM = cm ? cm.mats[0] : mat(0xffe08a, 0xff9a20);
   const g = new THREE.Group();
-  const core = new THREE.Mesh(GEO.core, coreM);
-  core.scale.setScalar(5);
-  g.add(core);
+  if (cm) g.add(cm.mesh);
+  else {
+    const core = new THREE.Mesh(GEO.core, coreM);
+    core.scale.setScalar(5);
+    g.add(core);
+  }
+  // 花びら: Blender のモデル (SunPetal) を 1 枚作って 12 枚に複製する (材質は 12 枚で共有)
+  const pm = bossModel('sunPetal', ['SunPetalMat']);
+  const rayM = pm ? pm.mats[0] : mat(0xfff2c4, 0xff7a10, { metalness: 0.5 });
   const rays = [];
   for (let i = 0; i < 12; i++) {
-    const r = new THREE.Mesh(GEO.ray, rayM);
+    const r = pm ? pm.mesh.clone() : new THREE.Mesh(GEO.ray, rayM);
     const a = (i / 12) * Math.PI * 2;
     r.rotation.z = a;
     r.scale.setScalar(3);
@@ -45,7 +53,7 @@ export function spawnSun(c, def) {
   g.scale.setScalar(k);
   const grp = { type: 'sun', t: 0, escape: Infinity, total: 1, kills: 0, leaving: false, bonus: 30000 };
   const sun = {
-    kind: 'sun', mesh: g, mats: [coreM, rayM], r: 6 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 3, noAssist: true,
+    kind: 'sun', mesh: g, mats: cm ? [...cm.mats, rayM] : [coreM, rayM], r: 6 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 3, noAssist: true,
     k, rays, coreM, stage: 1, x: c.lastPlayer?.x ?? 0, y: THREE.MathUtils.clamp((c.lastPlayer?.y ?? 6) + 5, 9, 13), z: SPAWN_Z,
     // 鏡 (ミラーコアの鏡の動きが読む値)
     tier: { R: side ? 8 : 15 }, a: 0, mirrors: [], reflectT: 0, reflectEvery: 0.9,
@@ -62,14 +70,19 @@ export function spawnSun(c, def) {
   // 第 1 段階の鏡 (横スクロールは 5 枚、3D は 7 枚)
   const n = side ? 5 : 7, size = side ? 2.6 : 4.3;
   for (let i = 0; i < n; i++) {
-    const glass = mat(0xe8fbff, 0x3a7a9a);
-    const rimM = mat(0xffd36a, 0x7a5a10);
-    const mg = new THREE.Group();
-    const rim = new THREE.Mesh(GEO.rim, rimM);
-    rim.rotation.z = Math.PI / 6;
-    mg.add(new THREE.Mesh(GEO.mirror, glass), rim);
+    // 鏡: ミラーコアのモデル (MirrorPlate) を使い回す。読み込む前は図形で
+    const pmd = bossModel('mirrorPlate', ['MirrorGlass', 'MirrorRim']) || (() => {
+      const glass = mat(0xe8fbff, 0x3a7a9a);
+      const rimM = mat(0xffd36a, 0x7a5a10);
+      const grp = new THREE.Group();
+      const rim = new THREE.Mesh(GEO.rim, rimM);
+      rim.rotation.z = Math.PI / 6;
+      grp.add(new THREE.Mesh(GEO.mirror, glass), rim);
+      return { mesh: grp, mats: [glass, rimM] };
+    })();
+    const mg = pmd.mesh;
     mg.scale.setScalar(size);
-    const m = { kind: 'mirror', mesh: mg, mats: [glass, rimM], r: size * 0.95, hp: Infinity, score: 0, t: 0, flash: 0, fireT: Infinity,
+    const m = { kind: 'mirror', mesh: mg, mats: pmd.mats, r: size * 0.95, hp: Infinity, score: 0, t: 0, flash: 0, fireT: Infinity,
       core: sun, slot: (i / n) * Math.PI * 2, noLock: true, reflectT: 0, dmg: 15 };
     mg.position.copy(g.position);
     c.addEnemy(m, 0);

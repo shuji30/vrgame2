@@ -116,6 +116,20 @@ const APPEAR = {
   orbiter: (t) => { osc('sine', 500, t, 0.7, 0.08, appearBus, 1000); osc('sine', 750, t, 0.7, 0.05, appearBus, 1500); },
 };
 
+// 立体音響: fn の中で鳴らす効果音を、左右に振って鳴らす (pan: -1 左 〜 1 右)。敵の出現音や爆発を、敵のいる側から聞かせる
+export function playAt(pan, fn) {
+  if (!ctx || !ctx.createStereoPanner || Math.abs(pan) < 0.05) return fn();
+  const s = sfxBus, a = appearBus;
+  const ps = ctx.createStereoPanner(), pa = ctx.createStereoPanner();
+  ps.pan.value = pa.pan.value = Math.max(-1, Math.min(1, pan));
+  ps.connect(s);
+  pa.connect(a);
+  sfxBus = ps;
+  appearBus = pa;
+  try { fn(); } finally { sfxBus = s; appearBus = a; }
+  setTimeout(() => { ps.disconnect(); pa.disconnect(); }, 4000); // 鳴り終わったら外す
+}
+
 export const sfx = {
   shot() {
     if (!ctx) return;

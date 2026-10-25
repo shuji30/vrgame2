@@ -70,7 +70,7 @@ try {
 } catch (_) { /* 保存なし */ }
 
 // ---- 設定 (localStorage に保存)
-const settings = { scale: 1.0, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true, autoFire: true, hard: false };
+const settings = { scale: 1.0, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true, autoFire: true, hard: false, seated: false, leftHanded: false };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('skyrunner.settings') || '{}')); } catch (_) { /* 保存なし */ }
 // 開発用: ?player=ship|human&view=1st|3rd で上書きする
 for (const key of ['player', 'view', 'mode']) {
@@ -131,6 +131,14 @@ const flash = new THREE.Mesh(
 );
 flash.renderOrder = 999;
 camera.add(flash);
+// 視点を切り替えた瞬間に視界を暗くし、0.35 秒で戻す (VR で景色が一瞬で飛ぶのを見せない)
+const viewFade = new THREE.Mesh(
+  new THREE.SphereGeometry(0.18, 12, 8),
+  new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, side: THREE.BackSide, depthTest: false, fog: false }),
+);
+viewFade.renderOrder = 1000;
+viewFade.visible = false;
+camera.add(viewFade);
 
 // ---- VR コントローラー (簡易な銃のモデルとレーザー)
 function makeGun() {
@@ -147,10 +155,59 @@ function makeGun() {
   return g;
 }
 
+// 手元のミニ HUD (VR): 左手のコントローラーの上に、ライフ・残機・ミサイルの小さな板を出す (視線を少し落とすだけで見られる)
+function makeWristHud() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 112;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.0525), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, fog: false }));
+  mesh.position.set(0, 0.045, 0.02);
+  mesh.rotation.x = -0.9; // 手の甲の上で、顔の方へ少し起こす
+  mesh.renderOrder = 998;
+  mesh.visible = false;
+  mesh.userData = { canvas, tex, key: '' };
+  return mesh;
+}
+function drawWristHud(hud, life, lives, msl) {
+  const key = `${Math.ceil(life)}/${lives}/${msl}`;
+  if (hud.userData.key === key) return; // 変わったときだけ描き直す
+  hud.userData.key = key;
+  const { canvas, tex } = hud.userData;
+  const g = canvas.getContext('2d');
+  g.clearRect(0, 0, 256, 112);
+  g.fillStyle = 'rgba(8, 12, 30, 0.75)';
+  if (g.roundRect) {
+    g.beginPath();
+    g.roundRect(2, 2, 252, 108, 14);
+    g.fill();
+  } else g.fillRect(2, 2, 252, 108);
+  const k = Math.max(0, life) / LIFE_MAX;
+  g.fillStyle = '#ffffff';
+  g.font = 'bold 22px sans-serif';
+  g.fillText('LIFE', 12, 32);
+  g.fillStyle = 'rgba(255, 255, 255, 0.2)';
+  g.fillRect(70, 14, 172, 22);
+  g.fillStyle = k > 0.5 ? '#3ee08a' : k > 0.25 ? '#ffd34a' : '#ff4a4a';
+  g.fillRect(70, 14, 172 * k, 22);
+  g.fillStyle = '#ffd34a';
+  g.font = 'bold 26px sans-serif';
+  g.fillText('▲'.repeat(Math.max(0, Math.min(5, lives))), 12, 76);
+  g.fillStyle = '#9ffcff';
+  g.font = 'bold 24px sans-serif';
+  g.fillText(`MSL ${msl}`, 150, 76);
+  tex.needsUpdate = true;
+}
+const wristHuds = [];
+
 for (let i = 0; i < 2; i++) {
   const c = renderer.xr.getController(i);
   c.visible = false;
   c.add(makeGun());
+  const wrist = makeWristHud();
+  c.add(wrist);
+  wristHuds.push({ c, wrist });
   c.addEventListener('connected', (e) => {
     c.userData.src = e.data;
     c.visible = e.data.targetRayMode === 'tracked-pointer';
@@ -237,6 +294,9 @@ function applyStage(n, first = false) {
   }
   S.stageT = 0;
   S.phaseT = 0;
+  S.rhythmT = 0; // 群れ (12 秒) と障害物の区間 (7 秒) のくり返し
+  S.rest = false;
+  S.patternN = 0;
   S.stageScore0 = combat.score; // 面ごとの記録用: この面で取った点と、被弾したか
   S.stageHits0 = S.hits;
   if ((n - 1) % CHAPTER === 0) { // 章 (6 面ずつ) の頭から通したときだけ、章の記録を残す
@@ -470,6 +530,40 @@ const ease = (t) => t * t * (3 - 2 * t);
 
 const isSide = () => settings.mode === 'side';
 const vrGentle = () => renderer.xr.isPresenting && settings.vrGentle;
+// 着座モード: 座って遊ぶと目が低いので、VR のときだけ 0.4 m 上げる
+const seatLift = () => (renderer.xr.isPresenting && settings.seated ? 0.4 : 0);
+
+// ---- ポーズ中の設定 (VR の中でも変えられるように、HUD の文字で出す。上下で選んで、左右で変える)
+const PAUSE_ITEMS = [
+  { key: 'vignette', name: '酔い対策 (視野の周りを暗く)', values: ['off', 'weak', 'strong'], label: { off: 'オフ', weak: '弱', strong: '強' } },
+  { key: 'vrGentle', name: '上下の動きを控えめに', values: [true, false] },
+  { key: 'seated', name: '着座モード (目の高さ +0.4 m)', values: [false, true] },
+  { key: 'leftHanded', name: '利き手', values: [false, true], label: { false: '右', true: '左' } },
+  { key: 'autoFire', name: '機関砲を自動で撃つ', values: [true, false] },
+];
+let pauseSel = 0;
+function updatePauseMenu(a, dt) {
+  const up = navStep('y', a.move.y, dt);
+  const side = navStep('x', a.move.x, dt);
+  if (up) pauseSel = (pauseSel - up + PAUSE_ITEMS.length) % PAUSE_ITEMS.length; // 上 (前に倒す) で 1 つ上へ
+  if (side) {
+    const it = PAUSE_ITEMS[pauseSel];
+    const i = it.values.indexOf(settings[it.key]);
+    settings[it.key] = it.values[(Math.max(0, i) + side + it.values.length) % it.values.length];
+    saveSettings();
+    input.leftHanded = settings.leftHanded;
+    // タイトル画面の設定の表示もそろえる
+    const el = document.getElementById(it.key);
+    if (el) { if (el.type === 'checkbox') el.checked = settings[it.key]; else el.value = settings[it.key]; }
+  }
+}
+function pauseMenuText() {
+  return PAUSE_ITEMS.map((it, i) => {
+    const v = settings[it.key];
+    const shown = it.label ? it.label[v] : v ? 'オン' : 'オフ';
+    return `${i === pauseSel ? '▶' : '  '} ${it.name}: ◀ ${shown} ▶`;
+  }).join('\n');
+}
 const yMax = () => Math.min(stageAt(S.stage).ceiling ? CEIL_Y - 8 : Y_MAX, vrGentle() ? 12 : Y_MAX);
 const moveY = () => MOVE_Y * (vrGentle() ? 0.6 : 1);
 
@@ -581,6 +675,14 @@ function warningText(def) {
 function updateStage(dt) {
   S.stageT += dt;
   S.phaseT += dt;
+  // 群れと障害物の区間のリズム (planner-review-v1.0 の M2): 群れ 12 秒 → 障害物だけ 7 秒 (柱の列か通路を 1 つ) → くり返し。
+  // 障害物の区間は撃つ手を休め、VR では目と首を休める時間になる
+  if (S.phase === 'normal' && S.ready >= 1) {
+    S.rhythmT += dt;
+    const rest = S.rhythmT % 19 > 12;
+    if (rest && !S.rest) world.spawnPattern(S.patternN++ % 2 ? 'corridor' : 'row', S.px);
+    S.rest = rest;
+  } else S.rest = false;
   const st = stageAt(S.stage);
   if (S.phase === 'normal' && S.stageT > S.stageLen) {
     S.phase = 'warning';
@@ -629,10 +731,11 @@ function updateStage(dt) {
   } else if (S.phase === 'bonus' && S.phaseT > BONUS_LEN) {
     S.phase = 'bonusEnd';
     S.phaseT = 0;
-    const pts = S.bonusCount * BONUS_TREE;
+    const pylon = world.bonusKind === 'pylon';
+    const pts = pylon ? S.bonusPts : S.bonusCount * BONUS_TREE; // 12 面 (街灯) は連続ボーナスの合計
     combat.score += pts;
     world.mode = 'normal';
-    showMsg(`BONUS ${pts}`, `なぎ倒した木 ${S.bonusCount} 本 × ${BONUS_TREE}` + recordStage(), 3.5);
+    showMsg(`BONUS ${pts}`, (pylon ? `なぎ倒した街灯 ${S.bonusCount} 本 (最大 ${S.bonusBest} 連続)` : `なぎ倒した木 ${S.bonusCount} 本 × ${BONUS_TREE}`) + recordStage(), 3.5);
     sfx.clear();
   } else if (S.phase === 'bonusEnd' && S.phaseT > 3.5) {
     endBonus();
@@ -663,6 +766,10 @@ function startBonus(title = 'BONUS STAGE', name = '') {
   S.phase = 'bonus';
   S.phaseT = 0;
   S.bonusCount = 0;
+  S.bonusPts = 0;
+  S.bonusChain = 0;
+  S.bonusBest = 0;
+  S.bonusLastT = -9;
   world.mode = 'bonus';
   ride.start();
   avatar.riding = true;
@@ -692,6 +799,11 @@ function updateRide(dt) {
     if (!o) break;
     world.knockDown(o);
     S.bonusCount++;
+    // 12 面 (街灯): 2 秒以内に続けて倒すと、1 本ごとに 100 点ずつ上がる (500 → 600 → 700 …)
+    S.bonusChain = S.phaseT - S.bonusLastT < 2 ? S.bonusChain + 1 : 0;
+    S.bonusLastT = S.phaseT;
+    S.bonusBest = Math.max(S.bonusBest, S.bonusChain + 1);
+    S.bonusPts += BONUS_TREE + S.bonusChain * 100;
     combat.explode(o.group.position.clone().setY(2), false);
     input.rumble(0.4, 80);
   }
@@ -977,7 +1089,7 @@ function updateCombat(dt, speed, a) {
 
   combat.update({
     dt, scroll: side ? speed * SIDE_SCROLL : speed, world, side, planeX: side ? 0 : null,
-    spawn: S.mode === 'play' && S.ready >= 1 && S.phase === 'normal',
+    spawn: S.mode === 'play' && S.ready >= 1 && S.phase === 'normal' && !S.rest, // 障害物の区間は、群れを出さない
     active: S.mode === 'play' && S.ready >= 1 && !['clear', 'bonus', 'bonusEnd', 'ending'].includes(S.phase),
     player: P, playerR: avatar.radius, eye: eyeW,
     aimOrigin, aimDir, guns, firing,
@@ -1025,12 +1137,14 @@ function update(dt) {
     if (S.paused) {
       speed = 0;
       running = false;
+      updatePauseMenu(a, dt);
     } else {
       if (a.view && isSide()) {
         showMsg('SIDE VIEW', '横スクロールでは視点は固定です', 1.2);
       } else if (a.view) {
         settings.view = settings.view === '1st' ? '3rd' : '1st';
         saveSettings();
+        viewFade.material.opacity = 1;
         showMsg(settings.view === '1st' ? 'VIEW: 1ST PERSON' : 'VIEW: 3RD PERSON', '', 1.2);
         avatar.recenter();
       }
@@ -1058,10 +1172,10 @@ function update(dt) {
 
   const side = isSide();
   if (side) {
-    rig.position.set(SIDE_CAM.x, SIDE_CAM.y + S.floorOffset, SIDE_CAM.z);
+    rig.position.set(SIDE_CAM.x, SIDE_CAM.y + S.floorOffset + seatLift(), SIDE_CAM.z);
     rig.rotation.y = Math.PI / 2; // -X 向き (プレイヤーの平面を真横から見る)
   } else {
-    rig.position.set(S.px, S.py + S.floorOffset, 0);
+    rig.position.set(S.px, S.py + S.floorOffset + seatLift(), 0);
     rig.rotation.y = 0;
   }
   sidePos.set(0, S.py + 1.6, S.pz);
@@ -1092,7 +1206,7 @@ function update(dt) {
     const o = world.hitTest(P, avatar.radius * 0.7); // 障害物には少し小さめの当たりで (かすっただけでは当たらない)
     if (o) onHit(o.kind === 'bush' ? BUSH_DAMAGE : OBSTACLE_DAMAGE); // 宇宙船も人間も同じダメージ (低い茂みは軽め)
     if (o && o.kind === 'bush' && settings.player === 'human' && S.mode === 'play') avatar.stumble(); // 人間は茂みにつまずく (見た目だけ)
-    if (o && ['tree', 'bush', 'mushroom', 'crystal'].includes(o.kind)) world.knockDown(o); // ぶつかった木などは、すり抜けずに倒れる
+    if (o && ['tree', 'bush', 'mushroom', 'crystal', 'pylon'].includes(o.kind)) world.knockDown(o); // ぶつかった木などは、すり抜けずに倒れる
   }
   // ライフが少ないときは警告音
   if (play && running && S.life < LIFE_MAX * 0.3 && (S.lowLifeT -= dt) <= 0) {
@@ -1109,6 +1223,14 @@ function update(dt) {
   else if (S.mode === 'over') updateCombat(dt, speed, { ...a, fire: false, handFire: [], missile: false }); // 爆発や煙の続きを見せる
 
   flash.material.opacity = Math.max(0, flash.material.opacity - dt * 1.2);
+  viewFade.material.opacity = Math.max(0, viewFade.material.opacity - dt / 0.35);
+  viewFade.visible = viewFade.material.opacity > 0;
+  // 手元のミニ HUD: VR でプレイ中だけ、左手のコントローラーに出す
+  const showWrist = renderer.xr.isPresenting && S.mode === 'play' && !NO_HUD;
+  for (const { c, wrist } of wristHuds) {
+    wrist.visible = showWrist && c.visible && c.userData.src?.handedness === 'left';
+    if (wrist.visible) drawWristHud(wrist, S.life, S.lives, combat.missileStock);
+  }
   if (renderer.xr.isPresenting) flash.material.opacity = 0; // VR では視界全体を光らせない
   // ビネットの強さ: 速さと上下左右の動きに合わせる (VR のときだけ)
   {
@@ -1159,7 +1281,7 @@ function update(dt) {
     missileMax: MISSILE_MAX,
     locks: combat.locks.length,
     msg: S.paused ? 'PAUSE' : S.msg,
-    sub: S.paused ? (a.source === 'pad' ? 'START: 再開   B: タイトルへ' : a.source === 'xr' ? 'X/トリガー: 再開   A: タイトルへ' : a.source === 'wheel' ? 'ポーズ / 機関砲のボタン: 再開   タイトルへのボタン: タイトルへ' : 'Esc/クリック: 再開   Backspace: タイトルへ') : S.sub,
+    sub: S.paused ? pauseMenuText() + '\n' + (a.source === 'pad' ? 'START: 再開   B: タイトルへ' : a.source === 'xr' ? 'X/トリガー: 再開   A: タイトルへ' : a.source === 'wheel' ? 'ポーズ / 機関砲のボタン: 再開   タイトルへのボタン: タイトルへ' : 'Esc/クリック: 再開   Backspace: タイトルへ') : S.sub,
     hint: S.paused ? buildInfo : S.mode === 'over' && S.overT > 2 ? (S.entry?.state === 'input' ? ENTRY_HINT[a.source] || ENTRY_HINT.kb : S.entry?.state === 'sending' ? '' : RETRY_HINT[a.source]) : '', // プレイ中は操作方法を出さない
     lives: S.lives,
     life: Math.max(0, Math.round(S.life)),
@@ -1172,7 +1294,7 @@ function update(dt) {
     hi: Math.max(hiNow(), combat.score),
     mult: Math.round(combat.mult * 10) / 10,
     boss: combat.bossRatio === null ? null : Math.round(combat.bossRatio * 100) / 100,
-    bonus: S.phase === 'bonus' ? { count: S.bonusCount, left: Math.max(0, Math.ceil(BONUS_LEN - S.phaseT)) } : null,
+    bonus: S.phase === 'bonus' ? { count: S.bonusCount, left: Math.max(0, Math.ceil(BONUS_LEN - S.phaseT)), label: world.bonusKind === 'pylon' ? 'LAMPS' : 'TREES', chain: world.bonusKind === 'pylon' && S.phaseT - S.bonusLastT < 2 ? S.bonusChain + 1 : 0 } : null,
   });
 
   S.fps += (1 / Math.max(dt, 1e-4) - S.fps) * 0.05;
@@ -1275,11 +1397,12 @@ function unlockHard() {
   if (!cleared) settings.hard = false;
 }
 unlockHard();
-for (const key of ['bgm', 'engine', 'invertY', 'vrGentle', 'autoFire', 'hard']) {
+for (const key of ['bgm', 'engine', 'invertY', 'vrGentle', 'autoFire', 'hard', 'seated', 'leftHanded']) {
   const el = document.getElementById(key);
   el.checked = settings[key];
-  el.addEventListener('change', () => { settings[key] = el.checked; saveSettings(); applyAudioSettings(); showHiScore(); });
+  el.addEventListener('change', () => { settings[key] = el.checked; saveSettings(); applyAudioSettings(); showHiScore(); input.leftHanded = settings.leftHanded; });
 }
+input.leftHanded = settings.leftHanded;
 addEventListener('keydown', (e) => {
   if (e.code === 'KeyM' && !e.repeat && S.entry?.state !== 'input') showMsg(toggleMute() ? 'SOUND OFF' : 'SOUND ON', '', 1);
 });
