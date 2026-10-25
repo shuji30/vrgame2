@@ -22,7 +22,7 @@
 export const STAGES = [
   {
     name: 'SUNNY FIELD', kind: 'normal', length: 45, speed: 40, diff: 1, density: 0.9,
-    waves: [['fighter', 3], ['dart', 1.5], ['gremlin', 1], ['mammoth', 1.2]],
+    waves: [['fighter', 3], ['dart', 1.5], ['gremlin', 1], ['mammoth', 2.5]],
     obstacles: { bush: 3, tree: 2, ring: 1.2, column: 0.5, lane: 0.25 },
     palette: { a: 0xe9cf6a, b: 0x3e9c3c, fog: 0xf6dcae, sky: 0x2f72d8, mount: 0x5a70a8, col: ['#f4f4f4', '#e2559a'], bush: 0x2e8b3a },
     bgm: { key: 0, tempo: 152, song: 'rock' },

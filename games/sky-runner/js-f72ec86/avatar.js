@@ -74,6 +74,7 @@ export class Avatar {
     await Promise.all(Object.entries(files).map(async ([kind, file]) => {
       const gltf = await loader.loadAsync(base + file);
       const obj = gltf.scene;
+      obj.children.forEach((c) => c.position.set(0, 0, 0)); // Blender の上で並べた位置は使わない (原点 = 機体の中心)
       obj.visible = false;
       this.mount.add(obj);
       obj.updateMatrixWorld(true);

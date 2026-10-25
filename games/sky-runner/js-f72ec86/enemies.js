@@ -14,6 +14,9 @@ const _a = new THREE.Vector3(), _b = new THREE.Vector3();
 const DUST = new THREE.Color(0xb89a70);
 const K = 1.8; // 敵の大きさの倍率 (近づいたときに画面いっぱいに迫って見えるように)
 
+// Blender で作ったモデル (assets/enemies.glb を combat.js が読んで入れる)。読み込むまでは下の図形で組み立てる
+export const MODELS = {};
+
 // 共有するジオメトリ (敵ごとに作り直さない)
 const GEO = {
   dart: new THREE.OctahedronGeometry(1, 0).scale(0.55, 0.55, 2.2),
@@ -56,7 +59,7 @@ GEO.icoShell = (() => {
 })();
 // 二十面体の装甲板の材質: userData.open (0〜0.15) の分だけ、板を中心から外へずらす
 function icoShellMat() {
-  const m = mat(0x4a4258, 0x120c22, { metalness: 0.85, roughness: 0.35, side: THREE.DoubleSide }); // 鈍く光る黒鉄の装甲
+  const m = mat(0x4a4258, 0x120c22, { metalness: 0.85, roughness: 0.35, side: THREE.DoubleSide, own: true }); // 鈍く光る黒鉄の装甲 (開き具合は敵ごと)
   m.userData.open = { value: 0 };
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uOpen = m.userData.open;
@@ -76,22 +79,82 @@ GEO.tusk = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
   [0, 0, 0], [0.15, -0.9, 0.5], [0.35, -1.2, 1.4], [0.55, -0.7, 2.2], [0.6, 0.2, 2.5],
 ].map((v) => new THREE.Vector3(...v))), 14, 0.2, 6);
 
-// 被弾で白く光らせるため、マテリアルは敵ごとに作る (元の発光色を覚えておく)
-function mat(color, emissive = 0x000000, extra = {}) {
+// マテリアルは同じ色どうしで共有する (敵ごとに作らない。被弾の光は combat の applyFlash が白い材質に差し替える)。
+// own: 敵ごとに色や形を変えるもの (二十面体の装甲の開き、衛星コアの核の色) は、敵ごとに作って発光色で光らせる
+const SHARED = new Map();
+function mat(color, emissive = 0x000000, { own = false, ...extra } = {}) {
+  const key = own ? null : JSON.stringify([color, emissive, extra.metalness, extra.roughness, extra.opacity, extra.side]);
+  if (key && SHARED.has(key)) return SHARED.get(key);
   const m = new THREE.MeshStandardMaterial({ color, emissive, flatShading: true, roughness: 0.2, metalness: 0.2, ...extra });
   m.userData.base = m.emissive.clone();
+  m.userData.shared = !own;
+  if (key) SHARED.set(key, m);
   return m;
 }
 function build(parts) {
   const g = new THREE.Group();
-  const mats = [];
+  const mats = [], flashMeshes = [];
   for (const [geo, m, setup] of parts) {
     const mesh = new THREE.Mesh(geo, m);
     setup?.(mesh);
     g.add(mesh);
-    if (!mats.includes(m)) mats.push(m);
+    if (m.userData.shared) {
+      mesh.userData.mat = m;
+      flashMeshes.push(mesh);
+    } else if (!mats.includes(m)) mats.push(m);
   }
-  return { mesh: g, mats };
+  return { mesh: g, mats, flashMeshes };
+}
+
+// Blender のモデルがあればそれを、なければ図形 (parts) で組み立てる。モデルはほかの敵と同じく -Z が前なので 180 度回す。
+// own: 敵ごとに色を変えるもの (衛星コアの核) は材質を複製して、発光色で光らせる
+function model(key, parts, own = false) {
+  const tpl = MODELS[key];
+  if (!tpl) return build(parts);
+  const inner = tpl.clone();
+  const mats = [], flashMeshes = [], copies = new Map();
+  inner.traverse((o) => {
+    if (!o.isMesh) return;
+    if (own) {
+      if (!copies.has(o.material)) {
+        const m = o.material.clone();
+        m.userData.base = m.emissive.clone();
+        copies.set(o.material, m);
+        mats.push(m);
+      }
+      o.material = copies.get(o.material);
+    } else {
+      o.userData.mat = o.material;
+      flashMeshes.push(o);
+    }
+  });
+  inner.rotation.y = Math.PI;
+  const g = new THREE.Group();
+  g.add(inner);
+  return { mesh: g, mats, flashMeshes };
+}
+
+// 目の手前で砕く (迫力の決まり: 目の 6 m 以内に大きな物を入れない)。体当たりしてくる大きな物に使う。
+// 物の前の面 (中心 + r) が目の 8 m 手前に来たら 1 回だけ見て、当たる位置なら砕けてダメージ。外れていれば、
+// それる向き (e.veer) を決める。呼んだ側は、それる向きへ横に動かして、表面から目まで 6 m 以上あける (veerAway)
+export function eyeGuard(c, e, ctx, pos, r, dmg = 25) {
+  const P = ctx.player;
+  if (e.eyeChecked || ctx.side || pos.z + r < P.z - 8) return false;
+  e.eyeChecked = true;
+  e.noHit = true; // 当たりはここで見た (このあとは通り抜けない)
+  if (Math.hypot(pos.x - P.x, pos.y - P.y) < r * 0.7 + ctx.playerR) {
+    ctx.onPlayerHit(dmg);
+    c.explode(pos.clone(), true);
+    e.dead = true; // 倒したことにはしない (点は入らない)
+    return true;
+  }
+  e.veer = Math.sign(pos.x - P.x) || 1;
+  return false;
+}
+// それる: x を返す。表面から目まで 6 m 以上あくまで、毎秒 30 m で横へ
+export function veerAway(e, x, r, ctx, dt) {
+  if (!e.veer || Math.abs(x - ctx.player.x) >= r + 6) return x;
+  return x + e.veer * 30 * dt;
 }
 
 export const EXTRA = {
@@ -101,8 +164,7 @@ export const EXTRA = {
     spawn(c, px, py) {
       const cx = px + rand(-8, 8), cy = THREE.MathUtils.clamp(py + rand(0, 4), 3, 12), dir = Math.random() < 0.5 ? 1 : -1;
       for (let k = 0; k < 5; k++) {
-        const m = mat(0x9ff0ff, 0x2a8ab0);
-        const e = { kind: 'dart', ...build([[GEO.dart, m]]), r: 1.1 * K, hp: 1, score: 200, t: 0, flash: 0, fireT: Infinity,
+        const e = { kind: 'dart', ...model('dart', [[GEO.dart, mat(0x9ff0ff, 0x2a8ab0)]]), r: 1.1 * K, hp: 1, score: 200, t: 0, flash: 0, fireT: Infinity,
           cx, cy, z: SPAWN_Z - k * 9, phase: k * 0.7, dir };
         e.mesh.scale.setScalar(K);
         e.mesh.position.set(cx, cy, e.z);
@@ -132,7 +194,7 @@ export const EXTRA = {
         const side = (k ? -1 : 1) * (Math.random() < 0.5 ? 1 : -1);
         const glass = mat(0xd8f6ff, 0x2a6a88, { transparent: true, opacity: 0.85, forceSinglePass: true });
         const core = mat(0xffffff, 0x60e0ff);
-        const e = { kind: 'lens', ...build([[GEO.lens, glass], [GEO.lensCore, core]]), r: 2.6 * K, hp: 5 + c.level, score: 800, t: 0, flash: 0, fireT: Infinity, delay: k * 0.25,
+        const e = { kind: 'lens', ...model('lens', [[GEO.lens, glass], [GEO.lensCore, core]]), r: 2.6 * K, hp: 5 + c.level, score: 800, t: 0, flash: 0, fireT: Infinity, delay: k * 0.25,
           state: 'slide', side, x0: px + side * 48, tx: px + side * rand(4, 11), y: THREE.MathUtils.clamp(py + rand(2, 6), 4, 14) + k * 5, z: c.holdZ(rand(-95, -70)), spin: 0, shotA: 0 };
         e.mesh.scale.setScalar(K);
         e.mesh.position.set(e.x0, e.y, e.z);
@@ -175,9 +237,9 @@ export const EXTRA = {
         const body = mat(0x6a4a9a, 0x1a0a30);
         const head = mat(0xff9af0, 0x803070);
         // 当たり・ロック・ミサイルは原点を見るので、原点を光る頭に置く (胴は下へ伸ばす)
-        const made = build([[GEO.tower, body], [GEO.towerHead, head, (m) => { m.name = 'head'; }]]);
+        const made = model('turret', [[GEO.tower, body], [GEO.towerHead, head, (m) => { m.name = 'head'; }]]);
         const e = { kind: 'turret', ...made, r: 2.4 * K, hp: Math.round(4 + c.level * 1.5), score: 900, t: 0, flash: 0, fireT: Infinity, rise: 0, burst: 0 };
-        e.head = e.mesh.getObjectByName('head');
+        e.head = e.mesh.getObjectByName('head') || e.mesh.getObjectByName('TowerHead');
         e.mesh.scale.setScalar(K);
         e.mesh.position.set(x, -2 * K, (c.sideMode ? SPAWN_Z - 60 : SPAWN_Z + 40) - i * 12);
         c.addEnemy(e, 1.8 * K);
@@ -206,12 +268,13 @@ export const EXTRA = {
       for (let k = 0; k < 6; k++) {
         const body = mat(0x6a4aa0, 0x8040c0); // 霧になじまない明るさに
         const wing = mat(0xc8a8ff, 0x4a2a8a, { transparent: true, opacity: 0.9, side: THREE.DoubleSide, forceSinglePass: true }); // 羽は 1 枚の三角なので両面
-        const made = build([[GEO.batBody, body], [GEO.batWing, wing, (m) => { m.name = 'wL'; m.scale.x = -1; }], [GEO.batWing, wing, (m) => { m.name = 'wR'; }]]);
+        const made = model('bat', [[GEO.batBody, body], [GEO.batWing, wing, (m) => { m.name = 'wL'; m.scale.x = -1; }], [GEO.batWing, wing, (m) => { m.name = 'wR'; }]]);
         const slot = k - 2.5;
         const e = { kind: 'bat', ...made, r: 1.4 * K, hp: 1, score: 250, t: 0, flapPh: k * 0.3, flash: 0, fireT: Infinity,
           state: 'cruise', x: cx + slot * 6.5, y: top - Math.abs(slot) * 1.2, z: SPAWN_Z - Math.abs(slot) * 6, diveT: 2.4 + k * 0.4, u: 0 };
-        e.wL = e.mesh.getObjectByName('wL');
-        e.wR = e.mesh.getObjectByName('wR');
+        // モデルは 180 度回して置くので、モデルの右の羽 (BatWingR) が画面の左。羽ばたきの向きは図形と同じになる
+        e.wL = e.mesh.getObjectByName('wL') || e.mesh.getObjectByName('BatWingR');
+        e.wR = e.mesh.getObjectByName('wR') || e.mesh.getObjectByName('BatWingL');
         e.mesh.scale.setScalar(K);
         e.mesh.position.set(e.x, e.y, e.z);
         c.addEnemy(e, K);
@@ -249,8 +312,7 @@ export const EXTRA = {
       for (let k = 0; k < n; k++) EXTRA.bouncer.make(c, px + rand(-10, 10), SPAWN_Z - k * 18, 2.4 * K, 0, 3 + c.level);
     },
     make(c, x, z, size, vx, hp) {
-      const m = mat(0xffd36a, 0x7a4a10);
-      const e = { kind: 'bouncer', ...build([[GEO.gem, m]]), r: size, size, hp, score: size > 3 ? 600 : 150, t: 0, flash: 0, fireT: Infinity,
+      const e = { kind: 'bouncer', ...model('bouncer', [[GEO.gem, mat(0xffd36a, 0x7a4a10)]]), r: size, size, hp, score: size > 3 ? 600 : 150, t: 0, flash: 0, fireT: Infinity,
         vx, vy: rand(4, 10), z, x, dmg: size > 3 ? 25 : 15 };
       e.mesh.scale.setScalar(size);
       e.mesh.position.set(x, size + 6, z);
@@ -266,9 +328,11 @@ export const EXTRA = {
         e.vy = e.size > 3 ? rand(16, 20) : rand(11, 14); // 着地したら、また跳ねる
       }
       if (c.ceilingY && p.y > c.ceilingY - e.size) { p.y = c.ceilingY - e.size; e.vy = -Math.abs(e.vy); }
-      e.x += (e.vx + (ctx.player.x - e.x) * 0.35) * dt;
+      if (!e.veer) e.x += (e.vx + (ctx.player.x - e.x) * 0.35) * dt;
+      e.x = veerAway(e, e.x, e.size, ctx, dt);
       p.x = e.x;
       p.z = e.z;
+      if (eyeGuard(c, e, ctx, p, e.size, e.dmg)) return;
       e.mesh.rotation.x += dt * 3;
       e.mesh.rotation.z += dt * 2;
     },
@@ -330,7 +394,9 @@ export const EXTRA = {
         if (e.holdT > 0.75 && e.fireT === Infinity && e.shots === 0) e.fireT = 0;
         if (e.holdT > 3) { e.state = 'roll'; e.open = 0; e.holdT = 1.2; }
       }
+      e.x = veerAway(e, e.x, e.R, ctx, dt);
       p.set(e.x, e.ceil ? CEIL_Y - e.R : e.R, e.z);
+      if (eyeGuard(c, e, ctx, p, e.R, e.dmg)) return;
       // 転がる: 地面に対する速さの分だけ回す (天井では逆向き)
       const ground = (e.z - z0) / Math.max(dt, 1e-4) - scroll;
       e.mesh.rotation.x += (ground / e.R) * dt * (e.ceil ? -1 : 1); // 開いている間も転がり続ける
@@ -354,10 +420,15 @@ export const EXTRA = {
     spawn(c, px) {
       const n = 1;
       for (let k = 0; k < n; k++) {
-        const fur = mat(0x6e4429, 0x000000, { roughness: 0.95, metalness: 0 });
-        const dark = mat(0x4a2c1a, 0x000000, { roughness: 0.95, metalness: 0 });
-        const tusk = mat(0xf6efdc, 0x2a2618, { roughness: 0.3, side: THREE.DoubleSide }); // 左の牙は裏返して使うので両面
-        const eye = mat(0xff6030, 0xff3010);
+        // Blender のモデルがないとき (読み込む前) だけ、図形と材質で組み立てる
+        const M = MODELS.mammoth;
+        const own = { own: true };
+        const [fur, dark, tusk, eye] = M ? [] : [
+          mat(0x6e4429, 0x000000, { roughness: 0.95, metalness: 0, ...own }),
+          mat(0x4a2c1a, 0x000000, { roughness: 0.95, metalness: 0, ...own }),
+          mat(0xf6efdc, 0x2a2618, { roughness: 0.3, side: THREE.DoubleSide, ...own }), // 左の牙は裏返して使うので両面
+          mat(0xff6030, 0xff3010, own),
+        ];
         const g = new THREE.Group();
         const add = (parent, geo, m, pos, scale, rot) => {
           const mesh = new THREE.Mesh(geo, m);
@@ -367,19 +438,41 @@ export const EXTRA = {
           parent.add(mesh);
           return mesh;
         };
+        // Blender のモデルがあれば、部品を軸の位置に置く。材質はモデルと共有し、被弾の光は差し替えで行う (combat の applyFlash)
+        const mats = M ? [] : [fur, dark, tusk, eye];
+        const flashMeshes = [];
+        const part = (parent, tpl, pos, scale) => {
+          const o = tpl.clone();
+          o.traverse((m) => {
+            if (!m.isMesh) return;
+            m.userData.mat = m.material;
+            flashMeshes.push(m);
+          });
+          o.position.set(...pos);
+          o.rotation.y = Math.PI; // モデルはほかの敵と同じく -Z が前なので、+Z (プレイヤーの方) へ向ける
+          if (scale) o.scale.set(...scale);
+          parent.add(o);
+          return o;
+        };
         // 胴 (原点 = 胴の真ん中。当たり・ロックはここを見る)、背中のこぶ、しっぽ
-        add(g, GEO.blob, fur, [0, 0, 0], [2.3, 2.0, 3.1]);
-        add(g, GEO.blob, fur, [0, 1.5, 0.9], [1.7, 1.4, 1.7]);
-        add(g, GEO.trunkSeg, dark, [0, 0.4, -3], [0.4, 1.4, 0.4], [-0.5, 0, 0]);
+        if (M) part(g, M.body, [0, 0, 0]);
+        else {
+          add(g, GEO.blob, fur, [0, 0, 0], [2.3, 2.0, 3.1]);
+          add(g, GEO.blob, fur, [0, 1.5, 0.9], [1.7, 1.4, 1.7]);
+          add(g, GEO.trunkSeg, dark, [0, 0.4, -3], [0.4, 1.4, 0.4], [-0.5, 0, 0]);
+        }
         // 頭は首を軸に上下に振る
         const head = new THREE.Group();
         head.position.set(0, 0.8, 2.6);
         g.add(head);
-        add(head, GEO.blob, fur, [0, 0.3, 0.8], [1.5, 1.6, 1.4]);
-        for (const sx of [-1, 1]) {
-          add(head, GEO.blob, dark, [sx * 1.4, 0.4, 0.4], [0.25, 1.0, 0.8]); // 耳
-          add(head, GEO.blob, eye, [sx * 0.75, 0.75, 1.95], [0.18, 0.18, 0.18]); // 光る目
-          add(head, GEO.tusk, tusk, [sx * 0.55, -0.4, 1.7], [sx, 1, 1]); // 牙は左右で外へ反る
+        if (M) part(head, M.head, [0, 0, 0]);
+        else {
+          add(head, GEO.blob, fur, [0, 0.3, 0.8], [1.5, 1.6, 1.4]);
+          for (const sx of [-1, 1]) {
+            add(head, GEO.blob, dark, [sx * 1.4, 0.4, 0.4], [0.25, 1.0, 0.8]); // 耳
+            add(head, GEO.blob, eye, [sx * 0.75, 0.75, 1.95], [0.18, 0.18, 0.18]); // 光る目
+            add(head, GEO.tusk, tusk, [sx * 0.55, -0.4, 1.7], [sx, 1, 1]); // 牙は左右で外へ反る
+          }
         }
         // 鼻: 4 つの節。根元から順に曲げて、垂らしたり振り上げたりする
         const trunk = [];
@@ -388,7 +481,9 @@ export const EXTRA = {
           const seg = new THREE.Group();
           seg.position.set(0, i ? -0.95 : -0.2, i ? 0 : 2.1);
           parent.add(seg);
-          add(seg, GEO.trunkSeg, dark, [0, 0, 0], [1 - i * 0.15, 1, 1 - i * 0.15]);
+          const w = 1 - i * 0.15;
+          if (M) part(seg, M.trunk, [0, 0, 0], [w, 1, w]);
+          else add(seg, GEO.trunkSeg, dark, [0, 0, 0], [w, 1, w]);
           trunk.push(seg);
           parent = seg;
         }
@@ -398,13 +493,14 @@ export const EXTRA = {
           const leg = new THREE.Group();
           leg.position.set(lx, -1.2, lz);
           g.add(leg);
-          add(leg, GEO.leg, dark, [0, 0, 0]);
+          if (M) part(leg, M.leg, [0, 0, 0]);
+          else add(leg, GEO.leg, dark, [0, 0, 0]);
           legs.push(leg);
         }
         const S = 1.5 * (c.sideMode ? 0.7 : 1);
         g.scale.setScalar(S);
         const e = {
-          kind: 'mammoth', mesh: g, mats: [fur, dark, tusk, eye], r: 3.2 * S, hp: 14 + c.level * 4, score: 2000, t: rand(0, 2), flash: 0, fireT: Infinity, dmg: 25,
+          kind: 'mammoth', mesh: g, mats, flashMeshes: M ? flashMeshes : null, r: 3.2 * S, hp: 14 + c.level * 4, score: 2000, t: rand(0, 2), flash: 0, fireT: Infinity, dmg: 25,
           S, head, trunk, legs, state: 'walk', timer: 0, step: 0, x: px + (n > 1 ? (k ? 1 : -1) * rand(10, 14) : rand(-6, 6)), z: SPAWN_Z - k * 25,
         };
         g.position.set(e.x, 3.8 * S, e.z);
@@ -434,10 +530,18 @@ export const EXTRA = {
           sfx.whoosh();
         }
       } else {
-        // 突進: 頭を下げて、地響きを立てて走ってくる。最初の 0.3 秒だけプレイヤーの列を追う
+        // 突進: 頭を下げて、地響きを立てて走ってくる。最初の 0.25 秒だけプレイヤーの列を追う (最後の 0.5 秒以上はまっすぐ)
+        // 体は目を通り抜けない: 鼻先が目の 8 m 手前に来たら、当たる位置なら踏ん張って牙を突き立て、砕ける (ダメージ 25)。
+        // 外れていれば、横へそれて表面が 6 m 以上離れた所を走り抜ける
         e.timer += dt;
-        if (e.timer < 0.3) e.x += THREE.MathUtils.clamp(P.x - e.x, -14 * dt, 14 * dt);
+        e.noHit = true;
+        if (e.timer < 0.25) e.x += THREE.MathUtils.clamp(P.x - e.x, -14 * dt, 14 * dt);
         e.z += (scroll + 32) * dt;
+        const front = 4.8 * e.S; // 胴の中心から鼻先まで
+        // 上下は体の高さ (地面から背中まで) の中なら当たる
+        const hy = THREE.MathUtils.clamp(P.y, 1, 5.8 * e.S);
+        if (eyeGuard(c, e, ctx, _a.set(e.x, hy, e.z + front * 0.4), front * 0.6, 25)) { sfx.trumpet(); return; }
+        e.x = veerAway(e, e.x, 2.3 * e.S, ctx, dt); // 胴の横 (半幅 3.5 m) から目まで 6 m 以上
         gait = 11;
         swing = 0.6;
         headDown = 1;
@@ -468,15 +572,14 @@ export const EXTRA = {
   orbiter: {
     heavy: true, big: true,
     spawn(c, px, py) {
-      const core = mat(0x80ffd0, 0x20a070);
-      const e = { kind: 'orbiter', ...build([[GEO.orb, core]]), r: 2 * K, hp: 8 + c.level * 2, score: 1500, t: 0, flash: 0, fireT: Infinity,
+      const core = MODELS.orbiter ? null : mat(0x80ffd0, 0x20a070, { own: true }); // 守りがなくなると赤く光らせるので敵ごと
+      const e = { kind: 'orbiter', ...model('orbiter', [[GEO.orb, core]], true), r: 2 * K, hp: 8 + c.level * 2, score: 1500, t: 0, flash: 0, fireT: Infinity,
         cx: px + rand(-5, 5), cy: THREE.MathUtils.clamp(py + rand(2, 5), 5, 13), z: SPAWN_Z, sats: [] };
       e.mesh.scale.setScalar(1.8 * K);
       e.mesh.position.set(e.cx, e.cy, e.z);
       c.addEnemy(e, 1.6 * K);
       for (let k = 0; k < 3; k++) {
-        const m = mat(0xffffff, 0x4060ff);
-        const s = { kind: 'satellite', ...build([[GEO.gem, m]]), r: 1.1 * K, hp: 2, score: 300, t: 0, flash: 0, fireT: Infinity, core: e, a: (k / 3) * Math.PI * 2 };
+        const s = { kind: 'satellite', ...model('satellite', [[GEO.gem, mat(0xffffff, 0x4060ff)]]), r: 1.1 * K, hp: 2, score: 300, t: 0, flash: 0, fireT: Infinity, core: e, a: (k / 3) * Math.PI * 2 };
         s.mesh.scale.setScalar(0.9 * K);
         s.mesh.position.copy(e.mesh.position);
         c.addEnemy(s, 0.8 * K);

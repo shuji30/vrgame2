@@ -4,7 +4,7 @@ import { Input } from './input.js';
 import { Hud, DebugPanel } from './hud.js';
 import { Avatar } from './avatar.js';
 import { SledRide } from './ride.js';
-import { Combat, MISSILE_MAX, loadEnemyModels } from './combat.js';
+import { Combat, MISSILE_MAX, loadEnemyModels, FLASH_MAT } from './combat.js';
 import { STAGES, STAGE_COUNT, stageAt } from './stages.js';
 import { Vignette, VIGNETTE_LEVELS } from './comfort.js';
 import { CEIL_Y } from './world.js';
@@ -106,6 +106,14 @@ const combat = new Combat(scene);
 const ride = new SledRide(scene);
 combat.forceWave = new URLSearchParams(location.search).get('wave'); // 開発用: ?wave=moai などで出す敵を固定する
 loadEnemyModels('./assets/enemies.glb').catch((e) => console.error('敵のモデルを読み込めませんでした', e));
+// 被弾の白い材質は、最初に当てたときに作ると一瞬止まる (Quest) ので、始めにシェーダーを作っておく
+{
+  const m = new THREE.Mesh(new THREE.BoxGeometry(), FLASH_MAT);
+  scene.add(m);
+  renderer.compile(scene, camera);
+  scene.remove(m);
+  m.geometry.dispose();
+}
 debugPanel.visible = new URLSearchParams(location.search).has('debug');
 if (debugPanel.visible) Object.assign(window, { __combat: combat, __input: input }); // 開発用: ?debug のときだけ、戦闘と入力の中身を見られるようにする
 
