@@ -557,7 +557,7 @@ export class Combat {
   remove(o) {
     this.scene.remove(o.mesh);
     if (o.shadow) this.scene.remove(o.shadow);
-    if (o.marker) this.scene.remove(o.marker); // 地面の予告の印 (氷晶の冠のつららなど)
+    if (o.marker) { this.scene.remove(o.marker); o.marker.userData.dispose?.forEach((d) => d.dispose()); } // 地面の予告の印 (氷晶の冠のつららなど)
     if (o.gapMarker) this.scene.remove(o.gapMarker); // 氷の柵の抜け道の印
     if (o.beam) EXTRA[o.kind]?.endBeam?.(this, o); // 光翼の光線 (面が変わったときも片付ける)
     if (o.mats) o.mats.forEach((m) => m.dispose());
@@ -758,9 +758,13 @@ export class Combat {
     if (!table.length) table = [['fighter', 1]];
     let r = Math.random() * table.reduce((a, [, w]) => a + w, 0);
     let kind = this.forceWave || table.find(([, w]) => (r -= w) < 0)?.[0] || table[0][0];
-    // マンモスのいる面では、10 秒すぎから 8 秒ごとに必ず 1 体ずつ出す (くじ運で少なくならないように)
-    if (!this.forceWave && table.some(([k]) => k === 'mammoth') && this.mammothN < MAMMOTH.max && this.stageT >= MAMMOTH.first + this.mammothN * MAMMOTH.every) kind = 'mammoth';
-    if (kind === 'mammoth') this.mammothN++;
+    // マンモスのいる面では、10 秒すぎから 8 秒ごとに必ず 1 体ずつ出す (くじ運で少なくならないように)。
+    // 群れの代わりではなく、群れに足して出す (代わりにすると、ほかの敵の群れが少なくなる)
+    if (!this.forceWave && table.some(([k]) => k === 'mammoth') && this.mammothN < MAMMOTH.max && this.stageT >= MAMMOTH.first + this.mammothN * MAMMOTH.every) {
+      this.mammothN++;
+      EXTRA.mammoth.spawn(this, px, py);
+      if (kind === 'mammoth') kind = table.find(([k]) => k !== 'mammoth' && !isHeavy(k))?.[0] || 'fighter';
+    } else if (kind === 'mammoth') this.mammothN++;
     if (EXTRA[kind]) return EXTRA[kind].spawn(this, px, py); // 追加の敵 (enemies.js)
     ({
       fighter: () => this.spawnFighterWave(px, py),

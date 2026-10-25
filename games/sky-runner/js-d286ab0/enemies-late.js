@@ -18,6 +18,7 @@ const GEO = {
   body: new THREE.OctahedronGeometry(1, 0),
   orb: new THREE.IcosahedronGeometry(1, 1),
 };
+const BEAM_GEO = new THREE.CylinderGeometry(0.35, 0.35, 1, 6, 1, true).rotateZ(Math.PI / 2); // 雷の結晶球の稲妻 (共有)
 // 名前の付いた材質 (光らせる所) を探す
 const findMats = (made, name) => made.mats.filter((m) => m.name === name);
 
@@ -44,7 +45,7 @@ export const LATE_KINDS = {
       const P = ctx.player;
       e.z += (scroll + 5) * dt; // 地面と一緒に流れながら、少し歩く
       e.timer += dt;
-      if (e.state === 'walk' && e.z > -120) { e.state = 'warn'; e.timer = 0; }
+      if (e.state === 'walk' && e.z > -120) { e.state = 'warn'; e.timer = 0; sfx.growl(); }
       else if (e.state === 'warn' && e.timer >= 0.8) {
         e.state = 'open';
         e.timer = 0;
@@ -61,7 +62,8 @@ export const LATE_KINDS = {
     },
   },
 
-  // ---- 11 面 砂時計の番人 (HOURGLASS): 地面に立つ高さ 8 m の砂時計。砂が落ちる (3.5 秒)。最後の 1 秒は赤く光り、
+  // ---- 11 面 砂時計の番人 (HOURGLASS): 地面に立つ高さ 8 m の砂時計。200 m 先から砂が落ち、90 m 先で落ちきる
+  // (時間ではなく距離で減らす。どの速さでも同じ所でひっくり返る)。最後の 0.8 秒分は赤く光ってカチッと鳴り、
   // ひっくり返って光の輪を 4 発。落ちきる前に壊すと点が 2 倍
   hourglass: {
     big: true,
@@ -92,14 +94,15 @@ export const LATE_KINDS = {
           e.score = 600; // ひっくり返ったあとは、ふつうの点
           for (const s of [-0.3, -0.1, 0.1, 0.3]) c.fireBullet(_a.set(p.x, p.y + 1, p.z).clone(), ctx.player, s, 'ring');
         }
-      } else if (e.z > -170 && e.z < -30) {
-        e.sand = Math.max(0, e.sand - dt / 3.5);
+      } else if (!e.flips) {
+        e.sand = THREE.MathUtils.clamp((-90 - e.z) / 110, 0, 1);
         if (e.sand <= 0) e.flipT = 0;
       }
       if (e.top) e.top.scale.y = Math.max(0.03, e.sand);
       if (e.bot) e.bot.scale.y = Math.max(0.03, 1 - e.sand);
-      // 最後の 1 秒は赤く光る (予告)
-      const warn = e.sand < 1 / 3.5 && e.flipT < 0;
+      // 落ちきる 0.8 秒分の手前から赤く光る (予告)
+      const warn = !e.flips && e.flipT < 0 && e.z > -90 - Math.max(scroll, 20) * 0.8;
+      if (warn && !e.warned) { e.warned = true; sfx.tick(); }
       for (const m of e.frame) m.userData.base.setHex(warn ? 0xff3020 : 0x5a4010).multiplyScalar(warn ? 0.5 + 0.5 * Math.abs(Math.sin(e.t * 14)) : 1);
       if (p.z > 30) e.dead = true;
     },
@@ -142,7 +145,7 @@ export const LATE_KINDS = {
             } else {
               G.tx = P.x + rand(-14, 14);
               G.ty = THREE.MathUtils.clamp(P.y + rand(2, 7), 5, Math.min(18, (c.ceilingY ?? 40) - 4));
-              for (const m of G.members) if (!m.dead) m.fireT = rand(0.05, 0.3); // 止まったら撃つ
+              for (const m of G.members) if (!m.dead) m.fireT = rand(0.45, 0.7); // 横へ動いて止まったら撃つ
             }
           }
           const k = G.t < 0.35 ? Math.min(1, dt * 10) : Math.min(1, dt * 2);
@@ -151,7 +154,7 @@ export const LATE_KINDS = {
         } else {
           // かすめて抜ける: 編隊ごと、プレイヤーの横 12 m 以上を通る
           G.z += (scroll * 0.6 + 55) * dt;
-          G.cx += (P.x + G.side * 14 - G.cx) * Math.min(1, dt * 3);
+          G.cx += (P.x + G.side * 14 - G.cx) * Math.min(1, dt * 6);
           for (const m of G.members) m.noHit = true;
         }
       }
@@ -172,8 +175,8 @@ export const LATE_KINDS = {
     },
   },
 
-  // ---- 14 面 地面を走る巨大蜘蛛 (GIANT SPIDER): 脚を広げて 12 m。遠くで左右にジグザグに走って近づき、60 m 先で目が赤く光る (0.8 秒)。
-  // そのあと地面をまっすぐ毎秒 45 m で突っ込む。目の 8 m 手前で、当たる位置なら砕けて 25 (高く飛べば越えられる)。外れれば横へそれて走り抜ける
+  // ---- 14 面 地面を走る巨大蜘蛛 (GIANT SPIDER): 脚を広げて 12 m。遠くで左右にジグザグに走って近づき、140 m 先で目が赤く光る (0.8 秒)。
+  // そのあと地面をまっすぐ、床の上を毎秒 45 m で突っ込む (速さはどれも床に対して。床の上を後ろへすべって見えないように)。目の 8 m 手前で、当たる位置なら砕けて 25 (高く飛べば越えられる)。外れれば横へそれて走り抜ける
   gspider: {
     heavy: true, big: true,
     spawn(c, px) {
@@ -189,19 +192,21 @@ export const LATE_KINDS = {
       e.timer += dt;
       let run = 1;
       if (e.state === 'run') {
-        e.z += (scroll * 0.5 + 30) * dt;
+        e.z += (scroll + 10) * dt;
         e.x += Math.sin(e.t * 2.4) * 22 * dt; // ジグザグ
-        if (e.z > -60) { e.state = 'warn'; e.timer = 0; sfx.screech(); }
+        if (e.z > -140) { e.state = 'warn'; e.timer = 0; sfx.screech(); }
       } else if (e.state === 'warn') {
-        e.z += scroll * 0.3 * dt; // 身構える
+        e.z += scroll * dt; // 床の上で止まって身構える
         run = 0.3;
         if (e.timer >= 0.8) {
           e.state = 'dash';
-          e.vel.set(P.x - e.x, 0, P.z - e.z).normalize().multiplyScalar(45); // そのときいた所へ、まっすぐ (追わない)
+          // そのときいた所へ、まっすぐ (追わない)。床の上で毎秒 45 m、届くまでに横へずれる分を速さにする
+          const T = (P.z - e.z) / (Math.max(scroll, 20) + 45);
+          e.vel.set((P.x - e.x) / T, 0, 45);
         }
       } else {
         e.x += e.vel.x * dt;
-        e.z += e.vel.z * dt;
+        e.z += (scroll + e.vel.z) * dt;
         run = 2;
         e.x = veerAway(e, e.x, 6, ctx, dt); // 外れたら横へ (脚の先から目まで 6 m 以上)
       }
@@ -219,7 +224,7 @@ export const LATE_KINDS = {
     },
   },
 
-  // ---- 15 面 黒曜石のエイ (OBSIDIAN RAY): 3 匹が地面すれすれを滑ってくる。40 m 先で 1 匹ずつ背中の割れ目が光り (0.8 秒)、
+  // ---- 15 面 黒曜石のエイ (OBSIDIAN RAY): 3 匹が地面すれすれを滑ってくる。70 m 先で 1 匹ずつ背中の割れ目が光り (0.8 秒)、
   // 跳ね上がって後ろへ宙返りし (こちらへは来ない)、腹から火の玉を 2 発。溶岩の腹が見えている 1.5 秒だけ倒せる。地面にいる間は弾を跳ね返す
   ray: {
     shielded: (e) => e.state !== 'flip',
@@ -237,7 +242,7 @@ export const LATE_KINDS = {
       if (e.state === 'glide') {
         e.z += (scroll * 0.6 + 25) * dt;
         e.x += Math.sin(e.t * 1.5) * 3 * dt;
-        if (e.z > -40) { e.state = 'warn'; e.timer = 0; }
+        if (e.z > -70) { e.state = 'warn'; e.timer = 0; sfx.hiss(); }
       } else if (e.state === 'warn') {
         e.z += scroll * 0.4 * dt;
         if (e.timer >= 0.8) {
@@ -279,11 +284,14 @@ export const LATE_KINDS = {
       pair.line = new THREE.Line(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3)), new THREE.LineBasicMaterial({ color: 0xff3020 }));
       pair.line.frustumCulled = false;
       pair.line.visible = false;
-      pair.beam = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 1, 6, 1, true).rotateZ(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xbfe0ff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
+      pair.beam = new THREE.Mesh(BEAM_GEO, new THREE.MeshBasicMaterial({ color: 0xbfe0ff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
       pair.beam.visible = false;
       c.scene.add(pair.line, pair.beam);
       pair.orbs[0].marker = pair.line;
       pair.orbs[1].marker = pair.beam;
+      // 外すときに捨てる (線はジオメトリも、稲妻は材質だけ)
+      pair.line.userData.dispose = [pair.line.geometry, pair.line.material];
+      pair.beam.userData.dispose = [pair.beam.material];
     },
     update(c, e, dt, scroll, ctx, p) {
       const A = e.pair, P = ctx.player;
@@ -291,7 +299,7 @@ export const LATE_KINDS = {
       if (alive[0] === e) {
         A.t += dt;
         A.z += (scroll * 0.5 + 18) * dt;
-        if (A.state === 'approach' && A.z > -70) { A.state = 'warn'; A.t = 0; }
+        if (A.state === 'approach' && A.z > -70) { A.state = 'warn'; A.t = 0; sfx.crackle(); }
         else if (A.state === 'warn' && A.t >= 1) { A.state = 'beam'; A.t = 0; sfx.lock(); }
         const both = alive.length === 2;
         const [L, R] = A.orbs.map((o) => o.mesh.position);
@@ -310,7 +318,7 @@ export const LATE_KINDS = {
           A.beam.scale.set(L.distanceTo(R) - 2.4, rand(0.7, 1.3), rand(0.7, 1.3));
           A.beam.material.opacity = 0.85 * THREE.MathUtils.clamp(Math.abs(A.z - P.z) / 6, 0.15, 1);
           // プレイヤーの所を通るとき、高さが合えば 15 (1 回だけ)
-          if (!A.hit && A.z > P.z - 1 && Math.abs(P.y - A.y) < 1.2 + ctx.playerR && Math.abs(P.x - A.cx) < 8) {
+          if (!A.hit && A.z > P.z - 1 && A.z < P.z + 2 && Math.abs(P.y - A.y) < 1.2 + ctx.playerR && Math.abs(P.x - A.cx) < 8) {
             A.hit = true;
             ctx.onPlayerHit(15);
           }
@@ -323,7 +331,8 @@ export const LATE_KINDS = {
     },
   },
 
-  // ---- 17 面 磁石の浮遊機雷 (MAGNET MINE): ゆっくり近づき、30 m 先で角の先が赤く点滅 (1 秒) してから破裂し、弾を 6 発まく。
+  // ---- 17 面 磁石の浮遊機雷 (MAGNET MINE): ゆっくり近づき、55 m 先で角の先が赤く点滅 (1 秒) してから 40 m 先あたりで破裂し、
+  // 弾を 7 発まく (真ん中にも 1 発。じっとしていると当たり、動けばよけられる)。
   // 先に撃てば止められる (破裂したときは点にならない)
   magnetmine: {
     spawn(c, px, py) {
@@ -343,11 +352,11 @@ export const LATE_KINDS = {
       if (e.state === 'drift') {
         e.z += (scroll * 0.5 + 15) * dt;
         e.x += THREE.MathUtils.clamp(P.x - e.x, -2 * dt, 2 * dt); // 磁石のように、ゆっくり寄ってくる
-        if (e.z > P.z - 30) { e.state = 'warn'; e.timer = 0; sfx.lock(); }
+        if (e.z > P.z - 55) { e.state = 'warn'; e.timer = 0; sfx.lock(); }
       } else {
         e.z += scroll * 0.2 * dt;
         if (e.timer >= 1) {
-          for (let s = -2.5; s <= 2.5; s += 1) c.fireBullet(_a.set(e.x, e.y, e.z).clone(), P, s * 0.2, 'orb', null, s !== -2.5);
+          for (const s of [-0.5, -0.3, -0.12, 0, 0.12, 0.3, 0.5]) c.fireBullet(_a.set(e.x, e.y, e.z).clone(), P, s, 'orb', null, s !== 0);
           c.explode(_a.set(e.x, e.y, e.z), false);
           e.dead = true; // 破裂したときは点にならない
           return;

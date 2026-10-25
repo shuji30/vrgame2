@@ -321,6 +321,30 @@ export const sfx = {
     osc('triangle', 2600, t, 0.12, 0.12, sfxBus, 1800);
     osc('sine', 3900, t, 0.08, 0.06, sfxBus);
   },
+  // 岩の亀が首を出すときの低いうなり
+  growl() {
+    if (!ctx) return;
+    const t = now();
+    osc('sawtooth', 70, t, 0.7, 0.3, sfxBus, 50);
+    noise(t, 0.6, 0.35, 400, sfxBus);
+  },
+  // 砂時計が赤く光るときの、時計のカチッ (3 回)
+  tick() {
+    if (!ctx) return;
+    const t = now();
+    for (let i = 0; i < 3; i++) osc('square', 2400, t + i * 0.25, 0.03, 0.12, sfxBus, 1800);
+  },
+  // エイの割れ目が光るときの、溶岩のシュッ
+  hiss() {
+    if (!ctx) return;
+    noise(now(), 0.7, 0.45, 3500, sfxBus, 'bandpass');
+  },
+  // 雷の結晶球の予告の線が出るときの、ぱちぱちする電気の音
+  crackle() {
+    if (!ctx) return;
+    const t = now();
+    for (let i = 0; i < 6; i++) noise(t + i * 0.09 + Math.random() * 0.04, 0.04, 0.4, 5000, sfxBus, 'bandpass');
+  },
   lock() {
     if (!ctx) return;
     osc('square', 1760, now(), 0.05, 0.08, sfxBus);
