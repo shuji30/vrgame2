@@ -14,7 +14,7 @@ import { WheelPanel } from './wheel/calibration.js';
 import { THEMES } from './world.js';
 import { VERSION, loadBuildInfo } from './version.js';
 import { RANK_CHARS, fetchTop, submitScore } from './ranking.js';
-import { BGM_LIST, SE_LIST, captureAudioStream, initAudio, previewBGM, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, setRealMusic, toggleMute } from './audio.js';
+import { BGM_LIST, SE_LIST, captureAudioStream, initAudio, previewBGM, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, setRealMusic, setRealSfx, toggleMute } from './audio.js';
 
 // ---- 定数
 const X_LIMIT = 96;        // 左右の移動範囲 (m)
@@ -70,15 +70,16 @@ try {
 } catch (_) { /* 保存なし */ }
 
 // ---- 設定 (localStorage に保存)
-const settings = { scale: 1.0, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true, autoFire: true, hard: false, seated: false, leftHanded: false, storyAlways: false, realMusic: true };
+const settings = { scale: 1.0, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true, autoFire: true, hard: false, seated: false, leftHanded: false, storyAlways: false, realMusic: true, realSfx: true };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('skyrunner.settings') || '{}')); } catch (_) { /* 保存なし */ }
 // 開発用: ?player=ship|human&view=1st|3rd で上書きする
 for (const key of ['player', 'view', 'mode']) {
   const v = new URLSearchParams(location.search).get(key);
   if (v) settings[key] = v;
 }
-const applyAudioSettings = () => { setBGMEnabled(settings.bgm); setEngineEnabled(settings.engine); setRealMusic(settings.realMusic); };
-setRealMusic(settings.realMusic); // リアルミュージックの設定は、開いた直後から (サウンドテストの試聴にも) 効かせる
+const applyAudioSettings = () => { setBGMEnabled(settings.bgm); setEngineEnabled(settings.engine); setRealMusic(settings.realMusic); setRealSfx(settings.realSfx); };
+setRealMusic(settings.realMusic); // リアルミュージックとリアル効果音の設定は、開いた直後から (サウンドテストの試聴にも) 効かせる
+setRealSfx(settings.realSfx);
 const saveSettings = () => { try { localStorage.setItem('skyrunner.settings', JSON.stringify(settings)); } catch (_) { /* 保存不可 */ } };
 
 // ---- レンダラーとシーン
@@ -463,7 +464,7 @@ refreshStageList();
 stageSel.value = String(selectedStage);
 stageSel.addEventListener('change', () => { selectedStage = Number(stageSel.value); });
 
-// オープニングテーマ (SKY HIGHWAY の録音、assets/music/skyhighway.mp3)。タイトル画面の「♪ OPENING THEME」のボタンで
+// オープニングテーマ (SKY HIGHWAY の録音、assets/music/skyhighway.mp3)。タイトル画面の「♪ オープニング曲を聞く」のボタンで
 // 聞く / 止める (自分で押して聞くものなので、BGM やリアルミュージックの設定に関係なく流す)。くり返し流し、出撃したら止める
 const titleMusic = new Audio('./assets/music/skyhighway.mp3');
 titleMusic.loop = true;
@@ -473,7 +474,7 @@ let titleMuted = false;
 const btnTheme = document.getElementById('btnTheme');
 const showThemeBtn = () => {
   btnTheme.classList.toggle('playing', !titleMusic.paused);
-  btnTheme.querySelector('small').textContent = titleMusic.paused ? '聞く' : '止める';
+  btnTheme.querySelector('span').textContent = titleMusic.paused ? '聞く' : '止める';
 };
 titleMusic.addEventListener('play', showThemeBtn);
 titleMusic.addEventListener('pause', showThemeBtn);
@@ -561,8 +562,18 @@ const showHiScore = () => {
   refreshStageList(); // 難しいモードを切りかえたら、その記録を出す
 };
 
+// タイトル画面の背景は 1 面 (夜の SKY HIGHWAY) の景色にする
+function titleScene() {
+  const st = stageAt(1);
+  world.clear();
+  world.applyTheme(st.palette);
+  world.setObstacles(st.obstacles);
+  world.setCeiling(false);
+}
+
 function toTitle() {
   S.mode = 'title';
+  titleScene();
   showHiScore();
   endBonus();
   combat.reset();
@@ -1487,6 +1498,7 @@ function setMode(mode) {
   world.clear();
 }
 setMode(settings.mode === 'side' ? 'side' : '3d');
+titleScene();
 modeInputs.forEach((el) => el.addEventListener('change', () => setMode(el.value)));
 playerInputs.forEach((el) => el.addEventListener('change', () => setPlayer(el.value)));
 showHiScore();
@@ -1502,7 +1514,7 @@ function unlockHard() {
   if (!cleared) settings.hard = false;
 }
 unlockHard();
-for (const key of ['bgm', 'engine', 'invertY', 'vrGentle', 'autoFire', 'hard', 'seated', 'leftHanded', 'storyAlways', 'realMusic']) {
+for (const key of ['bgm', 'engine', 'invertY', 'vrGentle', 'autoFire', 'hard', 'seated', 'leftHanded', 'storyAlways', 'realMusic', 'realSfx']) {
   const el = document.getElementById(key);
   el.checked = settings[key];
   el.addEventListener('change', () => { settings[key] = el.checked; saveSettings(); applyAudioSettings(); showHiScore(); input.leftHanded = settings.leftHanded; });

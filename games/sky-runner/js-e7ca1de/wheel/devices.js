@@ -32,8 +32,9 @@ export function defaultConfig() {
     bindings: {}, // action → { kind: 'axis'|'button', pad, padIndex, control, cal }
     // wheelDeg: ドライバーで設定しているハンドルの回転角 (左端〜右端)。lockDeg: 端まで切ったことにする角度 (90° = 左右 45° ずつ)
     steer: { wheelDeg: 900, lockDeg: 90, deadzone: 0.04, gamma: 1, invert: false },
-    // FFB: 被弾や障害物に当たったときの短い振動と、中央へ戻すばね (0 = 出さない)
-    ffb: { enabled: true, rumble: 0.5, spring: 0 },
+    // FFB: 被弾や障害物に当たったときの短い振動、中央へ戻すばね (真ん中から離すほど強く戻る)、回す重さ (ダンパー。0 = 出さない)。
+    // v: 設定の版 (2 からばねとダンパーをはじめから効かせる)
+    ffb: { enabled: true, rumble: 0.5, spring: 0.35, damper: 0.15, v: 2 },
   };
 }
 
@@ -41,7 +42,11 @@ export function loadConfig() {
   const d = defaultConfig();
   try {
     const c = JSON.parse(localStorage.getItem(STORE) || 'null');
-    if (c && c.bindings) return { ...d, ...c, steer: { ...d.steer, ...c.steer }, ffb: { ...d.ffb, ...c.ffb } };
+    if (c && c.bindings) {
+      // 前の版はばねの初期値が 0 (効かない) だったので、0 のままならはじめの値にする
+      const ffb = c.ffb?.v >= 2 ? c.ffb : { ...c.ffb, spring: c.ffb?.spring || d.ffb.spring, v: d.ffb.v };
+      return { ...d, ...c, steer: { ...d.steer, ...c.steer }, ffb: { ...d.ffb, ...ffb } };
+    }
   } catch (_) {
     // 壊れていたら初期値
   }
@@ -191,8 +196,8 @@ export class WheelInput {
     const now = performance.now();
     const r = now < this.rumbleUntil ? this.rumbleMag * f.rumble : 0;
     // ばねは割り当て済みのハンドルが見えているときだけ
-    const s = this.last && this.config.bindings.steer ? f.spring : 0;
-    this.bridge.force({ r, hz: 30, s });
+    const wheelOn = this.last && this.config.bindings.steer;
+    this.bridge.force({ r, hz: 30, s: wheelOn ? f.spring : 0, d: wheelOn ? f.damper : 0 });
   }
 
   // 短い振動 (被弾・障害物など)。strength 0..1、ms ミリ秒 (長くても 0.5 秒まで)

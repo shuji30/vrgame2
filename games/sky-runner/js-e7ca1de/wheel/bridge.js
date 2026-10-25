@@ -138,10 +138,10 @@ export class DeviceBridge {
     return pads;
   }
 
-  // FFB の指示 (r: 振動の強さ 0..1、hz: 振動の周波数、s: 中央へ戻すばね 0..1)。毎フレーム呼んでよい
-  force({ r = 0, hz = 0, s = 0 } = {}) {
+  // FFB の指示 (r: 振動の強さ 0..1、hz: 振動の周波数、s: 中央へ戻すばね 0..1、d: 回す重さ (ダンパー) 0..1)。毎フレーム呼んでよい
+  force({ r = 0, hz = 0, s = 0, d = 0 } = {}) {
     if (!this.connected || !this.status.selected) return;
-    const zero = r <= 0 && s <= 0;
+    const zero = r <= 0 && s <= 0 && d <= 0;
     if (zero) {
       if (this.sentForce) this.stop();
       return;
@@ -150,7 +150,7 @@ export class DeviceBridge {
     if (now - this.lastSend < SEND_MS) return;
     this.lastSend = now;
     this.sentForce = true;
-    this.send({ t: 'ffb', c: 0, d: 0, s: round(s), r: round(r), hz: Math.round(hz) });
+    this.send({ t: 'ffb', c: 0, d: round(d), s: round(s), r: round(r), hz: Math.round(hz) });
   }
 
   stop() {

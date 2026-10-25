@@ -310,8 +310,10 @@
         <label><input type="checkbox" data-cfg="ffb.enabled"> 被弾・障害物で振動させる</label>
         <label>振動の強さ <span data-show="ffb.rumble"></span>
           <input type="range" min="0" max="1" step="0.05" data-cfg="ffb.rumble"></label>
-        <label>中央へ戻すばね <span data-show="ffb.spring"></span>
-          <input type="range" min="0" max="0.6" step="0.05" data-cfg="ffb.spring"></label>
+        <label>中央へ戻すばね (回すほど重い) <span data-show="ffb.spring"></span>
+          <input type="range" min="0" max="0.8" step="0.05" data-cfg="ffb.spring"></label>
+        <label>回す重さ (ダンパー) <span data-show="ffb.damper"></span>
+          <input type="range" min="0" max="0.6" step="0.05" data-cfg="ffb.damper"></label>
         <div class="wh-bar">
           <button type="button" class="wh-btn" data-test="rumble">振動のテスト</button>
           <button type="button" class="wh-btn" data-test="center">ばねのテスト</button>
@@ -376,7 +378,7 @@
     <button class="tbtn fire" data-hold="fire" aria-label="射撃">FIRE</button>
   </div>
 </div>
-<script type="module" src="./js-1897593/main.js"></script>
+<script type="module" src="./js-e7ca1de/main.js"></script>
 <script>
   // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
   if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {

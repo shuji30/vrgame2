@@ -1,6 +1,6 @@
 // ボス: 浮遊鉱山 (FLOATING MINE)。前方の高い所に止まる、鉱石の塊。
 // 3 つの出撃口から採掘ドローンを送り出し、本体から弾幕 (輪・らせん・十字・乱れ撃ち) を縦横に撃つ。
-// 出撃口は硬いが、撃つと壊れて点が入り、しばらく止まる (5 秒で直る)。
+// 出撃口は撃つと壊れて点が入り、しばらく止まる (9 秒で直る)。
 // 本体は出撃口が 3 つそろっている間は弾を跳ね返す。出撃口を 1 つでも壊すと鉱脈が明るく光り、本体に弾が効く (体力を 0 にすれば撃破)
 import * as THREE from 'three';
 import { bossModel } from '../enemies.js';
@@ -30,7 +30,7 @@ const hatchOffset = (i, side) => (side ? new THREE.Vector3(0, -5 + i * 5, 13) : 
 
 export function spawnMine(c, def) {
   const side = c.sideMode;
-  const hp = def.hp || 360;
+  const hp = def.hp || 240;
   // 撃破ボーナスは、壊した出撃口の数で増える (8000 + 1 つ 500、最大 12000)。倒すまで去らない (180 秒の保険はある)
   const grp = { type: 'mine', t: 0, escape: def.escape || Infinity, total: 1, kills: 0, leaving: false, bonus: 8000 };
   c.bossGroup = grp;
@@ -81,7 +81,7 @@ function makeHatch(c, body, i) {
   const mesh = hm ? hm.mesh : new THREE.Mesh(GEO.hatch, m);
   if (hm) mesh.scale.setScalar(body.k);
   else mesh.scale.set(3.6, 3, 1).multiplyScalar(body.k);
-  const h = { kind: 'hatch', mesh, mats: hm ? hm.mats : [m], r: 2.4 * body.k, hp: 20 + c.level * 2, score: 500, t: 0, flash: 0, fireT: Infinity, body, slot: i, noItem: true };
+  const h = { kind: 'hatch', mesh, mats: hm ? hm.mats : [m], r: 2.4 * body.k, hp: 10 + c.level, score: 500, t: 0, flash: 0, fireT: Infinity, body, slot: i, noItem: true };
   mesh.position.copy(body.mesh.position).add(hatchOffset(i, c.sideMode).multiplyScalar(body.k));
   c.addEnemy(h, 0);
   h.shadow.visible = false;
@@ -109,12 +109,12 @@ export const MINE_KINDS = {
         for (const h of e.hatches) if (h && !h.dead) h.dead = true;
         return;
       }
-      // 出撃口: 壊れていたら 5 秒で直す。直っている口から、順にドローンを送り出す
+      // 出撃口: 壊れていたら 9 秒で直す (本体に弾が効く間)。直っている口から、順にドローンを送り出す
       for (let i = 0; i < 3; i++) {
         const h = e.hatches[i];
         if (h && h.dead) {
           e.hatches[i] = null;
-          e.down[i] = 5;
+          e.down[i] = 9;
           if (h.hp <= 0) grp.bonus = Math.min(12000, grp.bonus + 500); // 撃って壊した口
         }
         if (!e.hatches[i] && !grp.leaving && (e.down[i] -= dt) <= 0) makeHatch(c, e, i);
@@ -128,8 +128,8 @@ export const MINE_KINDS = {
       }
     },
     fire(c, e, ctx, p) {
-      // 弾幕を 1 つ選んで始める (撃ち終わるまで次は選ばない)。ときどき下から砲弾も
-      e.fireT = rand(1.2, 1.8);
+      // 弾幕を 1 つ選んで始める (撃ち終わるまで次は選ばない)。弾幕は 2〜2.6 秒なので、間に 0.5〜1 秒くらいの休みができる。ときどき下から砲弾も
+      e.fireT = rand(2.8, 3.4);
       if (e.bossGroup.leaving || e.barrage) return;
       const kinds = ['ring', 'spiral', 'cross', 'scatter'].filter((k) => k !== e.lastBarrage);
       const kind = kinds[Math.floor(Math.random() * kinds.length)];

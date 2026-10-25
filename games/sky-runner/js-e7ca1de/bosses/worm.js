@@ -1,6 +1,7 @@
 // ボス: 砂岩の大蛇 (SANDSTONE WYRM)。8 面。前方の地面から弧を描いて飛び出し、また潜る。
 // 飛び出す 1 秒前に、地面に茶色い印と砂煙が出る。体の節は硬く (弾を跳ね返す)、頭だけが弱点。地上に出ている間だけ撃てる。
-// 3D ではプレイヤーの前を左右に横切って飛び、横スクロールでは画面の面の中で前後に飛ぶ。頭が一番高い所で扇の弾を撃つ
+// 3D ではプレイヤーの前を左右に横切って飛び、横スクロールでは画面の面の中で前後に飛ぶ。頭が一番高い所で扇の弾を撃ち、
+// 頂上を越えたあとは、地上に出ている一番うしろの節 (しっぽ) からミサイルを 3 発撃つ
 import * as THREE from 'three';
 import { sfx } from '../audio.js';
 import { bossModel, eyeGuard } from '../enemies.js';
@@ -142,6 +143,8 @@ export const WORM_KINDS = {
           e.u = 0;
           if (e.charge) sfx.roar();
           e.fired = false;
+          e.tailShots = 0;
+          e.tailT = 0;
           e.path = [];
         }
       } else {
@@ -165,6 +168,16 @@ export const WORM_KINDS = {
           e.fired = true;
           if (e.charge) sfx.whoosh();
           for (let s = -2; s <= 2; s++) c.fireBullet(p.clone(), P, s * 0.14);
+        }
+        // しっぽからミサイル: 頂上を越えたら、地上に出ている一番うしろの節から 3 発 (頭の上を越えるときは岩くずを降らせるので撃たない)
+        if (!e.charge && u > 0.5 && e.tailShots < 3 && (e.tailT -= dt) <= 0) {
+          const tail = e.segs.findLast((sg) => sg.mesh.visible && sg.mesh.position.y > 1);
+          if (tail) {
+            e.tailShots++;
+            e.tailT = 0.4 / (1 + (c.level - 1) * 0.05);
+            c.fireBullet(tail.mesh.position.clone(), P, rand(-0.12, 0.12), 'shell');
+            sfx.enemyShot();
+          }
         }
         // 突っ込むときは、頭の上を越えたあとも節から岩くずを降らせる
         if (e.charge && u > 0.5 && u < 0.68 && Math.random() < dt * 6) c.fireBullet(p.clone(), _b.set(P.x + (Math.random() < 0.5 ? -1 : 1) * rand(2.5, 4.5), P.y - 1, P.z + rand(-2, 4)), 0, 'shell'); // 真上からは当てない (少し横へ落とす)
