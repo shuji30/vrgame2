@@ -5,6 +5,7 @@
 // そのときプレイヤーがいた所へまっすぐ飛んでくる。目の 11 m 手前で砕けて、線の近く (横 3 m) にいれば 15。2 秒で輪に戻る
 // 核と鏡は enemies.js の EXTRA と同じ形 (update / fire) で動かす。撃破と逃げる判定は combat.js の bossGroup に乗せる
 import * as THREE from 'three';
+import { MODELS } from '../enemies.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
@@ -30,6 +31,31 @@ const TIERS = {
   3: { mirrors: 8, R: 15, speed: 0.75, size: 4.3, move: 1, fan: 7, reverse: true, spiral: true, side: { mirrors: 5, R: 8, k: 0.6 } },
 };
 
+// Blender のモデルを複製する (材質はボスごとに複製して、発光色で光らせる)。モデルは -Z が前なので 180 度回す。
+// first: mats の先頭に並べる材質の名前 (コードが mats[0]・mats[1] を見て光らせるため)
+function fromModel(key, first) {
+  const tpl = MODELS[key];
+  if (!tpl) return null;
+  const inner = tpl.clone();
+  const copies = new Map();
+  inner.traverse((o) => {
+    if (!o.isMesh) return;
+    if (!copies.has(o.material)) {
+      const cm = o.material.clone();
+      cm.userData.base = cm.emissive.clone();
+      copies.set(o.material, cm);
+    }
+    o.material = copies.get(o.material);
+  });
+  inner.rotation.y = Math.PI;
+  const g = new THREE.Group();
+  g.add(inner);
+  const mats = [...copies.values()];
+  const order = (m) => { const i = first.indexOf(m.name); return i < 0 ? first.length : i; };
+  mats.sort((a, b) => order(a) - order(b));
+  return { mesh: g, mats };
+}
+
 // ボスを出す (combat.spawnBoss から呼ぶ)。def: { type: 'mirror', hp, tier }
 export function spawnMirror(c, def) {
   const base = TIERS[def.tier || 1];
@@ -37,12 +63,17 @@ export function spawnMirror(c, def) {
   const tier = sd ? { ...base, mirrors: sd.mirrors, R: sd.R, size: base.size * sd.k } : base;
   const coreK = sd ? sd.k : 1;
   const hp = def.hp || 160 + c.level * 30;
-  const coreMat = mat(0xbff8ff, 0x40c8ff);
-  const shellMat = mat(0x9fe8ff, 0x1a5a80, { transparent: true, opacity: 0.45, forceSinglePass: true });
-  const g = new THREE.Group();
-  g.add(new THREE.Mesh(GEO.core, coreMat), new THREE.Mesh(GEO.shell, shellMat));
+  // 核: Blender のモデル (MirrorCore) か、読み込む前は図形で。mats[0] は核の結晶 (体力が半分を切ると赤く光らせる)
+  const made = fromModel('mirrorCore', ['MirrorCoreMat']) || (() => {
+    const coreMat = mat(0xbff8ff, 0x40c8ff);
+    const shellMat = mat(0x9fe8ff, 0x1a5a80, { transparent: true, opacity: 0.45, forceSinglePass: true });
+    const grp = new THREE.Group();
+    grp.add(new THREE.Mesh(GEO.core, coreMat), new THREE.Mesh(GEO.shell, shellMat));
+    return { mesh: grp, mats: [coreMat, shellMat] };
+  })();
+  const g = made.mesh;
   const core = {
-    kind: 'mcore', mesh: g, mats: [coreMat, shellMat], r: 5.6 * coreK, hp, noAssist: true, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 3,
+    kind: 'mcore', mesh: g, mats: made.mats, r: 5.6 * coreK, hp, noAssist: true, maxHp: hp, score: 0, t: 0, flash: 0, fireT: 3,
     tier, cy: THREE.MathUtils.clamp((c.lastPlayer?.y ?? 6) + 5, 8, 13), cx: c.lastPlayer?.x ?? 0, z: SPAWN_Z, a: 0, dir: 1, mirrors: [], shotA: 0, reflectT: 0,
   };
   g.scale.setScalar(5.2 * coreK);
@@ -53,15 +84,19 @@ export function spawnMirror(c, def) {
   core.bossGroup = grp;
   c.addEnemy(core, 4);
   for (let i = 0; i < tier.mirrors; i++) {
-    const glass = mat(0xe8fbff, 0x3a7a9a);
-    const rimM = mat(0xffd36a, 0x7a5a10);
-    const mg = new THREE.Group();
-    const plate = new THREE.Mesh(GEO.mirror, glass);
-    const rim = new THREE.Mesh(GEO.rim, rimM);
-    rim.rotation.z = Math.PI / 6;
-    mg.add(plate, rim);
+    // 鏡: Blender のモデル (MirrorPlate) か図形で。mats[1] は金の縁 (鏡の突進の予告で赤く光らせる)
+    const pm = fromModel('mirrorPlate', ['MirrorGlass', 'MirrorRim']) || (() => {
+      const glass = mat(0xe8fbff, 0x3a7a9a);
+      const rimM = mat(0xffd36a, 0x7a5a10);
+      const grp = new THREE.Group();
+      const rim = new THREE.Mesh(GEO.rim, rimM);
+      rim.rotation.z = Math.PI / 6;
+      grp.add(new THREE.Mesh(GEO.mirror, glass), rim);
+      return { mesh: grp, mats: [glass, rimM] };
+    })();
+    const mg = pm.mesh;
     mg.scale.setScalar(tier.size);
-    const m = { kind: 'mirror', mesh: mg, mats: [glass, rimM], r: tier.size * 0.95, hp: Infinity, score: 0, t: 0, flash: 0, fireT: Infinity,
+    const m = { kind: 'mirror', mesh: mg, mats: pm.mats, r: tier.size * 0.95, hp: Infinity, score: 0, t: 0, flash: 0, fireT: Infinity,
       core, slot: (i / tier.mirrors) * Math.PI * 2, noLock: true, reflectT: 0, dmg: 15 };
     mg.position.copy(g.position);
     c.addEnemy(m, 0);

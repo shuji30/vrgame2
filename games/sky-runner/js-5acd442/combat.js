@@ -302,6 +302,7 @@ function fallback(color, r) {
 
 // ---- Blender で作った敵のモデル (assets/enemies.glb)。読み込むまでは上の簡易モデルを使う
 const TPL = {};
+export const enemyModel = (key) => TPL[key]; // ボスの部品にも敵のモデルを使い回す (晶洞の輪は晶洞岩)
 const WHITE = new THREE.Color(0xffffff), BLACK = new THREE.Color(0x000000), DUST = new THREE.Color(0.55, 0.5, 0.42);
 const ITEM_COL = new THREE.Color(0.3, 1, 0.5);
 // ボスの色 (頭のプリズムと、光の帯の色相)。単頭は水色、双晶は青と紫
@@ -387,6 +388,7 @@ export async function loadEnemyModels(url) {
   const extra = {
     dart: ['CrystalDart'], lens: ['GlassLens'], turret: ['CrystalSpire', ['TowerHead']], bat: ['GlassBat', ['BatWingL', 'BatWingR']],
     bouncer: ['BounceGem'], orbiter: ['OrbitCore'], satellite: ['OrbitSat'],
+    mirrorCore: ['MirrorCore'], mirrorPlate: ['MirrorPlate'], // ボス: ミラーコア
   };
   for (const [key, [name, parts]] of Object.entries(extra)) {
     const node = gltf.scene.getObjectByName(name);
@@ -411,7 +413,7 @@ export async function loadEnemyModels(url) {
 // yOff: モデルの原点が足元にあるものは、体の中心が原点になるよう下げる (当たり判定とロックの中心)
 // share: 材質をモデルと共有する (数の多い雑魚。被弾の光は材質の差し替え、flashMeshes で行う)。
 //        共有しないときは、敵ごとに材質を複製して発光色で光らせる (色を変えるボスや建設ロボの目)
-function instance(tpl, yOff = 0, share = false) {
+export function instance(tpl, yOff = 0, share = false) {
   const inner = tpl.clone();
   inner.position.y = -yOff;
   const mats = [], flashMeshes = [];

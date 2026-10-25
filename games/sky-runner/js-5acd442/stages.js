@@ -10,7 +10,7 @@
 //   diff     難しさ (1〜8)。敵の体力・撃つ頻度・出る間隔に効く
 //   density  敵の群れが出る間隔の倍率 (大きいほど多く出る)
 //   waves    出てくる敵と重み (fighter 戦闘機、gremlin 結晶の小虫、pill ダンゴムシ、moai 晶洞岩、ptero 翼竜、mech 建設ロボ 3 機、gunship ガンシップ、
-//            dart 水晶の矢、lens ガラスのレンズ、turret 水晶塔、bat 結晶コウモリ、bouncer 跳ねる結晶、orbiter 衛星コア、mammoth マンモス)
+//            dart 水晶の矢、lens ガラスのレンズ、turret 水晶塔、bat 結晶コウモリ、bouncer 跳ねる結晶、orbiter 衛星コア、mammoth マンモス、jelly 水晶のクラゲ)
 //   obstacles 障害物の重み (column 柱 / bush 茂み / tree 木 / rock 浮遊岩 / mushroom 巨大キノコ / crystal 水晶 / arch ガラスのアーチ /
 //            monolith 黒曜石の石板 / spike 地面のトゲ / ring 浮遊リング (くぐるとボーナス))。lane: 進路上に置く確率
 //   ceiling  天井がある面
@@ -92,7 +92,7 @@ export const STAGES = [
   },
   {
     name: 'SPORE MARSH', kind: 'normal', length: 55, speed: 46, diff: 5, density: 1.3,
-    waves: [['bouncer', 2], ['pill', 2], ['gremlin', 1]],
+    waves: [['bouncer', 2], ['pill', 2], ['gremlin', 1], ['jelly', 1.8]],
     obstacles: { mushroom: 3, bush: 1.5, spike: 1, lane: 0.3 },
     palette: { a: 0xb4dd6a, b: 0x7a7a2a, fog: 0xd8ecc0, sky: 0x5a8a6a, mount: 0x4a6a5a, col: ['#f0ffe0', '#6a9a2a'], bush: 0x3a8a3a },
     bgm: { key: 4, tempo: 160, song: 'alternative' },

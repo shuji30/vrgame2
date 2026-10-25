@@ -28,7 +28,12 @@ const GEO = {
   batWing: new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, -0.6, 0, 0, 0.7, 2.6, 0.3, -0.2], 3)),
   gem: new THREE.IcosahedronGeometry(1, 0),
   orb: new THREE.SphereGeometry(1, 12, 10),
+  jellyCap: new THREE.SphereGeometry(1, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), // クラゲの笠 (上向きのお椀)
+  jellyRim: new THREE.TorusGeometry(1, 0.06, 4, 24).rotateX(Math.PI / 2),
+  tentacle: new THREE.CylinderGeometry(0.14, 0.05, 1, 5).translate(0, -0.5, 0), // 原点 = 付け根。下へ長さ 1
 };
+// クラゲの触手の光 (細い線なので、材質は 1 つを共有する)
+const TENTACLE_MAT = new THREE.MeshBasicMaterial({ color: 0x9ff8ff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
 GEO.batWing.computeVertexNormals();
 // 二十面体の 20 枚の装甲板 (開くときに 1 枚ずつ外へ広がる)。描画を 1 回にするため、20 枚を 1 つの形にまとめ、
 // 頂点ごとに「その板の中心」(aCenter) を持たせる。開き方はシェーダーで、板の中心の向きへずらして作る (icoShellMat)
@@ -566,6 +571,75 @@ export const EXTRA = {
       e.fireT = Infinity;
       const tip = e.trunk[3].getWorldPosition(new THREE.Vector3());
       for (let s = -1; s <= 1; s++) c.fireBullet(tip.clone(), ctx.player, s * 0.13);
+    },
+  },
+
+  // ---- 水晶のクラゲ (CRYSTAL JELLY): 10 面。3 匹がふわふわ漂ってくる。幅 14 m のガラスの笠から、6 m おきに光の触手 3 本
+  // (長さ 10 m、縦の線) を垂らす。垂らす前に笠が 0.8 秒明るく光る。触手は動かない。触れると 10。間をぬけるか、笠の上を越える。
+  // 笠を撃つと (3 発) 割れて触手も消える。ゆっくりなので VR にやさしい
+  jelly: {
+    spawn(c, px) {
+      const top = Math.min(9, (c.ceilingY ?? 40) - 3);
+      for (let k = 0; k < 3; k++) {
+        const capM = mat(0xd8f6ff, 0x2a7aa0, { transparent: true, opacity: 0.6, side: THREE.DoubleSide, forceSinglePass: true });
+        const glow = mat(0xffffff, 0x60e0ff);
+        const g = new THREE.Group();
+        const cap = new THREE.Mesh(GEO.jellyCap, capM);
+        cap.scale.set(7, 2.6, 7);
+        const rim = new THREE.Mesh(GEO.jellyRim, glow);
+        rim.scale.setScalar(7);
+        const core = new THREE.Mesh(GEO.gem, glow);
+        core.scale.setScalar(1.1);
+        core.position.y = 1;
+        g.add(cap, rim, core);
+        const tentacles = [-6, 0, 6].map((x) => {
+          const t = new THREE.Mesh(GEO.tentacle, TENTACLE_MAT);
+          t.position.set(x, 0, 0);
+          t.scale.set(1, 0.01, 1);
+          t.visible = false;
+          g.add(t);
+          return t;
+        });
+        const side = k - 1;
+        const e = { kind: 'jelly', mesh: g, mats: [], flashMeshes: [cap, rim, core], r: 3, hp: 3, score: 700, t: rand(0, 3), flash: 0, fireT: Infinity,
+          x: px + side * 22 + rand(-3, 3), y: top - rand(0, 3), z: SPAWN_Z - Math.abs(side) * 14, tentacles, drop: 0, warn: -1, hitDone: false, capM, dmg: 10 };
+        for (const m of e.flashMeshes) m.userData.mat = m.material;
+        g.position.set(e.x, e.y, e.z);
+        c.addEnemy(e, 4);
+      }
+    },
+    update(c, e, dt, scroll, ctx, p) {
+      const P = ctx.player;
+      e.z += (scroll * 0.5 + 10) * dt; // ゆっくり漂ってくる
+      p.set(e.x + Math.sin(e.t * 0.6) * 1.2, e.y + Math.sin(e.t * 1.3) * 0.6, e.z);
+      // 笠が脈打つ
+      const pulse = 1 + Math.sin(e.t * 2.2) * 0.06;
+      e.mesh.children[0].scale.set(7 * pulse, 2.6 / pulse, 7 * pulse);
+      // 触手を垂らす: 120 m 先で笠が 0.8 秒明るく光り (予告)、0.5 秒で 10 m 伸びる
+      if (e.warn < 0 && p.z > -120) e.warn = 0;
+      if (e.warn >= 0 && e.warn < 0.8) {
+        e.warn += dt;
+        e.flash = Math.sin(e.warn * 20) > 0 ? 0.05 : 0; // 明るく点滅
+      } else if (e.warn >= 0.8) {
+        e.drop = Math.min(1, e.drop + dt / 0.5);
+      }
+      for (const t of e.tentacles) {
+        t.visible = e.drop > 0;
+        t.scale.y = Math.max(0.01, 10 * e.drop);
+        t.rotation.z = Math.sin(e.t * 1.5 + t.position.x) * 0.04; // ほんの少しゆれる (向きは変わらない)
+      }
+      // 当たり: 縦の触手 (付け根から 10 m 下まで) とプレイヤーの距離
+      if (e.drop > 0.5 && !e.hitDone) {
+        for (const t of e.tentacles) {
+          const tx = p.x + t.position.x, bottom = p.y - 10 * e.drop;
+          if (Math.hypot(P.x - tx, P.z - p.z) < 0.6 + ctx.playerR && P.y < p.y + ctx.playerR && P.y > bottom - ctx.playerR) {
+            e.hitDone = true;
+            ctx.onPlayerHit(10);
+            break;
+          }
+        }
+      }
+      if (p.z > 30) e.dead = true;
     },
   },
 
