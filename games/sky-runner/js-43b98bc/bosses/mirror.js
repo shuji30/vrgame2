@@ -1,11 +1,14 @@
 // ボス: ミラーコア (MIRROR CORE)。光る結晶の核のまわりを、六角形の鏡がゆっくり回る。
 // 鏡は壊せず、当たったプレイヤーの弾を撃ち返してくる。鏡が回るすき間から核を撃って倒す。
 // tier 1 (2 面): 鏡 6 枚 / tier 2 (8 面): 鏡 8 枚、核が大きく円を描く / tier 3 (14 面): 鏡 8 枚が時々逆回りし、体力が半分を切ると渦巻き弾
+// 体力が半分を切ると「鏡の突進」(MIRROR CHARGE): 約 4 秒ごとに鏡 1 枚が核の前に出て、縁が赤く 1 秒震えたあと、
+// そのときプレイヤーがいた所へまっすぐ飛んでくる。目の 11 m 手前で砕けて、線の近く (横 3 m) にいれば 15。2 秒で輪に戻る
 // 核と鏡は enemies.js の EXTRA と同じ形 (update / fire) で動かす。撃破と逃げる判定は combat.js の bossGroup に乗せる
 import * as THREE from 'three';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
+const _a = new THREE.Vector3();
 
 const GEO = {
   core: new THREE.IcosahedronGeometry(1, 1),
@@ -93,6 +96,16 @@ export const MIRROR_KINDS = {
       e.mesh.rotation.x += dt * 0.25;
       e.reflectT -= dt;
       if (e.hp < e.maxHp * 0.5) e.mats[0].userData.base.setHex(0xff5a8a); // 体力が半分を切ると赤く光る
+      // 鏡の突進 (体力が半分を切ってから、約 4 秒ごとに 1 枚)
+      if (e.hp < e.maxHp * 0.5 && !ctx.side && e.z >= hz - 1) {
+        e.chargeT = (e.chargeT ?? 1.5) - dt;
+        const free = e.mirrors.filter((m) => !m.dead && !m.charge);
+        if (e.chargeT <= 0 && free.length === e.mirrors.filter((m) => !m.dead).length) { // 前の鏡が戻ってから
+          const m = free[Math.floor(Math.random() * free.length)];
+          if (m) m.charge = { state: 'warn', t: 0, from: m.mesh.position.clone() };
+          e.chargeT = rand(3.6, 4.4);
+        }
+      }
     },
     fire(c, e, ctx, p, lv) {
       const T = e.tier;
@@ -124,6 +137,7 @@ export const MIRROR_KINDS = {
     update(c, e, dt, scroll, ctx, p) {
       const core = e.core;
       if (core.dead) { e.dead = true; return; }
+      if (e.charge && chargeMirror(c, e, dt, ctx, p)) return;
       const R = core.tier.R;
       const a = core.a + e.slot;
       const cp = core.mesh.position;
@@ -140,3 +154,50 @@ export const MIRROR_KINDS = {
     },
   },
 };
+
+// 鏡の突進: 予告 (核の前で赤く震える 1 秒) → まっすぐ飛ぶ (毎秒 30 m) → 目の 11 m 手前で砕ける → 2 秒で輪に戻る。
+// 輪にいないときは true を返す (いつもの輪の動きをしない)
+function chargeMirror(c, e, dt, ctx, p) {
+  const C = e.charge, P = ctx.player, cp = e.core.mesh.position;
+  C.t += dt;
+  const rim = e.mats[1];
+  if (C.state === 'warn') {
+    // 核の前へ出て、縁が赤く光って震える
+    const k = Math.min(1, C.t / 0.4);
+    _a.set(cp.x, cp.y, cp.z + e.core.tier.R * 0.7);
+    p.lerpVectors(C.from, _a, k).add(_a.set(Math.sin(C.t * 55) * 0.25, 0, 0));
+    e.mesh.lookAt(P);
+    rim.userData.base.setHex(0xff3020).multiplyScalar(0.5 + 0.5 * Math.abs(Math.sin(C.t * 14)));
+    if (C.t >= 1.0) {
+      C.state = 'fly';
+      C.t = 0;
+      C.vel = P.clone().sub(p).normalize().multiplyScalar(30); // そのときいた所へ、まっすぐ (追わない)
+      e.noHit = true; // 当たりは砕けるときに見る
+    }
+    return true;
+  }
+  if (C.state === 'fly') {
+    p.addScaledVector(C.vel, dt);
+    if (p.z + e.r > P.z - 11) {
+      // 目の 11 m 手前で砕ける。飛んできた線の近くにいれば 15
+      if (Math.hypot(p.x - P.x, p.y - P.y) < 3 + ctx.playerR) ctx.onPlayerHit(15);
+      c.explode(p.clone(), true);
+      C.state = 'gone';
+      C.t = 0;
+      e.mesh.visible = false;
+    }
+    return true;
+  }
+  if (C.state === 'gone') {
+    p.set(cp.x, -80, cp.z); // 見えない所で待つ (弾を撃ち返さない)
+    if (C.t >= 2) {
+      e.charge = null;
+      e.noHit = false;
+      e.mesh.visible = true;
+      rim.userData.base.setHex(0x7a5a10);
+      return false;
+    }
+    return true;
+  }
+  return false;
+}

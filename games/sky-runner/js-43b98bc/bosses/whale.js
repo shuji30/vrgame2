@@ -1,7 +1,11 @@
 // ボス: 溶岩の結晶鯨 (MAGMA WHALE)。15 面。黒曜石の鯨が地面の中を泳ぎ、前方の地面から浮上する (1 秒前に地面に橙色の印)。
 // 浮上している約 4 秒の間、背中の 3 つの潮吹き穴から火の玉を噴き上げてプレイヤーへ落とす。
-// 体は硬く弾を跳ね返す。浮上している間だけ、光る潮吹き穴を撃てる。3 つとも壊すと倒せる (ゲージは潮吹き穴の残りの体力)
+// 体は硬く弾を跳ね返す。浮上している間だけ、光る潮吹き穴を撃てる。3 つとも壊すと倒せる (ゲージは潮吹き穴の残りの体力)。
+// 潮吹き穴の残りが半分を切ると、潜るたびに「背びれの突進」(FIN RUSH): 地面に橙色の線が 90 m 先からプレイヤーの横の位置へ
+// まっすぐ伸び (1 秒、低いうなり)、溶岩の背びれ (高さ 3 m) が線にそって毎秒 40 m で来る。目の 8 m 手前で地面に潜る。
+// 横 2 m 以内・高さ 4 m 以下なら 20。背びれは 5 発で壊せる (早く潜って 500 点)
 import * as THREE from 'three';
+import { sfx } from '../audio.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
@@ -76,6 +80,23 @@ export function spawnWhale(c, def) {
 
 const G = 22; // 火の玉にかかる重さ (m/s²)
 
+// 背びれの突進: 予告の線 (1 秒) → 背びれが線にそって毎秒 40 m (まっすぐ) → 目の 8 m 手前で潜る
+function spawnFin(c, w, ctx) {
+  const P = ctx.player;
+  const z0 = P.z - 90, x = P.x;
+  const lavaM = mat(0xff8a30, 0xc03a00);
+  const mesh = new THREE.Mesh(GEO.fin, lavaM);
+  mesh.scale.set(1.6, 1, 0.7); // 高さ 3 m の背びれ (前後に薄い板を立てる)
+  mesh.position.set(x, -2, z0);
+  const line = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 90 - 8).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff7a20, transparent: true, opacity: 0.7, depthWrite: false }));
+  line.position.set(x, 0.1, z0 + (90 - 8) / 2);
+  c.scene.add(line);
+  const e = { kind: 'finrush', mesh, mats: [lavaM], r: 2, hp: 5, score: 500, t: 0, flash: 0, fireT: Infinity, x, z: z0, warn: 1, marker: line, whale: w, noItem: true, noHit: true };
+  c.addEnemy(e, 0);
+  e.shadow.visible = false;
+  sfx.roar();
+}
+
 function lobLava(c, from, ctx) {
   const P = ctx.player;
   const target = new THREE.Vector3(ctx.side ? 0 : P.x + rand(-3, 3), P.y, P.z + (ctx.side ? rand(-3, 3) : 0));
@@ -130,7 +151,15 @@ export const WHALE_KINDS = {
         }
       } else if (e.state === 'up') {
         e.rise = Math.min(1, e.rise + dt * 1.5);
-        if (e.timer <= 0) { e.state = 'under'; e.timer = rand(1.6, 2.4); for (const h of e.holes) h.fireT = Infinity; }
+        if (e.timer <= 0) {
+          e.state = 'under';
+          e.timer = rand(1.6, 2.4);
+          for (const h of e.holes) h.fireT = Infinity;
+          if (e.bossGroup.ratio() < 0.5 && !ctx.side) {
+            spawnFin(c, e, ctx); // 潜っている間に、背びれの突進を 1 回
+            e.timer += 2.4; // 背びれが通り過ぎてから浮上する
+          }
+        }
       }
       // 浮上の高さ: 潜っている間は地面の下、浮上すると背中が地面の上に出る
       const y = THREE.MathUtils.lerp(-30, (ctx.side ? 4 : 7) * e.k, e.rise); // 3D は高めに浮上 (自機の陰に隠れないように)
@@ -143,6 +172,32 @@ export const WHALE_KINDS = {
       for (const h of e.holes) if (!h.dead) { h.dead = true; c.explode(h.mesh.position, true); }
       c.explode(e.mesh.position, true);
     },
+  },
+
+  // 背びれの突進 (潮吹き穴の残りが半分を切ってから)
+  finrush: {
+    update(c, e, dt, scroll, ctx, p) {
+      const P = ctx.player;
+      if (e.whale.dead) { e.dead = true; return; }
+      if (e.warn > 0) {
+        // 予告: 線が点滅し、背びれの先が地面から少しのぞいて震える
+        e.warn -= dt;
+        e.marker.material.opacity = 0.35 + 0.45 * Math.abs(Math.sin(e.t * 10));
+        p.set(e.x + Math.sin(e.t * 40) * 0.15, -0.6, e.z);
+        return;
+      }
+      e.marker.material.opacity = 0.6;
+      e.z += 40 * dt; // 地面の中を泳いでくる (まっすぐ、追わない)
+      p.set(e.x, 1.5, e.z);
+      if (Math.random() < dt * 20) c.sparks.emit(_a.set(e.x + rand(-1, 1), 0.3, e.z + 1), new THREE.Vector3(rand(-3, 3), rand(3, 7), rand(0, 3)), new THREE.Color(0xff7a20), 1, 0.5);
+      if (e.z + e.r > P.z - 8) {
+        // 目の 8 m 手前で潜る。通り道にいれば 20
+        if (Math.abs(e.x - P.x) < 2 + ctx.playerR && P.y < 4 + ctx.playerR) ctx.onPlayerHit(20);
+        c.explode(p.clone(), false);
+        e.dead = true; // 倒したことにはしない
+      }
+    },
+    onDeath(c, e) { c.scene.remove(e.marker); },
   },
 
   // 噴き上げた火の玉: 放物線で上から落ちてくる (撃ち落とせる)。地面に着いたら砕ける

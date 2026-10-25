@@ -1,6 +1,8 @@
 // ボス: 双子の回転刃 (TWIN TURBINE)。9 面 (天井のある面)。中央の核の左右に、回転する刃の円盤が 1 枚ずつ付いている。
 // 円盤が赤く光る 1 秒の予告のあと、それぞれがプレイヤーのいた所へ飛んできて、通り過ぎたら弧を描いて戻る。
-// 円盤は壊せず弾を跳ね返す。中央の核を撃って倒す (核は扇の弾も撃つ)。横スクロールでは円盤を核の上下に付ける
+// 円盤は壊せず弾を跳ね返す。中央の核を撃って倒す (核は扇の弾も撃つ)。横スクロールでは円盤を核の上下に付ける。
+// 体力が半分を切ると、2 回に 1 回は「床を転がる刃」(FLOOR SAW): 円盤 1 枚が床に降りて縦に立ち、床に赤い線 (通り道) を
+// 引いて 1 秒赤く光ったあと、床を毎秒 30 m でまっすぐ転がってくる。目の 10 m 手前で跳ね上がって砕け、通り道 (横 2.5 m) にいれば 20
 import * as THREE from 'three';
 import { eyeGuard } from '../enemies.js';
 
@@ -87,10 +89,18 @@ export const TURBINE_KINDS = {
         e.cycle -= dt;
         if (e.cycle <= 0) {
           e.cycle = rand(3.2, 4.2) / (1 + (c.level - 1) * 0.05);
-          // 交互に 1 枚ずつ、体力が半分を切ったら 2 枚同時に
+          // 交互に 1 枚ずつ、体力が半分を切ったら 2 枚同時に (2 回に 1 回は床を転がる刃)
           const both = e.hp < e.maxHp * 0.5;
           e.turn = (e.turn || 0) + 1;
-          for (const b of e.blades) if (both || (e.turn % 2 === 0) === (b.sx > 0)) { b.state = 'warn'; b.u = 0; }
+          if (both && e.turn % 2 === 0 && !ctx.side) {
+            const b = e.blades[Math.floor(Math.random() * 2)];
+            b.state = 'sawDown';
+            b.u = 0;
+            b.from.copy(b.mesh.position);
+            b.to.set(ctx.player.x, b.r, b.mesh.position.z + 8); // 通り道は、そのときのプレイヤーの横の位置
+          } else {
+            for (const b of e.blades) if (both || (e.turn % 2 === 0) === (b.sx > 0)) { b.state = 'warn'; b.u = 0; }
+          }
         }
       }
     },
@@ -108,10 +118,15 @@ export const TURBINE_KINDS = {
     shielded: () => true, // 壊せない (弾を跳ね返す)
     update(c, e, dt, scroll, ctx, p) {
       const b = e.body;
-      if (b.dead) { e.dead = true; return; }
+      if (b.dead) {
+        e.dead = true;
+        if (e.line) c.scene.remove(e.line); // 床を転がる刃の通り道の線
+        return;
+      }
       e.noHit = p.z > ctx.player.z + 1; // プレイヤーよりうしろにいる間は当たらない (見えない所から当たらないように)
       const spin = e.state === 'hold' ? 4 : 14;
       e.mesh.rotation.z += dt * spin * e.sx;
+      if (e.state.startsWith('saw')) { floorSaw(c, e, dt, scroll, ctx, p); return; }
       if (e.state === 'hold') {
         p.copy(slot(e, ctx.side));
         e.mats[0].userData.base.setHex(0x202838);
@@ -159,3 +174,48 @@ export const TURBINE_KINDS = {
 };
 
 const _b = new THREE.Vector3();
+
+// 床を転がる刃: 降りる (0.6 秒) → 予告 (赤い線と赤い光 1 秒) → 転がる (毎秒 30 m、まっすぐ) → 目の 10 m 手前で跳ね上がる
+function floorSaw(c, e, dt, scroll, ctx, p) {
+  const P = ctx.player;
+  e.u += dt;
+  if (e.state === 'sawDown') {
+    const k = Math.min(1, e.u / 0.6);
+    p.lerpVectors(e.from, e.to, k * k * (3 - 2 * k));
+    e.mesh.rotation.y = (Math.PI / 2) * k; // 縦に立てて、転がる向きにそろえる
+    if (k >= 1) {
+      e.state = 'sawWarn';
+      e.u = 0;
+      e.line = new THREE.Line(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([p.x, 0.12, p.z, p.x, 0.12, P.z - 10], 3)), new THREE.LineBasicMaterial({ color: 0xff3020 }));
+      e.line.frustumCulled = false;
+      c.scene.add(e.line);
+    }
+    return;
+  }
+  if (e.state === 'sawWarn') {
+    p.copy(e.to).add(_a.set(Math.sin(e.t * 50) * 0.2, 0, 0));
+    e.mats[0].userData.base.setHex(0xff3020).multiplyScalar(0.4 + 0.6 * Math.abs(Math.sin(e.t * 12)));
+    e.line.visible = Math.floor(e.u * 10) % 2 === 0;
+    e.mesh.rotation.z += dt * 10 * e.sx;
+    if (e.u >= 1) { e.state = 'saw'; e.u = 0; e.noHit = true; e.line.visible = true; }
+    return;
+  }
+  // 転がる: 床にそってまっすぐ (追わない)
+  p.z += 30 * dt;
+  p.y = e.r;
+  e.mesh.rotation.z += dt * (30 / e.r) * e.sx;
+  if (p.z + e.r > P.z - 10) {
+    // 目の 10 m 手前で跳ね上がって砕け、核の横へ戻る。通り道にいれば 20
+    if (Math.abs(p.x - P.x) < 2.5 + ctx.playerR && P.y < p.y + e.r + ctx.playerR) ctx.onPlayerHit(20);
+    c.explode(p.clone(), true);
+    c.scene.remove(e.line);
+    e.line.geometry.dispose();
+    e.line.material.dispose();
+    e.line = null;
+    e.mesh.rotation.y = 0;
+    e.state = 'back';
+    e.u = 0;
+    e.from.copy(p).add(_a.set(0, 8, 0));
+    p.copy(e.from);
+  }
+}

@@ -258,8 +258,9 @@ const MAT = {
   shadow: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25, depthWrite: false }),
 };
 
-function makeFighter() {
-  if (TPL.fighter) return instance(TPL.fighter, 0, true);
+// own: 材質を敵ごとに (群れのボスは、急降下の前に翼を赤く光らせるため)
+function makeFighter(own = false) {
+  if (TPL.fighter) return instance(TPL.fighter, 0, !own);
   const mat = new THREE.MeshStandardMaterial({ color: 0x40444c, metalness: 0.5, roughness: 0.45, flatShading: true });
   const wingMat = new THREE.MeshStandardMaterial({ color: 0x8a1c1c, metalness: 0.3, roughness: 0.5, flatShading: true });
   const g = new THREE.Group();
@@ -301,6 +302,7 @@ function fallback(color, r) {
 
 // ---- Blender で作った敵のモデル (assets/enemies.glb)。読み込むまでは上の簡易モデルを使う
 const TPL = {};
+export const enemyModel = (key) => TPL[key]; // ボスの部品にも敵のモデルを使い回す (晶洞の輪は晶洞岩)
 const WHITE = new THREE.Color(0xffffff), BLACK = new THREE.Color(0x000000), DUST = new THREE.Color(0.55, 0.5, 0.42);
 const ITEM_COL = new THREE.Color(0.3, 1, 0.5);
 // ボスの色 (頭のプリズムと、光の帯の色相)。単頭は水色、双晶は青と紫
@@ -410,7 +412,7 @@ export async function loadEnemyModels(url) {
 // yOff: モデルの原点が足元にあるものは、体の中心が原点になるよう下げる (当たり判定とロックの中心)
 // share: 材質をモデルと共有する (数の多い雑魚。被弾の光は材質の差し替え、flashMeshes で行う)。
 //        共有しないときは、敵ごとに材質を複製して発光色で光らせる (色を変えるボスや建設ロボの目)
-function instance(tpl, yOff = 0, share = false) {
+export function instance(tpl, yOff = 0, share = false) {
   const inner = tpl.clone();
   inner.position.y = -yOff;
   const mats = [], flashMeshes = [];
@@ -556,7 +558,7 @@ export class Combat {
 
   updateFighter(e, dt, scroll, ctx) {
     const p = e.mesh.position, P = ctx.player;
-    if (e.state === 'orbit') {
+    if (e.state === 'orbit' || e.state.startsWith('swarm')) {
       // 旋回する群れ: 2 つの輪が逆向きに回る。最初の 4 秒で遠くから迫ってくる
       const g = e.bossGroup;
       const gt = g ? g.t : e.t;
@@ -564,7 +566,9 @@ export class Combat {
       const dir = e.ring ? 1 : -1;
       const a = dir * gt * 1.1 + (e.slot / 4) * Math.PI * 2 + e.ring * 0.4;
       const R = ctx.side ? 8 : 12;
-      p.set(P.x + Math.cos(a) * R, Math.max(3, P.y + 4 + Math.sin(a) * R * 0.7), cz + Math.sin(a * 2) * 4);
+      const ox = P.x + Math.cos(a) * R, oy = Math.max(3, P.y + 4 + Math.sin(a) * R * 0.7), oz = cz + Math.sin(a * 2) * 4;
+      if (e.state === 'orbit') p.set(ox, oy, oz);
+      else this.swarmDive(e, dt, ctx, _d.set(ox, oy, oz));
     } else if (e.state === 'leave') {
       p.y += 24 * dt;
       p.z -= 40 * dt;
@@ -620,6 +624,42 @@ export class Combat {
     e.lastX = p.x;
     e.bank = (e.bank || 0) + (THREE.MathUtils.clamp(-vx * 0.03, -1.2, 1.2) - (e.bank || 0)) * Math.min(1, dt * 8);
     e.mesh.rotation.set(0, e.yaw, e.bank);
+  }
+
+  // 群れの急降下 (SWARM DIVE。旋回する群れの 2 つめの攻撃): 翼が赤く光る (0.8 秒、甲高い音) → プレイヤーの横 12 m の点へ
+  // まっすぐ毎秒 40 m で急降下、30 m 手前で 1 発 → すれ違ったら当たらず、上へ大きく回って輪 (home) に戻る
+  swarmDive(e, dt, ctx, home) {
+    const p = e.mesh.position, P = ctx.player;
+    e.st += dt;
+    if (e.state === 'swarmWarn') {
+      p.copy(home);
+      e.baseEm ??= e.mats.map((m) => m.userData.base.clone()); // 戻ったら元の光り方に
+      for (const m of e.mats) m.userData.base.setHex(0xff2010).multiplyScalar(0.4 + 0.6 * Math.abs(Math.sin(e.st * 14)));
+      if (e.st >= 0.8) {
+        e.state = 'swarmDive';
+        e.st = 0;
+        e.diveVel = _a.set(P.x + e.diveSide * 12, P.y, P.z).sub(p).normalize().multiplyScalar(40).clone(); // まっすぐ (追わない)
+        e.shotDone = false;
+      }
+    } else if (e.state === 'swarmDive') {
+      p.addScaledVector(e.diveVel, dt);
+      if (!e.shotDone && p.z > P.z - 30) {
+        e.shotDone = true;
+        this.fireBullet(p.clone(), P, 0);
+      }
+      if (p.z > P.z) { e.state = 'swarmBack'; e.st = 0; e.noHit = true; e.backFrom = p.clone(); } // すれ違ったら当たらない
+    } else {
+      // 上へ大きく回って、輪の位置へ戻る (2 秒)
+      const k = Math.min(1, e.st / 2);
+      p.lerpVectors(e.backFrom, home, k * k * (3 - 2 * k));
+      p.y += Math.sin(k * Math.PI) * 25;
+      if (k >= 1) {
+        e.state = 'orbit';
+        e.noHit = false;
+        e.mats.forEach((m, i) => m.userData.base.copy(e.baseEm[i]));
+        if (e.bossGroup) e.bossGroup.diver = null;
+      }
+    }
   }
 
   spawnGunship(px, py) {
@@ -900,6 +940,7 @@ export class Combat {
   //   当たるときは目の 2 m 手前で砕ける (体の中を抜けない)。2・3 機目は 1 発ずつ撃って左右上へ散り、すぐ横をかすめて背後へ抜ける
   // → 部隊のボスは、全機が抜けて 2 秒休んでから、遠くへ戻ってまた攻めてくる
   updateMech(e, dt, scroll, ctx) {
+    if (e.bossGroup?.wall) return this.updateMechWall(e, dt, scroll, ctx);
     const G = e.group, p = e.mesh.position, P = ctx.player;
     const alive = this.enemies.filter((o) => o.group === G && !o.dead);
     const leader = alive[0] === e; // 先頭が落とされたら、次の機体が先頭になる
@@ -1018,6 +1059,56 @@ export class Combat {
       e.dustT = 0.06;
       this.smoke.emit(_b.set(p.x + rand(-1.5, 1.5), 0.3, p.z + rand(-1.5, 1.5)), _c.set(rand(-3, 3), 1, rand(-3, 3)), DUST, 1.4, 0.8, 2.5, 0.95);
     }
+  }
+
+  // ロボの壁 (DOMINO WALL。部隊のボスの 2 つめの攻撃): 残りが横一列に並び (間 16 m)、1 か所だけ空けて地面に緑の道しるべ。
+  // 目が左から順に赤く光り (1 秒)、列は地面に沿ってまっすぐ毎秒 20 m 近づく。抜け道を外れてロボに当たるときは、目の 8 m 手前で砕けて 25
+  startMechWall(g, alive, ctx) {
+    const P = ctx.player;
+    const n = alive.length + 1, gapIdx = Math.floor(Math.random() * n);
+    const x0 = P.x - ((n - 1) / 2) * 16 + rand(-4, 4);
+    const guide = new THREE.Mesh(new THREE.PlaneGeometry(6, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x40ff80, transparent: true, opacity: 0.5, depthWrite: false }));
+    this.scene.add(guide);
+    g.wall = { t: 0, z: P.z - 100, guide, gapX: x0 + gapIdx * 16, done: false };
+    let i = 0;
+    for (const e of alive.sort((a, b) => a.mesh.position.x - b.mesh.position.x)) {
+      if (i === gapIdx) i++;
+      e.wallX = x0 + i * 16;
+      e.wallI = i;
+      e.wallFrom = e.mesh.position.clone();
+      e.wallHit = false;
+      e.ram = e.passing = null;
+      e.noHit = true; // 当たりは目の手前で見る
+      e.mesh.visible = e.shadow.visible = true;
+      i++;
+    }
+    this.announce = 'DOMINO WALL!';
+  }
+
+  updateMechWall(e, dt, scroll, ctx) {
+    const W = e.bossGroup.wall, p = e.mesh.position, P = ctx.player;
+    if (e.wallX === undefined) return; // 並び始めたあとに出てきた機体はない
+    // 並ぶ (1.5 秒) → 目が左から順に赤く光る (1 秒) → まっすぐ近づく
+    const k = Math.min(1, W.t / 1.5);
+    const y = 3.3 * MECH_SCALE;
+    if (W.t < 2.5) {
+      p.lerpVectors(e.wallFrom, _a.set(e.wallX, y, W.z), k * k * (3 - 2 * k));
+      this.setMechEye(e, W.t > 1.5 + e.wallI * 0.15);
+    } else {
+      this.setMechEye(e, true);
+      p.set(e.wallX, y, W.z);
+      // 目の 8 m 手前で、当たる位置なら砕けて 25 (抜け道にいれば、ロボの表面まで 8 m 以上)
+      if (!e.wallHit && p.z + e.r > P.z - 8) {
+        e.wallHit = true;
+        if (Math.abs(p.x - P.x) < e.r * 0.8 + ctx.playerR && P.y < 9 + ctx.playerR) {
+          ctx.onPlayerHit(25);
+          this.explode(p.clone(), true);
+          e.mesh.visible = e.shadow.visible = false;
+          e.noLock = true;
+        }
+      }
+    }
+    e.mesh.rotation.set(0, 0, 0);
   }
 
   // 建設ロボの目を赤く光らせる (体当たりの合図) / 元に戻す
@@ -1176,7 +1267,7 @@ export class Combat {
       }
     } else {
       for (let i = 0; i < 8; i++) {
-        const { mesh, mats, flashMeshes } = makeFighter();
+        const { mesh, mats, flashMeshes } = makeFighter(true);
         mesh.scale.setScalar(FIGHTER_SCALE * 1.2);
         const e = {
           kind: 'fighter', mesh, mats, flashMeshes, r: 3.4, hp: 6 + this.level, score: 500,
@@ -1190,7 +1281,7 @@ export class Combat {
     g.total = this.enemies.length - before;
   }
 
-  updateBossGroup(dt) {
+  updateBossGroup(dt, ctx) {
     const g = this.bossGroup;
     if (!g) return;
     g.t += dt;
@@ -1200,6 +1291,56 @@ export class Combat {
       for (const e of alive) {
         if (e.kind === 'fighter') e.state = 'leave';
         if (e.kind === 'mech') { e.group.regroup = false; e.group.phase = 'retreat'; }
+      }
+    }
+    // 群れの急降下: 4 機倒したか 15 秒たったら、輪から 1 機ずつ (前の 1 機が戻ってから)
+    if (g.type === 'swarm' && !g.leaving && !ctx.side && (g.kills >= 4 || g.t > 15)) {
+      if (g.diver?.dead) g.diver = null;
+      g.diveGap = (g.diveGap ?? 0) - dt;
+      if (!g.diver && g.diveGap <= 0) {
+        const ready = alive.filter((o) => o.state === 'orbit');
+        const d = ready[Math.floor(Math.random() * ready.length)];
+        if (d) {
+          g.diver = d;
+          g.diveN = (g.diveN || 0) + 1;
+          d.state = 'swarmWarn';
+          d.st = 0;
+          d.diveSide = g.diveN % 2 ? 1 : -1; // 左右交互
+          sfx.screech();
+          g.diveGap = 1.2;
+        }
+      }
+    }
+    // ロボの壁: 3 機倒したか 16 秒たったら 1 回だけ (残りが 1 機だけのときは使わない)
+    if (g.type === 'squad' && !g.wallUsed && !g.leaving && !ctx.side && (g.kills >= 3 || g.t > 16) && alive.length >= 2) {
+      g.wallUsed = true;
+      this.startMechWall(g, alive, ctx);
+    }
+    const W = g.wall;
+    if (W) {
+      W.t += dt;
+      if (W.t >= 2.5) W.z += 20 * dt; // まっすぐ毎秒 20 m (追わない)
+      W.guide.position.set(W.gapX, 0.1, W.z + 6);
+      W.guide.material.opacity = 0.35 + 0.25 * Math.abs(Math.sin(W.t * 5));
+      // 列がうしろへ抜けたら、もとの攻め方に戻る
+      if (W.z > ctx.player.z + 20 || alive.length === 0) {
+        this.scene.remove(W.guide);
+        W.guide.geometry.dispose();
+        W.guide.material.dispose();
+        g.wall = null;
+        for (const o of alive) {
+          o.wallX = undefined;
+          o.noHit = o.noLock = false;
+          o.mesh.visible = o.shadow.visible = true;
+          o.fired = 0;
+          o.z = SPAWN_Z * 0.6 - (o.role || 0) * 9;
+          o.mesh.position.z = o.z;
+          o.off.set(0, 0);
+          o.offTo.set(0, 0);
+          this.setMechEye(o, false);
+          o.group.phase = 'approach';
+          o.group.at = 0;
+        }
       }
     }
     // 長いボスの途中で 1 回だけ回復 (体力が半分を切ったとき)
@@ -1214,6 +1355,7 @@ export class Combat {
     if (g.leaving && g.t > g.escape + 8) for (const e of alive) e.dead = true;
     if ((alive.length === 0 || (g.leaving && g.t > g.escape + 8)) && g.t > 1) {
       this.bossGroup = null;
+      if (g.wall) this.scene.remove(g.wall.guide);
       if (g.kills >= g.total || g.endure) { // endure: 耐えきれば撃破扱い (壊せない母艦)
         this.bossDefeated = true;
         this.lastBossBonus = Math.round((g.bonus ?? 5000) * this.bonusLevel * this.mult);
@@ -1630,7 +1772,7 @@ export class Combat {
     this.lastPlayer = ctx.player;
     if (ctx.spawn) this.stageT += dt; // 面の通常の区間が始まってからの時間
     this.updateBoss(dt, ctx);
-    this.updateBossGroup(dt);
+    this.updateBossGroup(dt, ctx);
     this.updateItems(dt, scroll, ctx);
 
     // 敵の動き

@@ -546,6 +546,7 @@ const ENEMY_INFO = {
   gunship: ['GUNSHIP', 'ガンシップ'],
   lens: ['PRISM LENS', 'ガラスのレンズ'],
   orbiter: ['ORBIT CORE', '衛星コア'],
+  jelly: ['CRYSTAL JELLY', '水晶のクラゲ'],
 };
 // 紹介する順番: 初めて出てくる面の順 (stage はその面の番号。景色の色もその面にする)
 const ENDING_LIST = (() => {
