@@ -463,7 +463,7 @@ refreshStageList();
 stageSel.value = String(selectedStage);
 stageSel.addEventListener('change', () => { selectedStage = Number(stageSel.value); });
 
-// オープニングテーマ (SKY HIGHWAY の録音、assets/music/skyhighway.mp3)。タイトル画面の「♪ OPENING THEME」のボタンで
+// オープニングテーマ (SKY HIGHWAY の録音、assets/music/skyhighway.mp3)。タイトル画面の「♪ オープニング曲を聞く」のボタンで
 // 聞く / 止める (自分で押して聞くものなので、BGM やリアルミュージックの設定に関係なく流す)。くり返し流し、出撃したら止める
 const titleMusic = new Audio('./assets/music/skyhighway.mp3');
 titleMusic.loop = true;
@@ -473,7 +473,7 @@ let titleMuted = false;
 const btnTheme = document.getElementById('btnTheme');
 const showThemeBtn = () => {
   btnTheme.classList.toggle('playing', !titleMusic.paused);
-  btnTheme.querySelector('small').textContent = titleMusic.paused ? '聞く' : '止める';
+  btnTheme.querySelector('span').textContent = titleMusic.paused ? '聞く' : '止める';
 };
 titleMusic.addEventListener('play', showThemeBtn);
 titleMusic.addEventListener('pause', showThemeBtn);
@@ -561,8 +561,18 @@ const showHiScore = () => {
   refreshStageList(); // 難しいモードを切りかえたら、その記録を出す
 };
 
+// タイトル画面の背景は 1 面 (夜の SKY HIGHWAY) の景色にする
+function titleScene() {
+  const st = stageAt(1);
+  world.clear();
+  world.applyTheme(st.palette);
+  world.setObstacles(st.obstacles);
+  world.setCeiling(false);
+}
+
 function toTitle() {
   S.mode = 'title';
+  titleScene();
   showHiScore();
   endBonus();
   combat.reset();
@@ -772,6 +782,7 @@ function updateStage(dt) {
     S.rhythmT += dt;
     const rest = S.rhythmT % 19 > 12;
     if (rest && !S.rest) world.spawnPattern(S.patternN++ % 2 ? 'corridor' : 'row', S.px);
+    if (!rest && S.rest) combat.spawn.wave = Math.min(combat.spawn.wave, 0.6); // 休みが明けたら、すぐ次の群れ
     S.rest = rest;
   } else S.rest = false;
   const st = stageAt(S.stage);
@@ -1486,6 +1497,7 @@ function setMode(mode) {
   world.clear();
 }
 setMode(settings.mode === 'side' ? 'side' : '3d');
+titleScene();
 modeInputs.forEach((el) => el.addEventListener('change', () => setMode(el.value)));
 playerInputs.forEach((el) => el.addEventListener('change', () => setPlayer(el.value)));
 showHiScore();

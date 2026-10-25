@@ -23,7 +23,7 @@ export const STAGES = [
   {
     // 夜の空の道 (2026-10-25 にユーザーの希望で、曲 (01 Gravity Left Behind) とイメージ「スカイハイウェイ」に合わせて夜にした。
     // 前は昼の SUNNY FIELD)。星と三日月、ビル街、道の左右を流れる光の筋、街灯と縞の柱
-    name: 'SKY HIGHWAY', kind: 'normal', length: 45, speed: 40, diff: 1, density: 0.9,
+    name: 'SKY HIGHWAY', kind: 'normal', length: 45, speed: 40, diff: 1, density: 1.3,
     waves: [['fighter', 3], ['dart', 1.5], ['gremlin', 1], ['mammoth', 2.5]],
     obstacles: { pylon: 2.2, column: 1.2, ring: 1.0, lane: 0.25 },
     palette: { a: 0x161b28, b: 0x0a0d14, fog: 0x1c2a4c, sky: 0x02040c, mount: 0x0a1020, col: ['#e8f4ff', '#ff3050'], bush: 0x2a3a5a, crystal: 0x6ab8ff, lamp: 0x9fd8ff, night: true },

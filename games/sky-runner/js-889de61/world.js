@@ -86,19 +86,33 @@ function stripeTexture(c1, c2) {
   return tex;
 }
 
-// 夜の面のビルの壁: 暗い紺に、明かりのついた窓 (縦に 4 回くり返す)
+// 夜の面のビルの壁: 暗い紺に、明かりのついた窓 (縦に 4 回くり返す)。
+// 窓のまわりに光のにじみを描き、明かりが外へ漏れているように見せる
 function towerTexture() {
   const cv = document.createElement('canvas');
-  cv.width = 32;
-  cv.height = 64;
+  cv.width = 64;
+  cv.height = 128;
   const g = cv.getContext('2d');
-  g.fillStyle = '#0c1222';
-  g.fillRect(0, 0, 32, 64);
-  for (let y = 2; y < 64; y += 8) for (let x = 2; x < 32; x += 6) {
-    if (Math.random() < 0.55) {
-      g.fillStyle = Math.random() < 0.1 ? '#ff6a7a' : Math.random() < 0.5 ? '#9fd8ff' : '#ffe2a0';
-      g.fillRect(x, y, 3, 4);
-    }
+  g.fillStyle = '#0a1020';
+  g.fillRect(0, 0, 64, 128);
+  const lit = [];
+  for (let y = 4; y < 128; y += 16) for (let x = 4; x < 64; x += 12) {
+    if (Math.random() < 0.55) lit.push([x, y, Math.random() < 0.1 ? '255,106,122' : Math.random() < 0.5 ? '159,216,255' : '255,214,140']);
+  }
+  // にじみ: 窓より大きい、外へ薄れていく光
+  for (const [x, y, c] of lit) {
+    const gr = g.createRadialGradient(x + 3, y + 4, 1, x + 3, y + 4, 11);
+    gr.addColorStop(0, `rgba(${c},0.55)`);
+    gr.addColorStop(1, `rgba(${c},0)`);
+    g.fillStyle = gr;
+    g.fillRect(x - 8, y - 7, 22, 22);
+  }
+  // 窓: 真ん中ほど白っぽく明るい
+  for (const [x, y, c] of lit) {
+    g.fillStyle = `rgb(${c})`;
+    g.fillRect(x, y, 6, 8);
+    g.fillStyle = 'rgba(255,255,255,0.55)';
+    g.fillRect(x + 1, y + 1, 4, 6);
   }
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -291,7 +305,7 @@ export class World {
       pylon: new THREE.MeshStandardMaterial({ color: 0x8a8fa8, metalness: 0.7, roughness: 0.35 }),
       lamp: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xff4ad8, emissiveIntensity: 1.2 }),
       column: new THREE.MeshStandardMaterial({ roughness: 0.5 }),
-      tower: (() => { const t = towerTexture(); return new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.8, roughness: 0.6 }); })(),
+      tower: (() => { const t = towerTexture(); return new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 1.3, roughness: 0.6 }); })(),
       cap: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 }),
       bush: new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.9 }),
       trunk: new THREE.MeshStandardMaterial({ color: 0x7a4a24, roughness: 0.9 }),

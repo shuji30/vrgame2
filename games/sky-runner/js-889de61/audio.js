@@ -978,7 +978,16 @@ const RECORDED_SONGS = {
   classical: './assets/music/02_The_Weight_of_Stillness.mp3',
   jazz: './assets/music/03_Midnight_Mallets.mp3',
   pops: './assets/music/04_Golden_Hour_High_Score.mp3',
-  boss: './assets/music/10_boss_PRISM_MENACE.mp3', // ボス戦の曲 (最終ボスの太陽は専用の曲のまま)
+  alternative: './assets/music/05_alternative_STATIC_HORIZON.mp3',
+  bossa: './assets/music/06_bossa_AMBER_BREEZE.mp3',
+  reggae: './assets/music/07_reggae_ISLAND_ORBIT.mp3',
+  metal: './assets/music/08_metal_IRON_STORM.mp3',
+  grunge: './assets/music/09_grunge_RUST_FALLOUT.mp3',
+  boss: './assets/music/10_boss_PRISM_MENACE.mp3', // ボス戦の曲
+  bonus: './assets/music/11_bonus_CRYSTAL_SLED_PARTY.mp3', // ボーナスステージ (5・12 面)
+  gameover: './assets/music/12_gameover_GOODNIGHT_CRYSTAL.mp3',
+  finale: './assets/music/13_finale_SOLAR_PRISM.mp3', // 最終ボス (ひびの入った太陽)
+  ending: './assets/music/14_ending_SKY_BEYOND.mp3',
 };
 // リアルミュージック (タイトル画面で切りかえる): オフのときは録音の曲を使わず、すべてゲームの音源 (プログラム) の曲で鳴らす
 let realMusic = true;
@@ -988,8 +997,12 @@ export function setRealMusic(on) {
 // 録音の曲の音量。mp3 は RMS -14.3 dBFS ほどにそろっているので、BGM の出口 (0.35 × 全体 0.6) を通ったあとに、
 // ゲームの音源の曲 (約 -16 dBFS) と同じくらい (約 -17 dBFS) になる倍率 (2026-10-25 に測って決めた。前の 1.2 では 10 dB 小さかった)
 const RECORDED_GAIN = 3.4;
-// ファイルごとの補正 (ほかより小さく録音されている曲): 10 ボスは RMS -18.6 dBFS なので 4.3 dB 上げる
-const RECORDED_TRIM = { boss: 1.64 };
+// ファイルごとの補正 (ほかより小さく録音されている曲): 01〜04 の RMS -14.3 dBFS に合わせる。
+// 10 ボスは -18.6 dBFS なので 4.3 dB 上げる。05〜14 は -15.8〜-17.6 dBFS (2026-10-25 に測った)
+const RECORDED_TRIM = {
+  boss: 1.64, alternative: 1.35, bossa: 1.43, reggae: 1.36, metal: 1.33, grunge: 1.46,
+  bonus: 1.30, gameover: 1.27, finale: 1.19, ending: 1.29,
+};
 const recorded = {}; // パス → audio 要素
 let recordedNow = null;
 function recordedEl(url) {
