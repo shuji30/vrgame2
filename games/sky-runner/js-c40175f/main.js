@@ -242,6 +242,7 @@ function applyStage(n, first = false) {
   combat.density = st.density;
   combat.waveTable = st.waves;
   combat.stageT = 0;
+  combat.mammothN = 0;
   world.applyTheme(st.palette);
   world.setObstacles(st.obstacles);
   world.setCeiling(st.ceiling);
@@ -418,7 +419,7 @@ function toTitle() {
 }
 
 // ---- VR に入る。床の高さが取れない機器では 'local' にして高さを補正する
-async function enterVR() {
+async function enterVR(stageNo) {
   initAudio();
   try {
     renderer.xr.setFramebufferScaleFactor(settings.scale);
@@ -432,7 +433,7 @@ async function enterVR() {
     session.addEventListener('end', onSessionEnd);
     await renderer.xr.setSession(session);
     renderer.xr.setFoveation?.(1); // 視野の端を粗く描いて軽くする (Quest で効く)
-    startPlay();
+    startPlay(stageNo);
   } catch (err) {
     console.error(err);
     document.getElementById('status').textContent = `VR を開始できませんでした: ${err.message}`;
@@ -1124,7 +1125,7 @@ function update(dt) {
   if (play && running) updateCombat(dt, speed, riding ? { ...a, fire: false, handFire: [], missile: false } : a);
   if (combat.announce) {
     showMsg(combat.announce, '', 2);
-    say(combat.announce.toLowerCase().replace('!', ''));
+    say(combat.announce.split('  ')[0].toLowerCase().replace('!', '')); // 点数は読み上げない
     combat.announce = '';
   }
   else if (S.mode === 'over') updateCombat(dt, speed, { ...a, fire: false, handFire: [], missile: false }); // 爆発や煙の続きを見せる
@@ -1253,8 +1254,13 @@ addEventListener('resize', () => {
 });
 
 // ---- タイトル画面
-const btnVR = document.getElementById('btnVR');
-const btnDesk = document.getElementById('btnDesk');
+// 出撃ボタンは 1 つ。「VR で遊ぶ」にチェックがあれば VR、なければデスクトップ (マウス / パッド / タッチ) で始める
+const chkVR = document.getElementById('useVR');
+const btnStart = document.getElementById('btnStart');
+const startNote = () => {
+  document.getElementById('startNote').textContent = chkVR.checked ? 'VR ヘッドセット' : isTouchDevice() ? 'タッチ / パッド' : 'マウス / パッド';
+};
+const launch = (stageNo) => (chkVR.checked ? enterVR(stageNo) : startPlay(stageNo));
 const selScale = document.getElementById('scale');
 const status = document.getElementById('status');
 const padStatus = document.getElementById('pads');
@@ -1300,13 +1306,14 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyM' && !e.repeat && S.entry?.state !== 'input') showMsg(toggleMute() ? 'SOUND OFF' : 'SOUND ON', '', 1);
 });
 selScale.addEventListener('change', () => { settings.scale = Number(selScale.value); saveSettings(); });
-btnDesk.addEventListener('click', () => startPlay(selectedStage)); // クリックの情報をステージ番号と取り違えないように
+btnStart.addEventListener('click', () => launch(selectedStage)); // クリックの情報をステージ番号と取り違えないように
 document.getElementById('btnContinue').addEventListener('click', () => {
   if (progress === STAGE_COUNT && sunCheckpoint) pendingRush = sunIndex(); // 最終ボスの前から
-  startPlay(progress);
+  launch(progress);
 });
-document.getElementById('btnChapter').addEventListener('click', () => startPlay(chapterHead(progress)));
-btnVR.addEventListener('click', enterVR);
+document.getElementById('btnChapter').addEventListener('click', () => launch(chapterHead(progress)));
+chkVR.addEventListener('change', () => { settings.useVR = chkVR.checked; saveSettings(); startNote(); });
+startNote();
 if (new URLSearchParams(location.search).has('play')) startPlay(); // 開発用: ?play ですぐ開始
 if (new URLSearchParams(location.search).has('bonus')) { // 開発用: ?play&bonus でボーナスステージ (5 面) から始める
   S.ready = 1;
@@ -1319,7 +1326,11 @@ if (!window.isSecureContext) {
   status.textContent = 'このブラウザは WebXR に対応していません (デスクトップモードで遊べます)。';
 } else {
   navigator.xr.isSessionSupported('immersive-vr').then((ok) => {
-    btnVR.disabled = !ok;
+    // VR が使えるときだけチェックできる。使えるなら最初はチェックを入れておく (前回の選択を覚える)
+    chkVR.disabled = !ok;
+    chkVR.checked = ok && settings.useVR !== false;
+    document.getElementById('vrNote').textContent = ok ? 'ヘッドセット' : 'ヘッドセットが見つかりません';
+    startNote();
     status.textContent = ok
       ? 'VR ヘッドセットを使えます。'
       : 'VR ヘッドセットが見つかりません。PCVR の場合は OpenXR ランタイム (Pimax Play / SteamVR) が起動しているか確認してください。';

@@ -1,6 +1,6 @@
 // 戦闘: 敵、敵弾、自機の機関砲、ロックオン、追尾ミサイル、爆発と煙
 import * as THREE from 'three';
-import { EXTRA } from './enemies.js';
+import { EXTRA, MODELS } from './enemies.js';
 import { BOSSES } from './bosses/index.js';
 
 for (const b of Object.values(BOSSES)) Object.assign(EXTRA, b.kinds); // 新しいボスの部品も、追加の敵と同じ形で動かす
@@ -382,6 +382,12 @@ export async function loadEnemyModels(url) {
     const node = gltf.scene.getObjectByName(name);
     if (node) TPL[key] = bake(node, parts);
   }
+  // マンモスは動かす軸ごとの部品 (胴・頭・鼻の節・脚)。それぞれ原点が軸。組み立ては enemies.js
+  const mam = ['MammothBody', 'MammothHead', 'MammothTrunk', 'MammothLeg'].map((n) => gltf.scene.getObjectByName(n));
+  if (mam.every(Boolean)) {
+    const [body, head, trunk, leg] = mam.map((n) => bake(n));
+    MODELS.mammoth = { body, head, trunk, leg };
+  }
   const mech = gltf.scene.getObjectByName('DozerBot');
   if (mech) TPL.mechMuzzle = localPoint(mech, 'DozerMuzzle');
   // ダンゴムシの節を1つずつ (割れたあとに使う)
@@ -409,6 +415,8 @@ function instance(tpl, yOff = 0) {
   g.add(inner);
   return { mesh: g, mats };
 }
+
+const MAMMOTH = { first: 10, every: 8, max: 5 }; // マンモスを必ず出す時刻 (面の始まりからの秒) と数
 
 export class Combat {
   constructor(scene) {
@@ -442,6 +450,8 @@ export class Combat {
     this.items = [];         // 回復アイテム
     this.itemT = 15;
     this.stageT = 0;
+    this.appearAt = {};     // 出現音を最後に鳴らした時刻 (敵の種類ごと)
+    this.mammothN = 0;      // この面で必ず出したマンモスの数
     this.sparks = new Particles(scene, 1500, true);
     // まとめて描く弾: 敵の光る弾 (核と光の輪) と、自機の光線
     this.pools = {
@@ -638,12 +648,16 @@ export class Combat {
     const ok = (k) => (k === 'mech' ? mechGroups === 0 : isHeavy(k) ? heavy - mechGroups < 2 : true);
     // ステージ表の組み合わせ (なければ全種類)
     const base = this.waveTable || [['fighter', 3], ['gremlin', 2.2], ['pill', 2], ['moai', 1.6], ['ptero', 1.8], ['mech', 1.3], ['gunship', 1]];
-    let table = base.filter(([k]) => ok(k) && !(k === 'mammoth' && this.stageT < 15)); // マンモスは面の最初の 15 秒は出さない
+    // マンモスは面の最初の 10 秒は出さない。同時に出るのは 1 体まで
+    const mammothLive = live.some((e) => e.kind === 'mammoth');
+    let table = base.filter(([k]) => ok(k) && !(k === 'mammoth' && (this.stageT < MAMMOTH.first || mammothLive)));
     if (!table.length) table = base.filter(([k]) => !isHeavy(k)); // 上限で出せないときは、表の中の重くない敵から選び直す
     if (!table.length) table = [['fighter', 1]];
     let r = Math.random() * table.reduce((a, [, w]) => a + w, 0);
-    const kind = this.forceWave || table.find(([, w]) => (r -= w) < 0)?.[0] || table[0][0];
-    sfx.appear(kind); // 敵の種類ごとの出現音
+    let kind = this.forceWave || table.find(([, w]) => (r -= w) < 0)?.[0] || table[0][0];
+    // マンモスのいる面では、10 秒すぎから 8 秒ごとに必ず 1 体ずつ出す (くじ運で少なくならないように)
+    if (!this.forceWave && table.some(([k]) => k === 'mammoth') && this.mammothN < MAMMOTH.max && this.stageT >= MAMMOTH.first + this.mammothN * MAMMOTH.every) kind = 'mammoth';
+    if (kind === 'mammoth') this.mammothN++;
     if (EXTRA[kind]) return EXTRA[kind].spawn(this, px, py); // 追加の敵 (enemies.js)
     ({
       fighter: () => this.spawnFighterWave(px, py),
@@ -846,7 +860,7 @@ export class Combat {
   }
 
   // 3機編隊の動き (planner-review-v1.5.8 の H1)。approach: 縦一列でプレイヤーの列へ寄せながら突っ込む
-  // → attack: 先頭は 40 m 先で止まり、0.5 秒目を赤く光らせてから体当たり (追うのは最初の 0.3 秒だけ、あとはまっすぐ)。
+  // → attack: 先頭は 55 m 先で止まり、0.5 秒目を赤く光らせてから体当たり (約 1.4 秒。追うのは最初の 0.2 秒だけ、あとはまっすぐ)。
   //   当たるときは目の 2 m 手前で砕ける (体の中を抜けない)。2・3 機目は 1 発ずつ撃って左右上へ散り、すぐ横をかすめて背後へ抜ける
   // → 部隊のボスは、全機が抜けて 2 秒休んでから、遠くへ戻ってまた攻めてくる
   updateMech(e, dt, scroll, ctx) {
@@ -868,12 +882,12 @@ export class Combat {
       if (leader) G.at += dt;
       if (e === G.rammer && !ctx.side) {
         if (!e.ram) {
-          e.z = Math.min(e.z + (scroll * 0.5 + 30) * dt, P.z - 40);
+          e.z = Math.min(e.z + (scroll * 0.5 + 30) * dt, P.z - 55); // 55 m 先で止まって合図
           G.lane += THREE.MathUtils.clamp(P.x - G.lane, -6 * dt, 6 * dt);
           const warn = G.at > 0.4;
           this.setMechEye(e, warn); // 体当たりの合図: 目が赤く光る (0.5 秒)
           if (G.at > 0.9) {
-            e.ram = { t: 0, vel: _a.subVectors(P, p).normalize().multiplyScalar(42 + this.level * 2).clone() };
+            e.ram = { t: 0, vel: _a.subVectors(P, p).normalize().multiplyScalar(34 + this.level).clone() }; // 55 m を約 1.4 秒
             e.noHit = true; // 当たりは下で見る (目の手前で砕く)
             sfx.whoosh();
           }
@@ -936,7 +950,7 @@ export class Combat {
     if (e.ram) {
       const R = e.ram;
       R.t += dt;
-      if (R.t < 0.3) R.vel.lerp(_a.subVectors(P, p).normalize().multiplyScalar(R.vel.length()), Math.min(1, dt * 6));
+      if (R.t < 0.2) R.vel.lerp(_a.subVectors(P, p).normalize().multiplyScalar(R.vel.length()), Math.min(1, dt * 6));
       p.addScaledVector(R.vel, dt);
       p.z = Math.min(p.z, P.z + 20); // 背後 20 m で待つ (部隊のボスが、また攻めてくるまで)
       p.y = Math.max(3.3 * MECH_SCALE * 0.6, p.y);
@@ -945,7 +959,7 @@ export class Combat {
       // 目の 2 m 手前まで来たら: 当たる位置なら砕けてダメージ。外れていればそのまま背後へ抜ける
       if (!R.checked && p.z > P.z - e.r - 2) {
         R.checked = true;
-        if (Math.hypot(p.x - P.x, p.y - P.y) < e.r + ctx.playerR) {
+        if (Math.hypot(p.x - P.x, p.y - P.y) < e.r * 0.6 + ctx.playerR) { // 当たりは体の芯 (6 割) だけ。かすめても当たらない
           // 砕けて見えなくなり、背後で待つ (倒したことにはしない。部隊のボスなら、次の攻撃でまた出てくる)
           ctx.onPlayerHit(25);
           this.explode(p.clone(), true);
@@ -1285,6 +1299,11 @@ export class Combat {
       H.head.mesh.position.copy(H.head.spine);
       H.head.mesh.lookAt(P);
       if (!b.twin) this.followChain(H.neck, H.head, 1, dt, t + H.phase);
+      // 二首: 体力が半分を切った頭は煙を上げ、3 割を切ると赤く点滅する (どちらの首があと少しで壊れるか分かるように)
+      if (b.twin && H.hp < b.maxHp / 4) {
+        if (Math.random() < dt * 20) this.smoke.emit(H.head.mesh.position, _b.set(rand(-2, 2), rand(3, 6), rand(-2, 2)), DUST, 3, 1.2, 3, 0.96);
+        if (H.hp < b.maxHp * 0.15 && Math.sin(t * 14) > 0) H.head.flash = Math.max(H.head.flash, 0.05);
+      }
     }
     if (b.twin) {
       // 付け根: 頭たちのうしろ下。突進のときは胴体ごと迫ってくる
@@ -1506,6 +1525,7 @@ export class Combat {
     b.rushT = Math.min(b.rushT, 4);
     const bonus = Math.round(3000 * this.bonusLevel * this.mult);
     this.score += bonus;
+    this.announce = `HEAD BREAK!  +${bonus}`; // 首を 1 本壊したことを、はっきり見せる
     this.kills++;
     sfx.explode(true);
     sfx.roar();
@@ -1691,6 +1711,14 @@ export class Combat {
       }
       if (p.z > REMOVE_Z) e.dead = true;
       e.shadow.position.set(p.x, 0.05, p.z);
+      // 出現音: 敵が見え始めたとき (150 m より近づいたとき) に、種類ごとの音を鳴らす (同じ種類は 2 秒に 1 回まで)
+      if (!e.announced && e.kind !== 'boss' && !e.bossGroup && p.z > ctx.player.z - 150 && p.y > -2) {
+        e.announced = true;
+        if ((this.appearAt[e.kind] ?? -9) < this.time - 2) {
+          this.appearAt[e.kind] = this.time;
+          sfx.appear(e.kind);
+        }
+      }
       if (!e.whooshed && e.kind !== 'boss' && p.distanceTo(ctx.eye) < e.r + 9) {
         e.whooshed = true;
         sfx.whoosh();

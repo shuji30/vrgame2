@@ -22,7 +22,7 @@
 export const STAGES = [
   {
     name: 'SUNNY FIELD', kind: 'normal', length: 45, speed: 40, diff: 1, density: 0.9,
-    waves: [['fighter', 3], ['dart', 1.5], ['gremlin', 1], ['mammoth', 1.2]],
+    waves: [['fighter', 3], ['dart', 1.5], ['gremlin', 1], ['mammoth', 2.5]],
     obstacles: { bush: 3, tree: 2, ring: 1.2, column: 0.5, lane: 0.25 },
     palette: { a: 0xe9cf6a, b: 0x3e9c3c, fog: 0xf6dcae, sky: 0x2f72d8, mount: 0x5a70a8, col: ['#f4f4f4', '#e2559a'], bush: 0x2e8b3a },
     bgm: { key: 0, tempo: 152, song: 'rock' },
@@ -42,7 +42,7 @@ export const STAGES = [
     obstacles: { mushroom: 3.5, spike: 1, ring: 0.8, lane: 0.28 },
     palette: { a: 0xffbcd9, b: 0x9a52c8, fog: 0xffe2f0, sky: 0x6a3ad0, mount: 0x9a6ac0, col: ['#ffffff', '#ff6aa8'], bush: 0xd062c4 },
     bgm: { key: 1, tempo: 154, song: 'jazz' },
-    boss: { type: 'twin', hp: 520, escape: 0 },
+    boss: { type: 'twin', hp: 440, escape: 0 },
   },
   {
     name: 'STEEL CANYON', kind: 'normal', length: 40, speed: 46, diff: 3, density: 1.0, ceiling: true,

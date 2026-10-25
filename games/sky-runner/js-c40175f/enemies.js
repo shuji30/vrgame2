@@ -14,6 +14,9 @@ const _a = new THREE.Vector3(), _b = new THREE.Vector3();
 const DUST = new THREE.Color(0xb89a70);
 const K = 1.8; // 敵の大きさの倍率 (近づいたときに画面いっぱいに迫って見えるように)
 
+// Blender で作ったモデル (assets/enemies.glb を combat.js が読んで入れる)。読み込むまでは下の図形で組み立てる
+export const MODELS = {};
+
 // 共有するジオメトリ (敵ごとに作り直さない)
 const GEO = {
   dart: new THREE.OctahedronGeometry(1, 0).scale(0.55, 0.55, 2.2),
@@ -367,19 +370,47 @@ export const EXTRA = {
           parent.add(mesh);
           return mesh;
         };
+        // Blender のモデルがあれば、部品を軸の位置に置く。材質は被弾で光らせるため敵ごとに複製する
+        const M = MODELS.mammoth;
+        const mats = M ? [] : [fur, dark, tusk, eye];
+        const copies = new Map();
+        const part = (parent, tpl, pos, scale) => {
+          const o = tpl.clone();
+          o.traverse((m) => {
+            if (!m.isMesh) return;
+            if (!copies.has(m.material)) {
+              const cm = m.material.clone();
+              cm.userData.base = cm.emissive.clone();
+              copies.set(m.material, cm);
+              mats.push(cm);
+            }
+            m.material = copies.get(m.material);
+          });
+          o.position.set(...pos);
+          o.rotation.y = Math.PI; // モデルはほかの敵と同じく -Z が前なので、+Z (プレイヤーの方) へ向ける
+          if (scale) o.scale.set(...scale);
+          parent.add(o);
+          return o;
+        };
         // 胴 (原点 = 胴の真ん中。当たり・ロックはここを見る)、背中のこぶ、しっぽ
-        add(g, GEO.blob, fur, [0, 0, 0], [2.3, 2.0, 3.1]);
-        add(g, GEO.blob, fur, [0, 1.5, 0.9], [1.7, 1.4, 1.7]);
-        add(g, GEO.trunkSeg, dark, [0, 0.4, -3], [0.4, 1.4, 0.4], [-0.5, 0, 0]);
+        if (M) part(g, M.body, [0, 0, 0]);
+        else {
+          add(g, GEO.blob, fur, [0, 0, 0], [2.3, 2.0, 3.1]);
+          add(g, GEO.blob, fur, [0, 1.5, 0.9], [1.7, 1.4, 1.7]);
+          add(g, GEO.trunkSeg, dark, [0, 0.4, -3], [0.4, 1.4, 0.4], [-0.5, 0, 0]);
+        }
         // 頭は首を軸に上下に振る
         const head = new THREE.Group();
         head.position.set(0, 0.8, 2.6);
         g.add(head);
-        add(head, GEO.blob, fur, [0, 0.3, 0.8], [1.5, 1.6, 1.4]);
-        for (const sx of [-1, 1]) {
-          add(head, GEO.blob, dark, [sx * 1.4, 0.4, 0.4], [0.25, 1.0, 0.8]); // 耳
-          add(head, GEO.blob, eye, [sx * 0.75, 0.75, 1.95], [0.18, 0.18, 0.18]); // 光る目
-          add(head, GEO.tusk, tusk, [sx * 0.55, -0.4, 1.7], [sx, 1, 1]); // 牙は左右で外へ反る
+        if (M) part(head, M.head, [0, 0, 0]);
+        else {
+          add(head, GEO.blob, fur, [0, 0.3, 0.8], [1.5, 1.6, 1.4]);
+          for (const sx of [-1, 1]) {
+            add(head, GEO.blob, dark, [sx * 1.4, 0.4, 0.4], [0.25, 1.0, 0.8]); // 耳
+            add(head, GEO.blob, eye, [sx * 0.75, 0.75, 1.95], [0.18, 0.18, 0.18]); // 光る目
+            add(head, GEO.tusk, tusk, [sx * 0.55, -0.4, 1.7], [sx, 1, 1]); // 牙は左右で外へ反る
+          }
         }
         // 鼻: 4 つの節。根元から順に曲げて、垂らしたり振り上げたりする
         const trunk = [];
@@ -388,7 +419,9 @@ export const EXTRA = {
           const seg = new THREE.Group();
           seg.position.set(0, i ? -0.95 : -0.2, i ? 0 : 2.1);
           parent.add(seg);
-          add(seg, GEO.trunkSeg, dark, [0, 0, 0], [1 - i * 0.15, 1, 1 - i * 0.15]);
+          const w = 1 - i * 0.15;
+          if (M) part(seg, M.trunk, [0, 0, 0], [w, 1, w]);
+          else add(seg, GEO.trunkSeg, dark, [0, 0, 0], [w, 1, w]);
           trunk.push(seg);
           parent = seg;
         }
@@ -398,13 +431,14 @@ export const EXTRA = {
           const leg = new THREE.Group();
           leg.position.set(lx, -1.2, lz);
           g.add(leg);
-          add(leg, GEO.leg, dark, [0, 0, 0]);
+          if (M) part(leg, M.leg, [0, 0, 0]);
+          else add(leg, GEO.leg, dark, [0, 0, 0]);
           legs.push(leg);
         }
         const S = 1.5 * (c.sideMode ? 0.7 : 1);
         g.scale.setScalar(S);
         const e = {
-          kind: 'mammoth', mesh: g, mats: [fur, dark, tusk, eye], r: 3.2 * S, hp: 14 + c.level * 4, score: 2000, t: rand(0, 2), flash: 0, fireT: Infinity, dmg: 25,
+          kind: 'mammoth', mesh: g, mats, r: 3.2 * S, hp: 14 + c.level * 4, score: 2000, t: rand(0, 2), flash: 0, fireT: Infinity, dmg: 25,
           S, head, trunk, legs, state: 'walk', timer: 0, step: 0, x: px + (n > 1 ? (k ? 1 : -1) * rand(10, 14) : rand(-6, 6)), z: SPAWN_Z - k * 25,
         };
         g.position.set(e.x, 3.8 * S, e.z);
