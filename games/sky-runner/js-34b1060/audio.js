@@ -961,7 +961,11 @@ let realMusic = true;
 export function setRealMusic(on) {
   realMusic = on;
 }
-const RECORDED_GAIN = 1.2; // 録音の曲の音量 (プログラムの曲と同じくらいに聞こえるよう)
+// 録音の曲の音量。mp3 は RMS -14.3 dBFS ほどにそろっているので、BGM の出口 (0.35 × 全体 0.6) を通ったあとに、
+// ゲームの音源の曲 (約 -16 dBFS) と同じくらい (約 -17 dBFS) になる倍率 (2026-10-25 に測って決めた。前の 1.2 では 10 dB 小さかった)
+const RECORDED_GAIN = 3.4;
+// ファイルごとの補正 (ほかより小さく録音されている曲): 10 ボスは RMS -18.6 dBFS なので 4.3 dB 上げる
+const RECORDED_TRIM = { boss: 1.64 };
 const recorded = {}; // パス → audio 要素
 let recordedNow = null;
 function recordedEl(url) {
@@ -969,7 +973,8 @@ function recordedEl(url) {
     const el = new Audio(url);
     el.loop = true;
     const g = ctx.createGain();
-    g.gain.value = RECORDED_GAIN;
+    const key = Object.keys(RECORDED_SONGS).find((k) => RECORDED_SONGS[k] === url);
+    g.gain.value = RECORDED_GAIN * (RECORDED_TRIM[key] || 1);
     ctx.createMediaElementSource(el).connect(g).connect(bgmBus);
     recorded[url] = el;
   }

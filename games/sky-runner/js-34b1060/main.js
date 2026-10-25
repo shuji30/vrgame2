@@ -463,23 +463,30 @@ refreshStageList();
 stageSel.value = String(selectedStage);
 stageSel.addEventListener('change', () => { selectedStage = Number(stageSel.value); });
 
-// タイトル画面の曲 (SKY HIGHWAY の録音、assets/music/skyhighway.mp3)。くり返し流す。
-// ブラウザは最初にクリックやキーを押すまで音を出せないので、そのときに鳴らし始める。出撃すると止め、タイトルへ戻るとまた流す
+// オープニングテーマ (SKY HIGHWAY の録音、assets/music/skyhighway.mp3)。タイトル画面の「♪ OPENING THEME」のボタンで
+// 聞く / 止める (自分で押して聞くものなので、BGM やリアルミュージックの設定に関係なく流す)。くり返し流し、出撃したら止める
 const titleMusic = new Audio('./assets/music/skyhighway.mp3');
 titleMusic.loop = true;
-titleMusic.volume = 0.6;
+titleMusic.volume = 0.85; // ゲームの中の録音の曲と同じくらいの大きさ
 if (new URLSearchParams(location.search).has('debug')) window.__titleMusic = titleMusic; // 開発用
 let titleMuted = false;
+const btnTheme = document.getElementById('btnTheme');
+const showThemeBtn = () => {
+  btnTheme.classList.toggle('playing', !titleMusic.paused);
+  btnTheme.querySelector('small').textContent = titleMusic.paused ? '聞く' : '止める';
+};
+titleMusic.addEventListener('play', showThemeBtn);
+titleMusic.addEventListener('pause', showThemeBtn);
 function playTitleMusic() {
-  if (S.mode !== 'title' || !settings.bgm || !settings.realMusic || previewing || titleMuted) return stopTitleMusic(false);
-  if (titleMusic.paused) titleMusic.play().catch(() => { /* まだ操作がなく、鳴らせない */ });
+  stopPreview(); // サウンドテストの試聴は止める
+  titleMusic.currentTime = 0;
+  titleMusic.play().catch(() => { /* 鳴らせない */ });
 }
 function stopTitleMusic(rewind = true) {
   titleMusic.pause();
   if (rewind) titleMusic.currentTime = 0;
 }
-addEventListener('pointerdown', () => playTitleMusic());
-addEventListener('keydown', () => playTitleMusic());
+btnTheme.addEventListener('click', () => (titleMusic.paused ? playTitleMusic() : stopTitleMusic()));
 
 // サウンドテスト: BGM は押すたびに 再生 / 停止、効果音は押すたびに鳴らす
 let previewing = null;
@@ -489,7 +496,6 @@ function stopPreview() {
   previewing = null;
   previewBGM(null);
   bgmButtons.forEach((b) => b.classList.remove('playing'));
-  playTitleMusic(); // 試聴をやめたら、タイトルの曲に戻る
 }
 const sndButton = (name, desc, onClick) => {
   const b = document.createElement('button');
@@ -567,7 +573,6 @@ function toTitle() {
   setPaused(false);
   setEngine(0);
   stopBGM();
-  playTitleMusic();
   const session = renderer.xr.getSession();
   if (session) session.end();
 }
@@ -1496,7 +1501,7 @@ unlockHard();
 for (const key of ['bgm', 'engine', 'invertY', 'vrGentle', 'autoFire', 'hard', 'seated', 'leftHanded', 'storyAlways', 'realMusic']) {
   const el = document.getElementById(key);
   el.checked = settings[key];
-  el.addEventListener('change', () => { settings[key] = el.checked; saveSettings(); applyAudioSettings(); showHiScore(); input.leftHanded = settings.leftHanded; playTitleMusic(); });
+  el.addEventListener('change', () => { settings[key] = el.checked; saveSettings(); applyAudioSettings(); showHiScore(); input.leftHanded = settings.leftHanded; });
 }
 input.leftHanded = settings.leftHanded;
 addEventListener('keydown', (e) => {

@@ -88,15 +88,97 @@ function stripeTexture(c1, c2) {
 // 障害物の種類 (ステージ表 obstacles の重みの名前)
 export const OBSTACLE_KINDS = ['column', 'bush', 'tree', 'rock', 'mushroom', 'crystal', 'arch', 'monolith', 'spike', 'ring', 'pylon'];
 
+// ---- 夜の景色 (1 面 SKY HIGHWAY)
+// 星と三日月 (カメラに付いて動く、霧の外)
+function makeNightSky() {
+  const g = new THREE.Group();
+  const pos = [];
+  for (let i = 0; i < 700; i++) {
+    const a = rand(0, Math.PI * 2), h = rand(0.08, 1);
+    const r = Math.sqrt(1 - h * h);
+    pos.push(Math.cos(a) * r * 1300, h * 1300, Math.sin(a) * r * 1300);
+  }
+  const stars = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)),
+    new THREE.PointsMaterial({ color: 0xdfe8ff, size: 2.2, sizeAttenuation: false, fog: false, depthWrite: false, transparent: true, opacity: 0.85 }));
+  stars.renderOrder = -1;
+  // 三日月: 丸い光から、少しずらした丸を消して作る
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const x = c.getContext('2d');
+  x.fillStyle = '#f4f6ff';
+  x.shadowColor = '#bcd0ff';
+  x.shadowBlur = 16;
+  x.beginPath(); x.arc(64, 64, 40, 0, Math.PI * 2); x.fill();
+  x.globalCompositeOperation = 'destination-out';
+  x.shadowBlur = 0;
+  x.beginPath(); x.arc(84, 52, 38, 0, Math.PI * 2); x.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const moon = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, fog: false, depthWrite: false, transparent: true }));
+  moon.position.set(420, 620, -1050);
+  moon.scale.setScalar(150);
+  moon.renderOrder = -1;
+  g.add(stars, moon);
+  return g;
+}
+// ビル街のシルエット (山の代わり): 暗い紺の箱に、窓の明かり
+function makeSkyline() {
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 128;
+  const x = c.getContext('2d');
+  x.fillStyle = '#070a16';
+  x.fillRect(0, 0, 64, 128);
+  for (let yy = 4; yy < 128; yy += 8) for (let xx = 4; xx < 64; xx += 8) {
+    if (Math.random() < 0.38) {
+      x.fillStyle = Math.random() < 0.15 ? '#ff6a7a' : Math.random() < 0.5 ? '#9fd8ff' : '#ffe9b0';
+      x.globalAlpha = rand(0.35, 0.9);
+      x.fillRect(xx, yy, 4, 4);
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  const g = new THREE.Group();
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  const mats = [1, 2, 3].map((k) => { const t = tex.clone(); t.repeat.set(k, k * 2); t.needsUpdate = true; return new THREE.MeshBasicMaterial({ map: t, fog: false }); });
+  for (let i = 0; i < 70; i++) {
+    const w = rand(28, 80), h = rand(50, 260);
+    const m = new THREE.Mesh(box, mats[Math.floor(rand(0, 3))]);
+    m.scale.set(w, h, rand(20, 50));
+    m.position.set(-1300 + i * 38 + rand(-14, 14), h / 2 - 2, -1050 + rand(-90, 30));
+    g.add(m);
+  }
+  return g;
+}
+// 光の筋: 道の左右の低い所 (横 16〜70 m、高さ 0.3〜6 m) を流れる細い光。白・青、ときどき赤。
+// VR で酔わないよう、目の高さの正面には置かず、明るさも控えめにする
+function makeTrails() {
+  const g = new THREE.Group();
+  const geo = new THREE.BoxGeometry(0.22, 0.22, 1);
+  const mats = [0xe8f4ff, 0x6ab8ff, 0xff4060].map((col) => new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, fog: true }));
+  for (let i = 0; i < 80; i++) {
+    const m = new THREE.Mesh(geo, mats[Math.random() < 0.12 ? 2 : Math.random() < 0.5 ? 1 : 0]);
+    const side = Math.random() < 0.5 ? -1 : 1;
+    m.scale.z = rand(18, 55);
+    m.position.set(side * rand(16, 70), rand(0.3, 6), rand(-520, 40));
+    m.userData.v = rand(20, 60);
+    g.add(m);
+  }
+  return g;
+}
+
 export class World {
   constructor(scene) {
     this.scene = scene;
     scene.fog = new THREE.Fog(0xffffff, FOG_NEAR, FOG_FAR);
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x667788, 1.8));
+    this.hemi = new THREE.HemisphereLight(0xffffff, 0x667788, 1.8);
+    scene.add(this.hemi);
     const sun = new THREE.DirectionalLight(0xffffff, 2.2);
     sun.position.set(30, 60, 25);
     scene.add(sun);
+    this.sunLight = sun;
 
     // 地面
     this.groundUni = {
@@ -149,6 +231,17 @@ export class World {
       this.mountains.add(m);
     }
     scene.add(this.mountains);
+
+    // 夜の景色 (パレットに night: true がある面だけ。1 面 SKY HIGHWAY): 星・三日月・ビル街・道の左右を流れる光の筋
+    this.nightSky = makeNightSky();
+    this.nightSky.visible = false;
+    scene.add(this.nightSky);
+    this.skyline = makeSkyline();
+    this.skyline.visible = false;
+    scene.add(this.skyline);
+    this.trails = makeTrails();
+    this.trails.visible = false;
+    scene.add(this.trails);
 
     // 障害物の共有ジオメトリとマテリアル
     this.geo = {
@@ -216,6 +309,16 @@ export class World {
     // 水晶はステージの空の色を明るくした色、ほのかに光らせる
     this.mat.crystal.color.setHex(th.crystal ?? th.sky).lerp(new THREE.Color(0xffffff), 0.45);
     this.mat.crystal.emissive.setHex(th.crystal ?? th.sky).multiplyScalar(0.25);
+    this.mat.lamp.emissive.setHex(th.lamp ?? 0xff4ad8);
+    // 夜の面: 星・月・ビル街・光の筋を出し、山を隠して、明かりを月の光くらいに落とす
+    const night = !!th.night;
+    this.nightSky.visible = this.skyline.visible = this.trails.visible = night;
+    this.mountains.visible = !night;
+    this.hemi.intensity = night ? 0.75 : 1.8;
+    this.hemi.color.setHex(night ? 0x9fb4ff : 0xffffff);
+    this.hemi.groundColor.setHex(night ? 0x1a2030 : 0x667788);
+    this.sunLight.intensity = night ? 0.9 : 2.2;
+    this.sunLight.color.setHex(night ? 0xc8d8ff : 0xffffff);
   }
 
   // 色を time 秒かけて移す (エンディング用。VR で視野全体の明るさが急に跳ばないように)。
@@ -532,6 +635,16 @@ export class World {
     if (this.ceiling.visible) this.ceiling.position.x = camPos.x;
     this.sky.position.set(camPos.x, 0, camPos.z);
     this.mountains.position.x = camPos.x * 0.9; // ほぼ無限遠に見せる
+    if (this.nightSky.visible) {
+      this.nightSky.position.set(camPos.x, 0, camPos.z);
+      this.skyline.position.x = camPos.x * 0.9;
+      // 光の筋: 道の左右の低い所を、地面より速く後ろへ流れる (流れきったら、また遠くから)
+      this.trails.position.x = this.side ? 0 : camPos.x;
+      for (const t of this.trails.children) {
+        t.position.z += (speed * 1.6 + t.userData.v) * dt;
+        if (t.position.z > 40) t.position.z -= 560;
+      }
+    }
 
     if (spawn) {
       this.spawnAcc += d;
