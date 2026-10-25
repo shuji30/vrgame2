@@ -1,4 +1,4 @@
-// WebAudio で効果音と BGM をすべて合成する(外部音源ファイル不要)
+// WebAudio で効果音と BGM を合成する。録音の曲 (assets/music) と録音の効果音 (assets/sfx) は、設定で切りかえて使う
 import { GENRE_NAMES, makeSongs } from './songs.js';
 
 let outNode = null; // 最終段 (録画で音を取り出すため)
@@ -43,7 +43,59 @@ export function initAudio() {
   noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
   const d = noiseBuf.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  loadSamples();
 }
+
+// ---- 録音の効果音 (assets/sfx。AI で作った音を scripts/prep-sfx.mjs で整えたもの)。1 種類 4 通りあり、鳴らすたびに順に替える。
+// リアル効果音の設定がオフのとき、または読み込む前は、合成の音で鳴らす
+const SAMPLE_KINDS = ['shot', 'explode', 'damage', 'missile', 'roar', 'engine'];
+const samples = {}, sampleTurn = {};
+let realSfx = true;
+export function setRealSfx(on) {
+  realSfx = on;
+  if (eng) { // エンジン音を作り直す (録音 ⇔ 合成)
+    const level = eng.level;
+    eng.stop();
+    eng = null;
+    setEngine(level);
+  }
+}
+function loadSamples() {
+  for (const k of SAMPLE_KINDS) {
+    samples[k] = [];
+    for (let i = 1; i <= 4; i++) {
+      fetch(`./assets/sfx/${k}${i}.mp3`).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b))
+        .then((buf) => {
+          samples[k][i - 1] = buf;
+          if (k === 'engine' && eng && !eng.rec && realSfx) setRealSfx(true); // 合成のエンジン音で鳴り始めていたら、録音の音へ
+        }).catch(() => { /* 読めないときは合成の音のまま */ });
+    }
+  }
+}
+const sampleOf = (k) => {
+  const list = realSfx ? (samples[k] || []).filter(Boolean) : [];
+  return list.length ? list[(sampleTurn[k] = (sampleTurn[k] || 0) + 1) % list.length] : null;
+};
+// 録音の効果音を 1 回鳴らす。dur 秒で切るときは、後ろの 4 割でフェードアウト。高さと大きさは鳴らすたびに少し変える。
+// 鳴らせたら true (読み込む前は false を返すので、呼んだ側が合成の音で鳴らす)
+function playSample(k, vol, { rate = 1, dur = 0 } = {}) {
+  const buf = sampleOf(k);
+  if (!buf) return false;
+  const t = now(), src = ctx.createBufferSource(), g = ctx.createGain();
+  src.buffer = buf;
+  src.playbackRate.value = rate * rand(0.95, 1.05);
+  g.gain.value = vol * rand(0.85, 1);
+  src.connect(g).connect(sfxBus);
+  src.start(t);
+  if (dur) {
+    g.gain.setValueAtTime(g.gain.value, t + dur * 0.6);
+    g.gain.linearRampToValueAtTime(0, t + dur);
+    src.stop(t + dur + 0.02);
+  }
+  src.onended = () => g.disconnect();
+  return true;
+}
+const rand = (a, b) => a + Math.random() * (b - a);
 
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -146,27 +198,27 @@ export function playAt(pan, fn) {
 
 export const sfx = {
   shot() {
-    if (!ctx) return;
+    if (!ctx || playSample('shot', 0.3)) return;
     osc('square', 1500, now(), 0.07, 0.08, sfxBus, 350);
   },
   hit() {
-    if (!ctx) return;
+    if (!ctx || playSample('explode', 0.35, { rate: 1.6, dur: 0.15 })) return; // 録音の爆発の頭だけを、高く短く
     osc('square', 260, now(), 0.06, 0.15, sfxBus, 120);
   },
   explode(big = false) {
-    if (!ctx) return;
+    if (!ctx || playSample('explode', big ? 1.4 : 0.6, big ? {} : { rate: 1.3, dur: 1.2 })) return; // 小さな爆発は高く短く
     const t = now();
     noise(t, big ? 1.3 : 0.45, big ? 0.9 : 0.5, big ? 900 : 1800, sfxBus);
     osc('sawtooth', big ? 140 : 220, t, big ? 0.9 : 0.3, 0.25, sfxBus, 30);
   },
   damage() {
-    if (!ctx) return;
+    if (!ctx || playSample('damage', 1.3)) return;
     const t = now();
     noise(t, 0.7, 0.8, 600, sfxBus);
     osc('sawtooth', 320, t, 0.7, 0.35, sfxBus, 40);
   },
   enemyShot() {
-    if (!ctx) return;
+    if (!ctx || playSample('shot', 0.22, { rate: 0.7 })) return; // 録音の機関砲を低くして (自分の弾と聞き分けられるように)
     osc('triangle', 700, now(), 0.18, 0.12, sfxBus, 180);
   },
   // 近くを通り過ぎる風切り音 (ゴォッ)
@@ -272,7 +324,7 @@ export const sfx = {
   },
   // 竜の咆哮 (低くうなりながら上がって落ちる)。二首の竜が突っ込んでくるとき
   roar() {
-    if (!ctx) return;
+    if (!ctx || playSample('roar', 1.4)) return;
     const t = now();
     osc('sawtooth', 90, t, 1.4, 0.3, sfxBus, 45);
     osc('square', 140, t, 1.1, 0.12, sfxBus, 60);
@@ -350,7 +402,7 @@ export const sfx = {
     osc('square', 1760, now(), 0.05, 0.08, sfxBus);
   },
   missile() {
-    if (!ctx) return;
+    if (!ctx || playSample('missile', 0.8, { dur: 1.6 })) return;
     const t = now();
     noise(t, 0.6, 0.6, 1200, sfxBus, 'bandpass');
     osc('sawtooth', 300, t, 0.5, 0.15, sfxBus, 900);
@@ -1115,29 +1167,46 @@ export function setEngine(level) {
   if (!ctx) return;
   if (!engineEnabled) level = 0;
   if (!eng) {
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuf;
-    src.loop = true;
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.Q.value = 0.5;
-    const lp2 = ctx.createBiquadFilter();
-    lp2.type = 'lowpass';
-    lp2.Q.value = 0.5;
-    const hum = ctx.createOscillator();
-    hum.type = 'triangle';
-    const humGain = ctx.createGain();
-    humGain.gain.value = 0.25;
+    const buf = sampleOf('engine');
     const g = ctx.createGain();
     g.gain.value = 0;
-    src.connect(lp).connect(lp2).connect(g);
-    hum.connect(humGain).connect(g);
     g.connect(sfxBus);
-    src.start();
-    hum.start();
-    eng = { lp, lp2, hum, g };
+    if (buf) {
+      // 録音のエンジン音 (10 秒のループ)。速いほど少し高く、大きく
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      src.connect(g);
+      src.start();
+      eng = { g, rec: src, stop: () => { src.stop(); g.disconnect(); } };
+    } else {
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuf;
+      src.loop = true;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.Q.value = 0.5;
+      const lp2 = ctx.createBiquadFilter();
+      lp2.type = 'lowpass';
+      lp2.Q.value = 0.5;
+      const hum = ctx.createOscillator();
+      hum.type = 'triangle';
+      const humGain = ctx.createGain();
+      humGain.gain.value = 0.25;
+      src.connect(lp).connect(lp2).connect(g);
+      hum.connect(humGain).connect(g);
+      src.start();
+      hum.start();
+      eng = { lp, lp2, hum, g, stop: () => { src.stop(); hum.stop(); g.disconnect(); } };
+    }
   }
+  eng.level = level;
   const t = ctx.currentTime;
+  if (eng.rec) {
+    eng.rec.playbackRate.setTargetAtTime(0.85 + level * 0.35, t, 0.2);
+    eng.g.gain.setTargetAtTime(level > 0 ? 0.3 + level * 0.35 : 0, t, 0.25);
+    return;
+  }
   eng.lp.frequency.setTargetAtTime(160 + level * 260, t, 0.2);
   eng.lp2.frequency.setTargetAtTime(220 + level * 320, t, 0.2);
   eng.hum.frequency.setTargetAtTime(48 + level * 24, t, 0.2);

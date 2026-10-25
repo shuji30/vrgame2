@@ -122,7 +122,8 @@ function towerTexture() {
 }
 
 // 障害物の種類 (ステージ表 obstacles の重みの名前)
-export const OBSTACLE_KINDS = ['column', 'bush', 'tree', 'rock', 'mushroom', 'crystal', 'arch', 'monolith', 'spike', 'ring', 'pylon'];
+export const OBSTACLE_KINDS = ['column', 'bush', 'tree', 'rock', 'mushroom', 'crystal', 'arch', 'monolith', 'spike', 'ring', 'pylon',
+  'tank', 'watertower', 'crane', 'antenna', 'block'];
 
 // ---- 夜の景色 (1 面 SKY HIGHWAY)
 // 星と三日月 (カメラに付いて動く、霧の外)
@@ -299,6 +300,7 @@ export class World {
       mushDot: new THREE.SphereGeometry(0.16, 6, 4),
       crystal: new THREE.CylinderGeometry(0.75, 1, 1, 6),
       ring: new THREE.TorusGeometry(1, 0.12, 8, 32),
+      spire: new THREE.CylinderGeometry(0.12, 1, 1, 4, 1).rotateY(Math.PI / 4), // 電波塔 (四角い細い塔)
     };
     this.mat = {
       // ネオンの街灯 (12 面のボーナスでなぎ倒す人工物): 金属の柱と、光るランプ
@@ -319,6 +321,10 @@ export class World {
       glass: new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.1, metalness: 0.1, color: 0xd8f4ff, emissive: 0x204050 }),
       obsidian: new THREE.MeshStandardMaterial({ color: 0x4a3a6a, roughness: 0.25, metalness: 0.3, emissive: 0x1a1030 }),
       ring: new THREE.MeshBasicMaterial({ color: 0xffe066 }),
+      // 建物 (タンク・給水塔・クレーン・電波塔・段々のビル): 壁はステージの柱の明るい色、縁どりは濃い色
+      struct: new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.55, metalness: 0.25 }),
+      trim: new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.5, metalness: 0.4 }),
+      beacon: new THREE.MeshStandardMaterial({ color: 0xff3020, emissive: 0xff2010, emissiveIntensity: 1.5 }),
     };
 
     this.obstacles = [];
@@ -345,6 +351,8 @@ export class World {
     this.mat.column.map?.dispose();
     this.mat.column.map = stripeTexture(th.col[0], th.col[1]);
     this.mat.column.needsUpdate = true;
+    this.mat.struct.color.set(th.col[0]).lerp(new THREE.Color(th.mount), 0.3);
+    this.mat.trim.color.set(th.col[1]);
     this.mat.bush.color.setHex(th.bush);
     this.mat.leaf.color.setHex(th.bush).multiplyScalar(0.8);
     this.mat.rock.color.setHex(th.mount).lerp(new THREE.Color(0x8a8070), 0.5);
@@ -524,6 +532,112 @@ export class World {
         g.add(m);
       }
       o = { kind: 'spike', group: g, r, h: 3, breakable: true, parts: [{ c: 'cyl', r: r * 0.85, y0: 0, y1: 2.6 }] };
+    } else if (kind === 'tank') {
+      // 貯蔵タンク: 太い丸い缶にドームの屋根と縁どりの帯。低くて広いので、上を飛び越えるか回り込む
+      const r = rand(4, 6.5) * size, h = Math.min(rand(5, 10) * size, top - r * 0.5, this.ceiling.visible ? CEIL_Y - r * 0.5 - 1 : Infinity);
+      const body = new THREE.Mesh(this.geo.column, this.mat.struct);
+      body.scale.set(r, h, r);
+      body.position.y = h / 2;
+      const roof = new THREE.Mesh(this.geo.mushCap, this.mat.struct);
+      roof.scale.set(r, r * 0.45, r);
+      roof.position.y = h;
+      g.add(body, roof);
+      for (const y of [h * 0.3, h * 0.75]) {
+        const band = new THREE.Mesh(this.geo.column, this.mat.trim);
+        band.scale.set(r * 1.03, 0.6, r * 1.03);
+        band.position.y = y;
+        g.add(band);
+      }
+      o = { kind: 'tank', group: g, r, h: h + r * 0.45, parts: [{ c: 'cyl', r, y0: 0, y1: h }, { c: 'cyl', r: r * 0.7, y0: h, y1: h + r * 0.4 }] };
+    } else if (kind === 'watertower') {
+      // 給水塔: 4 本の脚の上に丸いタンクと とんがり屋根。脚の間 (幅 4 m ほど) をくぐり抜けられる
+      const s = 2.6, lh = Math.min(rand(9, 15), top - 7, this.ceiling.visible ? CEIL_Y - 8 : Infinity), tr = 3.4, th = 4;
+      const parts = [];
+      for (const [dx, dz] of [[-s, -s], [s, -s], [-s, s], [s, s]]) {
+        const leg = new THREE.Mesh(this.geo.cap, this.mat.trim);
+        leg.scale.set(0.5, lh, 0.5);
+        leg.position.set(dx, lh / 2, dz);
+        g.add(leg);
+        parts.push({ c: 'box', hx: 0.35, hz: 0.35, y0: 0, y1: lh, dx, dz });
+      }
+      for (const dz of [-s, s]) { // 脚をつなぐ横の梁 (横から見えるように前後だけ)
+        const beam = new THREE.Mesh(this.geo.cap, this.mat.trim);
+        beam.scale.set(s * 2, 0.35, 0.35);
+        beam.position.set(0, lh * 0.5, dz);
+        g.add(beam);
+      }
+      const tank = new THREE.Mesh(this.geo.column, this.mat.struct);
+      tank.scale.set(tr, th, tr);
+      tank.position.y = lh + th / 2;
+      const roof = new THREE.Mesh(this.geo.leaf, this.mat.trim);
+      roof.scale.set(tr * 1.08, 2, tr * 1.08);
+      roof.position.y = lh + th + 1;
+      g.add(tank, roof);
+      parts.push({ c: 'cyl', r: tr, y0: lh, y1: lh + th + 1.2 });
+      o = { kind: 'watertower', group: g, r: tr + 0.5, h: lh + th + 2, parts };
+    } else if (kind === 'crane') {
+      // クレーン: 細い塔と、上で横へ長く伸びる腕、反対側のおもり、腕の先から吊った荷。腕の下はくぐれる
+      const h = Math.min(tallH(22, 34), this.ceiling.visible ? CEIL_Y - 1.5 : Infinity), dir = Math.random() < 0.5 ? -1 : 1, L = rand(12, 18);
+      const mast = new THREE.Mesh(this.geo.cap, this.mat.struct);
+      mast.scale.set(1.6, h, 1.6);
+      mast.position.y = h / 2;
+      const jib = new THREE.Mesh(this.geo.cap, this.mat.trim);
+      jib.scale.set(L + 6, 1.1, 1.1);
+      jib.position.set(dir * (L - 6) / 2, h + 0.55, 0);
+      const weight = new THREE.Mesh(this.geo.cap, this.mat.struct);
+      weight.scale.set(2.4, 2, 2);
+      weight.position.set(-dir * 5, h - 0.5, 0);
+      const drop = rand(5, Math.max(6, h * 0.45));
+      const cable = new THREE.Mesh(this.geo.cap, this.mat.trim);
+      cable.scale.set(0.12, drop, 0.12);
+      cable.position.set(dir * L, h - drop / 2, 0);
+      const load = new THREE.Mesh(this.geo.cap, this.mat.trim);
+      load.scale.set(2.6, 1.8, 2.6);
+      load.position.set(dir * L, h - drop - 0.9, 0);
+      g.add(mast, jib, weight, cable, load);
+      o = { kind: 'crane', group: g, r: 1.6, h: h + 1.1, parts: [
+        { c: 'box', hx: 0.9, hz: 0.9, y0: 0, y1: h },
+        { c: 'box', hx: (L + 6) / 2, hz: 0.6, y0: h, y1: h + 1.1, dx: dir * (L - 6) / 2 },
+        { c: 'box', hx: 1.3, hz: 1.3, y0: h - drop - 1.8, y1: h - drop, dx: dir * L }] };
+    } else if (kind === 'antenna') {
+      // 電波塔: 細い四角い鉄塔に 2 段の見張り台、先に赤いランプ。高いので横によける
+      const h = Math.min(tallH(28, 44) * (lane ? 0.8 : 1), this.ceiling.visible ? CEIL_Y - 0.6 : Infinity), r = 2.4 * size;
+      const spire = new THREE.Mesh(this.geo.spire, this.mat.struct);
+      spire.scale.set(r, h, r);
+      spire.position.y = h / 2;
+      g.add(spire);
+      for (const k of [0.35, 0.65]) {
+        const deck = new THREE.Mesh(this.geo.cap, this.mat.trim);
+        const w = r * (1 - k * 0.88) * 1.9;
+        deck.scale.set(w, 0.5, w);
+        deck.position.y = h * k;
+        g.add(deck);
+      }
+      const lamp = new THREE.Mesh(this.geo.bush, this.mat.beacon);
+      lamp.scale.setScalar(0.55);
+      lamp.position.y = h + 0.3;
+      g.add(lamp);
+      o = { kind: 'antenna', group: g, r: r * 0.8, h: h + 0.6, parts: [
+        { c: 'cyl', r: r * 0.7, y0: 0, y1: h * 0.35 }, { c: 'cyl', r: r * 0.45, y0: h * 0.35, y1: h * 0.7 }, { c: 'cyl', r: r * 0.2, y0: h * 0.7, y1: h + 0.6 }] };
+    } else if (kind === 'block') {
+      // 段々のビル: 四角い箱を 2〜3 段、上ほど小さく重ねる。段の境に縁どり
+      const n = 2 + Math.floor(Math.random() * 2), total = Math.min(tallH(18, 32), this.ceiling.visible ? CEIL_Y - 0.6 : Infinity);
+      let w = rand(3.5, 5.5) * size, y = 0;
+      const parts = [];
+      for (let i = 0; i < n; i++) {
+        const hh = total * (i === 0 ? 0.5 : 0.5 / (n - 1));
+        const box = new THREE.Mesh(this.geo.cap, this.mat.struct);
+        box.scale.set(w * 2, hh, w * 2);
+        box.position.y = y + hh / 2;
+        const rim = new THREE.Mesh(this.geo.cap, this.mat.trim);
+        rim.scale.set(w * 2 + 0.4, 0.5, w * 2 + 0.4);
+        rim.position.y = y + hh;
+        g.add(box, rim);
+        parts.push({ c: 'box', hx: w, hz: w, y0: y, y1: y + hh + 0.25 });
+        y += hh;
+        w *= rand(0.6, 0.75);
+      }
+      o = { kind: 'block', group: g, r: parts[0].hx * 1.2, h: y, parts };
     } else if (kind === 'ring') {
       // 浮遊リング: 空中に浮かぶ光の輪。真ん中をくぐるとボーナス (輪そのものに当たるとダメージ)
       const R = rand(4, 5.5), cy = rand(R + 1.5, Math.max(R + 2, Math.min(reach - 1, this.ceiling.visible ? CEIL_Y - R - 1 : 16)));
@@ -734,7 +848,7 @@ export class World {
         if (this.laneGap >= 28 && Math.random() < (this.obstacleTable?.lane ?? 0.25) * 0.7) {
           this.laneGap = 0;
           let k = this.pickKind();
-          if (k === 'arch') k = 'column';
+          if (k === 'arch' || k === 'crane') k = 'column'; // 横に長いものは進路に置かない
           this.spawnOne(camPos.x + rand(-4, 4), z - rand(0, 5), k, true);
         }
       }
@@ -779,11 +893,12 @@ export class World {
   spawnPattern(type, cx) {
     if (this.side) return; // 横スクロールは横によけられないので出さない
     const z0 = this.ceiling.visible ? CEIL_SPAWN_Z : SPAWN_Z;
+    const kind = this.obstacleTable?.antenna && Math.random() < 0.5 ? 'antenna' : 'column'; // 電波塔のある面は、ときどき電波塔の列に
     if (type === 'row') {
       const gap = cx + rand(-14, 14);
-      for (let x = cx - 42; x <= cx + 42; x += 7) if (Math.abs(x - gap) >= 6) this.spawnOne(x, z0, 'column');
+      for (let x = cx - 42; x <= cx + 42; x += 7) if (Math.abs(x - gap) >= 6) this.spawnOne(x, z0, kind);
     } else {
-      for (let i = 0; i < 6; i++) for (const sx of [-1, 1]) this.spawnOne(cx + sx * 11, z0 - i * 14, 'column');
+      for (let i = 0; i < 6; i++) for (const sx of [-1, 1]) this.spawnOne(cx + sx * 11, z0 - i * 14, kind);
     }
   }
 

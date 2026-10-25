@@ -10,6 +10,68 @@ const AREA = { main: [0, 0, 512, 160], left: [0, 168, 512, 164], right: [0, 340,
 const COLORS = ['#ff3a2a', '#ffd23a', '#36e070', '#f4f4f4', '#ff8a1a', '#3ab0ff'];
 const rand = (a, b) => a + Math.random() * (b - a);
 
+// 三角形の真ん中が drop(x, y, z) に当たるものを消す (モデルに穴を開ける)
+function dropTriangles(geo, drop) {
+  const pos = geo.attributes.position;
+  const idx = geo.index ? geo.index.array : Array.from({ length: pos.count }, (_, i) => i);
+  const keep = [];
+  for (let t = 0; t < idx.length; t += 3) {
+    const [a, b, c] = [idx[t], idx[t + 1], idx[t + 2]];
+    if (!drop((pos.getX(a) + pos.getX(b) + pos.getX(c)) / 3, (pos.getY(a) + pos.getY(b) + pos.getY(c)) / 3, (pos.getZ(a) + pos.getZ(b) + pos.getZ(c)) / 3)) keep.push(a, b, c);
+  }
+  geo.setIndex(keep);
+}
+
+// 座る所を深くする: 胴体の上の面に穴を開け、下に足元まで続く溝 (床・壁) を作って、シートとペダルを置く。
+// 元の CockpitTub (浅い箱) と背もたれ、前の黒い台と小さな画面 3 つは消す。キャノピーのガラスは胴体より下を切る
+export function openCockpit(ship) {
+  const fuselage = ship.getObjectByName('Fuselage');
+  if (fuselage) dropTriangles(fuselage.geometry, (x, y, z) => Math.abs(x) < 0.1 && y > 0.18 && z > -0.55 && z < -0.05);
+  const canopy = ship.getObjectByName('Canopy');
+  if (canopy) dropTriangles(canopy.geometry, (x, y) => y < -0.15); // 縦は 0.19 倍・中心 0.22 なので、胴体の上 (0.19) より下
+  for (const n of ['CockpitTub', 'Seat', 'Dashboard', 'ScreenL', 'ScreenC', 'ScreenR']) { const o = ship.getObjectByName(n); if (o) o.visible = false; }
+
+  const parts = [];
+  const box = (w, h, d, color, x, y, z, rx = 0) => {
+    const g = new THREE.BoxGeometry(w, h, d).toNonIndexed();
+    g.applyMatrix4(new THREE.Matrix4().makeRotationX(rx)).translate(x, y, z);
+    const c = new THREE.Color(color), n = g.attributes.position.count;
+    g.setAttribute('color', new THREE.Float32BufferAttribute(Array.from({ length: n * 3 }, (_, i) => [c.r, c.g, c.b][i % 3]), 3));
+    parts.push(g);
+  };
+  // 溝: 床 (y = -0.09)、左右の壁と縁、後ろの壁。前は計器の下の奥 (z = -0.7) まで続き、上に天井をかける
+  const wall = 0x343c48;
+  box(0.21, 0.006, 0.66, 0x1c2026, 0, -0.093, -0.37);
+  for (const sx of [-1, 1]) {
+    box(0.006, 0.29, 0.51, wall, sx * 0.108, 0.055, -0.295);
+    box(0.006, 0.24, 0.15, wall, sx * 0.108, 0.03, -0.625);
+    box(0.02, 0.012, 0.51, 0x4a5560, sx * 0.108, 0.2, -0.295);
+  }
+  box(0.21, 0.24, 0.006, wall, 0, 0.03, -0.703);
+  box(0.222, 0.006, 0.153, wall, 0, 0.153, -0.625);
+  box(0.222, 0.05, 0.006, wall, 0, 0.175, -0.55);
+  box(0.222, 0.29, 0.006, wall, 0, 0.055, -0.037);
+  // シート: 溝の底の台に、座面 (上の面が y = 0)・後ろへ少し倒した背もたれ・頭当て、座面の横の黄色い取っ手
+  const seat = 0x2e3c56, pad = 0x3d4f70;
+  box(0.1, 0.05, 0.16, 0x3a434c, 0, -0.065, -0.3);
+  box(0.15, 0.04, 0.24, seat, 0, -0.02, -0.3);
+  box(0.13, 0.008, 0.22, pad, 0, 0.002, -0.3);
+  box(0.15, 0.3, 0.035, seat, 0, 0.148, -0.145, 0.17);
+  box(0.13, 0.27, 0.008, pad, 0, 0.151, -0.165, 0.17);
+  box(0.09, 0.06, 0.045, 0x1c2230, 0, 0.325, -0.114, 0.17);
+  for (const sx of [-1, 1]) box(0.012, 0.012, 0.09, 0xf0c020, sx * 0.081, -0.005, -0.36);
+  // ペダル: 座って足を伸ばした先 (計器の下の奥)。足の板は上を奥へ倒し、黒いゴムのすじを付ける。下を向くと見える
+  for (const sx of [-1, 1]) {
+    box(0.012, 0.04, 0.012, 0x5a646e, sx * 0.045, -0.07, -0.63);
+    box(0.04, 0.07, 0.008, 0x8a949e, sx * 0.045, -0.035, -0.62, -0.6);
+    for (const k of [-1, 0, 1]) box(0.034, 0.006, 0.004, 0x15191e, sx * 0.045, -0.032 + k * 0.0165, -0.616 - k * 0.0113, -0.6);
+  }
+  box(0.13, 0.012, 0.02, 0x3a434c, 0, -0.084, -0.64);
+  const mesh = new THREE.Mesh(mergeGeometries(parts), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0.2 }));
+  mesh.name = 'CockpitSeat';
+  (ship.getObjectByName('Ship') || ship).add(mesh);
+}
+
 // 板を作り、UV をキャンバスの中のその場所に合わせる
 function plate(w, h, [x, y, aw, ah]) {
   const g = new THREE.PlaneGeometry(w, h);
@@ -28,13 +90,13 @@ export class CockpitPanel {
     this.tex.colorSpace = THREE.SRGBColorSpace;
     this.tex.anisotropy = 4;
 
-    // 正面: 前の台の斜めの面 (30 度) に重ねる。左右: 床の縁に、内側へ傾けて置く
+    // 正面: 上の縁を奥へ 30 度倒して、目の方へ向ける (下の縁は座る所の溝の前の縁)。左右: 溝の縁の外に、内側へ傾けて置く
     const main = plate(0.3, 0.094, AREA.main).applyMatrix4(new THREE.Matrix4().compose(
-      new THREE.Vector3(0, 0.247, -0.47), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 6), new THREE.Vector3(1, 1, 1)));
+      new THREE.Vector3(0, 0.241, -0.5735), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 6), new THREE.Vector3(1, 1, 1)));
     const side = (sx, area) => plate(0.26, 0.083, area).applyMatrix4(new THREE.Matrix4().makeRotationZ(-Math.PI / 2 * sx)) // 長い方を前後に
       .applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2)) // 上を向ける
       .applyMatrix4(new THREE.Matrix4().makeRotationZ(sx * 0.55)) // 内側 (目の方) へ傾ける
-      .applyMatrix4(new THREE.Matrix4().makeTranslation(sx * 0.152, 0.225, -0.3));
+      .applyMatrix4(new THREE.Matrix4().makeTranslation(sx * 0.16, 0.23, -0.3));
     this.mesh = new THREE.Mesh(mergeGeometries([main, side(-1, AREA.left), side(1, AREA.right)]),
       new THREE.MeshBasicMaterial({ map: this.tex, side: THREE.DoubleSide }));
     this.mesh.name = 'CockpitPanel';
