@@ -46,14 +46,16 @@ $action = (string)($in['a'] ?? '');
 
 if (!is_dir($dataDir) && !mkdir($dataDir, 0700, true) && !is_dir($dataDir)) fail('data dir not writable', 500);
 // データディレクトリへの直接アクセスを禁止（Apache）
-if (!is_file("$dataDir/.htaccess")) @file_put_contents("$dataDir/.htaccess", "Require all denied\nDeny from all\n");
+if (!is_file("$dataDir/.htaccess")) @file_put_contents("$dataDir/.htaccess", "Require all denied\nDeny from all\nOptions -Indexes\n");
 
 require __DIR__ . '/laps.php';
 
 if ($action === 'health') {
     // db: 'ok'（MySQL に接続できた）/ 'file'（DB 未設定。ファイルに保存）/ 'error'（接続できない）
     // ice: WebRTC の中継サーバー（TURN）。config.php の 'ice_servers' に書く（直接つながらない回線どうしを中継する）
-    out(['ok' => true, 'version' => VERSION, 'php' => PHP_VERSION, 'writable' => is_writable($dataDir), 'db' => laps_status($config), 'time' => microtime(true),
+    // PHP のバージョンは下調べに使われないよう major.minor までに丸める（例: 8.5）
+    $php = implode('.', array_slice(explode('.', PHP_VERSION), 0, 2));
+    out(['ok' => true, 'version' => VERSION, 'php' => $php, 'writable' => is_writable($dataDir), 'db' => laps_status($config), 'time' => microtime(true),
         'ice' => $config['ice_servers'] ?? []]);
 }
 
@@ -107,7 +109,9 @@ function with_room(string $dir, string $code, callable $fn, bool $create = false
 function auth(array $room, array $in): string {
     $id = (string)($in['peer'] ?? '');
     $tok = (string)($in['token'] ?? '');
-    if (!isset($room['players'][$id]) || !hash_equals($room['players'][$id]['token'], $tok)) fail('unauthorized', 403);
+    // トークンは保存時にハッシュ化してあるので、受け取った値もハッシュにして比べる。
+    // こうすると room-*.json が万一読まれても、中の値ではなりすませない。
+    if (!isset($room['players'][$id]) || !hash_equals($room['players'][$id]['token'], hash('sha256', $tok))) fail('unauthorized', 403);
     return $id;
 }
 
@@ -135,7 +139,7 @@ switch ($action) {
         $name = clean_name($in['name'] ?? '');
         out(with_room($dataDir, $code, function ($room, $now) use ($peer, $token, $name, $code) {
             $room = ['code' => $code, 'host' => $peer, 'created' => $now, 'settings' => new stdClass(), 'state' => 'lobby',
-                     'players' => [$peer => ['name' => $name, 'token' => $token, 'joined' => microtime(true), 'seen' => $now]],
+                     'players' => [$peer => ['name' => $name, 'token' => hash('sha256', $token), 'joined' => microtime(true), 'seen' => $now]],
                      'queues' => [$peer => []]];
             return [$room, ['ok' => true, 'room' => $code, 'peer' => $peer, 'token' => $token, 'host' => $peer]];
         }, true));
@@ -149,7 +153,7 @@ switch ($action) {
             if (!$room) fail('room not found', 404);
             if (count($room['players']) >= MAX_PLAYERS) fail('room is full', 409);
             if ($room['state'] !== 'lobby') fail('race in progress', 409);
-            $room['players'][$peer] = ['name' => $name, 'token' => $token, 'joined' => microtime(true), 'seen' => $now];
+            $room['players'][$peer] = ['name' => $name, 'token' => hash('sha256', $token), 'joined' => microtime(true), 'seen' => $now];
             $room['queues'][$peer] = [];
             return [$room, ['ok' => true, 'room' => $room['code'], 'peer' => $peer, 'token' => $token, 'host' => $room['host']]];
         }));
