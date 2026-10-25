@@ -195,7 +195,8 @@ export class Input {
       const src = c.userData.src;
       const gp = src?.gamepad;
       if (!gp) continue;
-      const hand = src.handedness;
+      // 左利きの設定では、左右の手の役割を入れかえる (移動は右手、アクセルとミサイルは左手)
+      const hand = this.leftHanded ? ({ left: 'right', right: 'left' }[src.handedness] || src.handedness) : src.handedness;
       const btn = gp.buttons.map((b) => b.pressed);
       const ed = this.edges('xr' + hand, btn);
       const st = readXRStick(gp);
