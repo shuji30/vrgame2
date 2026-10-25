@@ -1,7 +1,9 @@
 // ボス: 晶洞の輪 (GEODE RING)。小さな晶洞岩 8 個が 2 つの輪になって逆向きに回る。
 // 殻が閉じている間は弾を跳ね返し (無害)、殻が開いて中の結晶が明るい水色に光っている間だけ倒せる。開くと光の輪を吐く。
 // 時間で逃げる (escape 秒)。tier 1 (10 面): 開いている 1.6 秒 / tier 2 (13 面): 1.0 秒、輪ごとに交互に開く
-// 撃破と逃げる判定は combat.js の bossGroup (全部倒せば撃破、残って逃げれば逃げられた)
+// 撃破と逃げる判定は combat.js の bossGroup (全部倒せば撃破、残って逃げれば逃げられた)。
+// 4 個倒したか 15 秒たったら「晶洞の行進」(GEODE MARCH): 輪から 1 個ずつ、25 m 先まで 1.2 秒でまっすぐ出てきて、
+// 殻が震えて光り (0.8 秒)、開いて 1.6 秒 (倒せる)、光の輪を 3 発の扇で吐いて閉じ、輪へ戻る
 import * as THREE from 'three';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -22,7 +24,7 @@ export function spawnGeodeRing(c, def) {
   const side = c.sideMode;
   const grp = { type: 'geodering', t: 0, escape: def.escape || 30, total: 0, kills: 0, leaving: false, bonus: 6000 };
   c.bossGroup = grp;
-  const center = { x: c.lastPlayer?.x ?? 0, y: THREE.MathUtils.clamp((c.lastPlayer?.y ?? 6) + 4, 8, 13), z: SPAWN_Z, a: 0 };
+  const center = { x: c.lastPlayer?.x ?? 0, y: THREE.MathUtils.clamp((c.lastPlayer?.y ?? 6) + 4, 8, 13), z: SPAWN_Z, a: 0, members: [], marchGap: 0 };
   for (let i = 0; i < 8; i++) {
     const ring = i % 2, slot = Math.floor(i / 2);
     const rock = new THREE.MeshStandardMaterial({ color: 0x5a4a5a, emissive: 0x000000, flatShading: true, roughness: 0.9 });
@@ -47,6 +49,7 @@ export function spawnGeodeRing(c, def) {
       bossGroup: grp,
     };
     g.position.set(center.x, center.y, SPAWN_Z);
+    center.members.push(e);
     c.addEnemy(e, side ? 0 : 2.4);
     if (side) e.shadow.visible = false;
   }
@@ -69,6 +72,18 @@ export const GEODERING_KINDS = {
         C.a += dt * T.speed;
         C.x += ((ctx.player.x ?? 0) - C.x) * Math.min(1, dt * 0.3);
         if (e.bossGroup.leaving) C.y += 12 * dt; // 時間切れ: 上へ逃げていく
+        // 晶洞の行進: 前の 1 個が戻ってから 1 秒あけて、次の 1 個
+        const G = e.bossGroup;
+        if (C.marcher?.dead) C.marcher = null;
+        C.marchGap -= dt;
+        if (!C.marcher && C.marchGap <= 0 && !G.leaving && !ctx.side && C.z >= hz - 1 && (G.kills >= 4 || G.t > 15)) {
+          const live = C.members.filter((m) => !m.dead);
+          const m = live[Math.floor(Math.random() * live.length)];
+          if (m) {
+            C.marcher = m;
+            m.march = { state: 'out', u: 0, from: m.mesh.position.clone(), to: new THREE.Vector3(ctx.player.x, THREE.MathUtils.clamp(ctx.player.y, 3, 14), ctx.player.z - 25) };
+          }
+        }
       }
       if (e.bossGroup.leaving && (C.y > 60 || C.leaveT > 8)) { e.dead = true; return; } // 逃げ始めて 8 秒で必ず消える
       // 2 つの輪は逆向きに回る
@@ -77,6 +92,7 @@ export const GEODERING_KINDS = {
       const sway = Math.sin(c.time * 0.4) * (ctx.side ? 0 : 5);
       if (ctx.side) p.set(C.x, C.y + Math.sin(a) * R, C.z + Math.cos(a) * R);
       else p.set(C.x + sway + Math.cos(a) * R, C.y + Math.sin(a) * R * 0.75, C.z);
+      if (e.march && march(c, e, dt, ctx, p)) return;
       // 殻の開け閉め: 閉じる → 開く (open 秒) → 閉じる
       e.timer -= dt;
       if (e.timer <= 0) {
@@ -98,3 +114,45 @@ export const GEODERING_KINDS = {
     },
   },
 };
+
+// 晶洞の行進: 出る (1.2 秒、まっすぐ) → 震えて光る (0.8 秒) → 開く (1.6 秒、扇 3 発) → 戻る (1.2 秒)。p には輪の位置が入っている
+function march(c, e, dt, ctx, p) {
+  const M = e.march, C = e.center;
+  M.u += dt;
+  const ease = (k) => k * k * (3 - 2 * k);
+  let want = 0, shake = 0;
+  if (M.state === 'out') {
+    p.lerpVectors(M.from, M.to, ease(Math.min(1, M.u / 1.2)));
+    if (M.u >= 1.2) { M.state = 'warn'; M.u = 0; }
+  } else if (M.state === 'warn') {
+    p.copy(M.to);
+    shake = 0.12 + Math.sin(e.t * 50) * 0.06; // 殻が震えて、すき間から光が漏れる
+    if (M.u >= 0.8) { M.state = 'open'; M.u = 0; M.fired = false; }
+  } else if (M.state === 'open') {
+    p.copy(M.to);
+    want = 1;
+    if (!M.fired && e.open > 0.6) {
+      M.fired = true;
+      for (const s of [-0.18, 0, 0.18]) c.fireBullet(p.clone(), ctx.player, s, 'ring'); // 扇のすき間か上下へよける
+    }
+    if (M.u >= 1.6) { M.state = 'back'; M.u = 0; M.from.copy(p); }
+  } else {
+    // 輪の位置 (p) へ戻る
+    const k = ease(Math.min(1, M.u / 1.2));
+    p.lerpVectors(M.from, p, k);
+    if (M.u >= 1.2) {
+      e.march = null;
+      C.marcher = null;
+      C.marchGap = 1;
+      e.phase = 'closed';
+      e.timer = rand(...e.tier.closed);
+    }
+  }
+  e.phase = want ? 'open' : 'closed';
+  e.fireT = Infinity; // 行進の間は、いつもの 1 発は撃たない
+  e.open += THREE.MathUtils.clamp(want - e.open, -dt * 5, dt * 6);
+  e.lid.rotation.x = -1.2 * e.open - shake;
+  e.gemM.userData.base.setHex(e.open > 0.6 ? 0x60f0ff : shake ? 0x2a8aa8 : 0x103040);
+  e.mesh.lookAt(ctx.player.x, ctx.player.y, ctx.player.z + 40);
+  return true;
+}

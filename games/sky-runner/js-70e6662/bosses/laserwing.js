@@ -1,7 +1,9 @@
 // ボス: 光翼の母船 (LASER WING)。13 面。大きなガラスの翼の母船。両方の翼の先に光線の発射口、中央に核。
 // 細い赤い予告の線を約 1 秒引いたあと、太い光線で左右に薙ぎ払う。光線の高さは上段・中段・下段からランダムで、
 // 左右対称 (両方同じ段)・非対称 (両方ちがう段)・片側だけ、もランダム (空いている段へ上下に動いてよける)。
-// 発射口は壊せない (弾を跳ね返す)。核はいつでも撃てる
+// 発射口は壊せない (弾を跳ね返す)。核はいつでも撃てる。
+// 体力が半分を切ると、2 回に 1 回は片方が「縦の光線」(VERTICAL CUT): そのときのプレイヤーの横の位置を、上から床まで切る
+// (横へよける)。予告は、その位置の少し先に立つ赤い縦の線。もう片方は上段か下段の横の光線
 import * as THREE from 'three';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -75,7 +77,8 @@ function levels(c) {
 }
 
 // 光線を 1 本始める: 予告の線 (1 秒) → 光線で薙ぐ (1.2 秒)。y: 光線がプレイヤーの所を通る高さ
-function startBeam(c, em, ctx, y) {
+// vertical: 縦の光線 (プレイヤーの横の位置を、上から床まで切る。横には動かない)
+function startBeam(c, em, ctx, y, vertical = false) {
   const P = ctx.player;
   const line = new THREE.Line(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3)), new THREE.LineBasicMaterial({ color: 0xff3020 }));
   line.frustumCulled = false;
@@ -83,6 +86,18 @@ function startBeam(c, em, ctx, y) {
   beam.visible = false;
   c.scene.add(line, beam);
   const sweep = rand(26, 34) * (em.sx > 0 ? -1 : 1); // 翼の外から内へ薙ぐ
+  if (vertical && !ctx.side) {
+    const top = Math.min(c.ceilingY, 30);
+    // 予告: プレイヤーの 12 m 先に、床から上まで赤い縦の線 (切られる場所が見える)
+    const mark = new THREE.Line(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([P.x, 0, P.z - 12, P.x, top, P.z - 12], 3)), new THREE.LineBasicMaterial({ color: 0xff3020 }));
+    mark.frustumCulled = false;
+    c.scene.add(mark);
+    em.beam = {
+      line, beam, mark, t: 0, warn: 1.0, dur: 0.9, hit: false, y, x: P.x, z: P.z, vertical: true,
+      from: new THREE.Vector3(P.x, top, P.z), to: new THREE.Vector3(P.x, 0.3, P.z),
+    };
+    return;
+  }
   em.beam = {
     line, beam, t: 0, warn: 1.0, dur: ctx.side ? 0.6 : 1.2, hit: false, y, x: P.x, z: P.z,
     // 横スクロールは薙がずに、その段の高さの横一文字の光線 (上下によける)
@@ -94,6 +109,11 @@ function startBeam(c, em, ctx, y) {
 function endBeam(c, em) {
   if (!em.beam) return;
   c.scene.remove(em.beam.line, em.beam.beam);
+  if (em.beam.mark) {
+    c.scene.remove(em.beam.mark);
+    em.beam.mark.geometry.dispose();
+    em.beam.mark.material.dispose();
+  }
   em.beam.line.geometry.dispose();
   em.beam.line.material.dispose();
   em.beam.beam.material.dispose(); // 円柱の形は共有なので捨てない
@@ -117,7 +137,13 @@ export const LASERWING_KINDS = {
         const a = Math.random() < 0.6 ? near : Math.floor(Math.random() * 3);
         const r = Math.random(), single = e.hp < e.maxHp * 0.5 ? 0.15 : 0.3; // 体力が半分を切ると、両方撃つことが多い
         const [left, right] = e.emitters[0].sx < 0 ? e.emitters : [e.emitters[1], e.emitters[0]];
-        if (r < single) {
+        e.volleys = (e.volleys || 0) + 1;
+        if (e.hp < e.maxHp * 0.5 && e.volleys % 2 === 0 && !ctx.side) {
+          // 縦の光線と、上段か下段の横の光線 (中ほどの高さで横へよければ、どちらも当たらない)
+          const vert = Math.random() < 0.5 ? left : right;
+          startBeam(c, vert, ctx, L[1], true);
+          startBeam(c, vert === left ? right : left, ctx, L[Math.random() < 0.5 ? 0 : 2]);
+        } else if (r < single) {
           startBeam(c, Math.random() < 0.5 ? left : right, ctx, L[a]); // 片側だけ
         } else if (r < single + (1 - single) / 2) {
           for (const m of e.emitters) startBeam(c, m, ctx, L[a]); // 左右対称: 同じ段を両側から
@@ -164,6 +190,7 @@ export const LASERWING_KINDS = {
       pos.setXYZ(0, p.x, p.y, p.z);
       pos.setXYZ(1, end.x, end.y, end.z);
       pos.needsUpdate = true;
+      if (B.mark) B.mark.visible = B.t >= B.warn || Math.floor(B.t * 12) % 2 === 0;
       if (B.t < B.warn) {
         // 予告: 赤い線が点滅し、発射口が赤く光る
         B.line.visible = Math.floor(B.t * 12) % 2 === 0;

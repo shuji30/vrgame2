@@ -1,7 +1,10 @@
 // ボス: 水晶の亡霊 (CRYSTAL PHANTOM)。11 面。半透明の結晶の亡霊が、4 秒ごとに消えて、別の場所に分身 3 体と一緒に現れる。
 // 本物だけが地面に影を落とし、目が水色に光る (分身は影がなく、目が紫)。分身は 1 発で砕けるが、ダメージは入らない。
-// 本物も分身も弾を撃つので、早く本物を見抜くほど楽になる
+// 本物も分身も弾を撃つので、早く本物を見抜くほど楽になる。
+// 体力が半分を切ると「分身の突撃」(DECOY DIVE): 現れてすぐ分身の目が赤くなり (0.8 秒、低いうなり)、そのときプレイヤーが
+// いた所へまっすぐ飛んでくる (毎秒 35 m)。目の 10 m 手前で砕けて、線の近く (横 3 m) にいれば 15。本物はその場に残る
 import * as THREE from 'three';
+import { sfx } from '../audio.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
@@ -120,7 +123,15 @@ export const PHANTOM_KINDS = {
         p.copy(e.at);
         setFade(e, 1 - Math.max(0, e.timer / 0.5));
         for (const d of e.decoys) if (!d.dead) setFade(d, e.fade);
-        if (e.timer <= 0) { e.state = 'show'; e.timer = Math.max(2.6, 4 - (c.level - 1) * 0.1); }
+        if (e.timer <= 0) {
+          e.state = 'show';
+          e.timer = Math.max(2.6, 4 - (c.level - 1) * 0.1);
+          // 分身の突撃 (体力が半分を切ってから。横スクロールではしない)
+          if (e.hp < e.maxHp * 0.5 && !ctx.side) {
+            for (const d of e.decoys) if (!d.dead) d.dive = { state: 'warn', t: 0 };
+            if (e.decoys.length) sfx.roar();
+          }
+        }
       }
       e.shadow.visible = e.state !== 'out' || e.fade > 0.2;
       // 本物の足元に水色の光の輪 (影とは別の手がかり)
@@ -150,14 +161,44 @@ export const PHANTOM_KINDS = {
     sideAbs: true,
     update(c, e, dt, scroll, ctx, p) {
       if (e.owner.dead) { e.dead = true; return; }
+      if (e.dive && diveDecoy(c, e, dt, ctx, p)) return;
       p.copy(e.at).add(new THREE.Vector3(0, Math.sin(e.t * 1.6 + 1) * 0.8, 0));
       e.mesh.lookAt(ctx.player.x, ctx.player.y, ctx.player.z + 30);
       e.noLock = e.fade < 0.6;
     },
     fire(c, e, ctx, p) {
       e.fireT = rand(1.8, 2.6);
-      if (e.fade < 0.9) return;
+      if (e.fade < 0.9 || e.dive) return; // 突撃する分身は撃たない
       c.fireBullet(p.clone(), ctx.player);
     },
   },
 };
+
+const RED_EYE = new THREE.Color(0xff2030);
+// 分身の突撃: 目が赤くなる予告 (0.8 秒) → まっすぐ飛ぶ → 目の 10 m 手前で砕ける。突撃中は true を返す
+function diveDecoy(c, e, dt, ctx, p) {
+  const D = e.dive, P = ctx.player;
+  D.t += dt;
+  if (D.state === 'warn') {
+    const eye = e.mats[2];
+    eye.userData.base.copy(RED_EYE).multiplyScalar(0.5 + 0.5 * Math.abs(Math.sin(D.t * 12)));
+    p.copy(e.at).add(new THREE.Vector3(Math.sin(D.t * 40) * 0.2, 0, 0)); // 震える
+    e.mesh.lookAt(P);
+    if (D.t >= 0.8 && e.fade > 0.9) {
+      D.state = 'fly';
+      D.vel = P.clone().sub(p).normalize().multiplyScalar(35); // そのときいた所へ、まっすぐ (追わない)
+      e.noHit = true; // 当たりは砕けるときに見る
+      eye.userData.base.copy(RED_EYE);
+      sfx.whoosh();
+    }
+    return true;
+  }
+  p.addScaledVector(D.vel, dt);
+  e.mesh.lookAt(P);
+  if (p.z + e.r > P.z - 10) {
+    if (Math.hypot(p.x - P.x, p.y - P.y) < 3 + ctx.playerR) ctx.onPlayerHit(15);
+    c.explode(p.clone(), false);
+    e.dead = true; // 倒したことにはしない
+  }
+  return true;
+}
