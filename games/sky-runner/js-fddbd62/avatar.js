@@ -2,6 +2,7 @@
 // モデルは Blender で作った assets/ship.glb と assets/harrier.glb (blender の元データは assets/models.blend)
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { CockpitPanel } from './cockpit.js';
 
 // 三人称で、目の高さから見てモデルをどこに置くか (rig の中の座標)
 const THIRD_OFFSET = {
@@ -91,6 +92,13 @@ export class Avatar {
       obj.traverse((o) => { if (/Muzzle/.test(o.name) && !o.isMesh) muzzles.push(o); });
       this.models[kind] = { obj, eye, flames, muzzles };
       if (kind === 'human') this.models[kind].legs = makeLimbs(obj);
+      if (kind === 'ship') {
+        // コックピットの計器 (ボタンいっぱい)。前の台の小さな画面 3 つは、計器の板の下に隠れるので消す
+        const panel = new CockpitPanel();
+        (obj.getObjectByName('Ship') || obj).add(panel.mesh);
+        for (const n of ['ScreenL', 'ScreenC', 'ScreenR']) { const o = obj.getObjectByName(n); if (o) o.visible = false; }
+        Object.assign(this.models[kind], { panel, arch: obj.getObjectByName('CanopyArch') });
+      }
     }));
   }
 
@@ -140,6 +148,7 @@ export class Avatar {
       const show = k === kind && !(view === '1st' && (kind === 'human' || this.riding)) && !this.destroyed && !this.hidden;
       m.obj.rotation.order = view === 'side' ? 'YXZ' : 'XYZ';
       m.obj.visible = show;
+      if (m.arch) m.arch.visible = view !== '1st'; // 前のキャノピーの枠は、コックピットから見ると視界をふさぐので消す
       if (k !== kind) continue;
 
       if (view === 'side') {
@@ -151,6 +160,7 @@ export class Avatar {
       } else if (view === '1st') {
         m.obj.position.copy(this.anchor).sub(m.eye);
         m.obj.rotation.set(0, 0, 0); // コックピットは傾けない (VR 酔い防止)
+        m.panel?.update(dt);
       } else {
         m.obj.position.copy(this.anchor).add(THIRD_OFFSET[kind]);
         // 三人称ではモデルだけを傾ける。カメラは動かさない
