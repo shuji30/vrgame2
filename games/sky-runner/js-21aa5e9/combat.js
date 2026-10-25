@@ -382,6 +382,15 @@ export async function loadEnemyModels(url) {
     const node = gltf.scene.getObjectByName(name);
     if (node) TPL[key] = bake(node, parts);
   }
+  // 追加の敵 (enemies.js)。名前の付いた部品は動かすもの
+  const extra = {
+    dart: ['CrystalDart'], lens: ['GlassLens'], turret: ['CrystalSpire', ['TowerHead']], bat: ['GlassBat', ['BatWingL', 'BatWingR']],
+    bouncer: ['BounceGem'], orbiter: ['OrbitCore'], satellite: ['OrbitSat'],
+  };
+  for (const [key, [name, parts]] of Object.entries(extra)) {
+    const node = gltf.scene.getObjectByName(name);
+    if (node) MODELS[key] = bake(node, parts);
+  }
   // マンモスは動かす軸ごとの部品 (胴・頭・鼻の節・脚)。それぞれ原点が軸。組み立ては enemies.js
   const mam = ['MammothBody', 'MammothHead', 'MammothTrunk', 'MammothLeg'].map((n) => gltf.scene.getObjectByName(n));
   if (mam.every(Boolean)) {
@@ -427,7 +436,8 @@ function wrap(inner, made) {
 }
 
 // 被弾で一瞬白く光らせる。材質を共有している敵は、光っている間だけ白い材質に差し替える
-const FLASH_MAT = new THREE.MeshBasicMaterial({ color: 0xffffff });
+// 両面にする (コウモリの羽など 1 枚の板が、光っている間に裏から消えないように)
+export const FLASH_MAT = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
 function applyFlash(e) {
   const on = e.flash > 0;
   if (e.flashMeshes && on !== e.flashOn) {
@@ -519,6 +529,7 @@ export class Combat {
     this.scene.remove(o.mesh);
     if (o.shadow) this.scene.remove(o.shadow);
     if (o.marker) this.scene.remove(o.marker); // 地面の予告の印 (氷晶の冠のつららなど)
+    if (o.gapMarker) this.scene.remove(o.gapMarker); // 氷の柵の抜け道の印
     if (o.beam) EXTRA[o.kind]?.endBeam?.(this, o); // 光翼の光線 (面が変わったときも片付ける)
     if (o.mats) o.mats.forEach((m) => m.dispose());
   }
@@ -535,7 +546,8 @@ export class Combat {
         kind: 'fighter', mesh, mats, flashMeshes, r: 3.0, hp: 1, score: 100,
         t: k * 0.3, w, phase: k * 0.45, fireT: rand(1.5, 4), flash: 0,
         state: behind ? 'behind' : 'approach', z: behind ? 40 + k * 9 : SPAWN_Z - k * 9,
-        ox: rand(-7, 7), oy: rand(3, 6), yaw: behind ? Math.PI : 0, jink: 0, jinkTo: 0, jinkT: rand(0.3, 1), lastX: px,
+        // 後ろから来るときは横に 9〜13 m 離れて追い越す (見えない後ろから当たらないように。翼の端から目まで 6 m 以上)
+        ox: behind ? (Math.random() < 0.5 ? -1 : 1) * rand(9, 13) : rand(-7, 7), oy: rand(3, 6), yaw: behind ? Math.PI : 0, noHit: behind, jink: 0, jinkTo: 0, jinkT: rand(0.3, 1), lastX: px,
       };
       mesh.position.set(px + e.ox, py + e.oy, e.z);
       this.addEnemy(e, 1.8 * FIGHTER_SCALE);
@@ -572,7 +584,10 @@ export class Combat {
       e.z -= 30 * (1 - k) * dt;
       p.z = e.z;
       p.y += 5 * (1 - k) * dt;
-      if (k >= 1) e.state = 'approach';
+      if (k >= 1) {
+        e.state = 'approach';
+        e.noHit = false; // 前に回ってきてから当たる
+      }
     } else if (e.state === 'approach') {
       // 距離に関係なく画面の左右 30 度くらいまで振れるよう、角度で位置を決める
       e.z += (scroll * 0.6 + 38) * dt;
@@ -590,7 +605,7 @@ export class Combat {
         // 自機のすぐ横をかすめて後ろへ抜ける
         e.state = 'flyby';
         const side = Math.sign(p.x - P.x) || 1;
-        e.passX = P.x + side * (e.r + 2.6);
+        e.passX = P.x + side * (e.r + 6); // 翼の端から目まで 6 m 以上あけてかすめる
         e.passY = P.y + rand(0.5, 2.5);
         if (ctx.side) e.passY = Math.max(2, P.y + (Math.random() < 0.5 ? -1 : 1) * (e.r + 3)); // 横スクロールは上下にかすめる
       }

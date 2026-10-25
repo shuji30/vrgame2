@@ -3,6 +3,7 @@
 // 両腕を上げると磁石が赤く光り、地面から岩と柱の破片が浮き上がって (1 秒の予告)、プレイヤーへ飛んでくる。
 // 岩は撃って壊せる、柱は壊せない。正面だけでなく、少しずらした所を狙うものも混ぜる
 import * as THREE from 'three';
+import { eyeGuard, veerAway } from '../enemies.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
@@ -191,6 +192,9 @@ export const COLOSSUS_KINDS = {
         e.mats[0].userData.base.setHex(e.glow).multiplyScalar(0.4 + 0.6 * Math.abs(Math.sin(e.t * 9)));
       } else {
         p.addScaledVector(e.vel, dt);
+        p.x = veerAway(e, p.x, e.r, ctx, dt);
+        // 正面に来た物は目の 8 m 手前で砕く (柱も)。外れた物は横へそれて、表面から目まで 6 m 以上あける
+        if (eyeGuard(c, e, ctx, p, e.r, e.dmg)) return;
         if (p.z > 30 || e.t > 8) e.dead = true;
       }
       e.mesh.rotation.x += dt * e.spin;
@@ -218,7 +222,8 @@ export function makeDebris(c, body, i, n) {
 
 export function launchDebris(d, ctx) {
   // 半分は正面、残りは左右に少しずらした所を狙う (よける楽しさ)
-  const off = Math.random() < 0.5 ? 0 : rand(3, 6) * (Math.random() < 0.5 ? -1 : 1);
+  // ずらす物は、表面から目まで 6 m 以上あく所 (中心で 9〜12 m 横) を通る
+  const off = Math.random() < 0.5 ? 0 : rand(9, 12) * (Math.random() < 0.5 ? -1 : 1);
   const target = _a.copy(ctx.player).add(new THREE.Vector3(ctx.side ? 0 : off, ctx.side ? off * 0.6 : 0, 0));
   d.vel = target.sub(d.mesh.position).normalize().multiplyScalar(ctx.side ? 22 : 42);
   d.mats[0].userData.base.setHex(d.glow).multiplyScalar(0.6);
