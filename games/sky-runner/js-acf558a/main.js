@@ -5,7 +5,7 @@ import { Hud, DebugPanel } from './hud.js';
 import { Avatar } from './avatar.js';
 import { SledRide } from './ride.js';
 import { Combat, MISSILE_MAX, loadEnemyModels, FLASH_MAT } from './combat.js';
-import { BOSS_INFO, ENEMY_INFO, STAGES, STAGE_COUNT, stageAt } from './stages.js';
+import { BOSS_INFO, ENEMY_INFO, STAGES, STAGE_COUNT, STORY, stageAt } from './stages.js';
 import { Vignette, VIGNETTE_LEVELS } from './comfort.js';
 import { CEIL_Y } from './world.js';
 import { TouchControls, isTouchDevice } from './touch.js';
@@ -70,7 +70,7 @@ try {
 } catch (_) { /* 保存なし */ }
 
 // ---- 設定 (localStorage に保存)
-const settings = { scale: 1.0, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true, autoFire: true, hard: false, seated: false, leftHanded: false };
+const settings = { scale: 1.0, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true, autoFire: true, hard: false, seated: false, leftHanded: false, storyAlways: false };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('skyrunner.settings') || '{}')); } catch (_) { /* 保存なし */ }
 // 開発用: ?player=ship|human&view=1st|3rd で上書きする
 for (const key of ['player', 'view', 'mode']) {
@@ -259,6 +259,7 @@ const overlay = document.getElementById('overlay');
 function startPlay(stageNo) {
   if (!Number.isInteger(stageNo)) stageNo = selectedStage; // タイトルで選んだ面 (もう一度のときも同じ面から)
   stopPreview();
+  stopTitleMusic(); // タイトルの曲は、出撃したら止める
   wheelPanel.open = false; // ハンコン設定を閉じる (開いている間は、ハンコンをゲームの操作として読まないため)
   input.wheel.panelOpen = false;
   S.fromStart = stageNo === 1 && !DEV_RUN;
@@ -282,7 +283,63 @@ function startPlay(stageNo) {
   stopBGM();
   startBGM();
   applyStage(stageNo, true);
-  if (DEV_ENDING) allClear(); // 開発用: ?ending で、出撃してすぐエンディング (確認用。記録とごほうびは残さない)
+  comms.length = 0;
+  commNow = null;
+  if (DEV_ENDING) return allClear(); // 開発用: ?ending で、出撃してすぐエンディング (確認用。記録とごほうびは残さない)
+  // お話のプロローグ: 初めて 1 面から出撃したときだけ (設定で毎回にもできる)。前に進まない空に 4 行。ポーズか決定で飛ばせる
+  if (stageNo === 1 && !DEV_BOSS && storyOnce('prologue')) {
+    S.phase = 'prologue';
+    S.phaseT = 0;
+    S.ready = 0;
+    showMsg('', '', 0);
+    STORY.prologue.forEach((text, i) => queueComm(text, 0.6 + i * 3.4, 3.2));
+    markStory('prologue');
+  } else queueComm(STORY.stage[stageNo - 1], READY_TIME + 0.3);
+}
+
+// ---- お話の通信: 相棒の通信士ベリルの 1 行。HUD の下の方に水色の文字で出す (プレイは止めない)。順番に 1 行ずつ
+const comms = []; // { text, at: 出す時刻 (commClock の秒), dur: 出している秒 }
+let commNow = null, commClock = 0;
+function queueComm(text, delay = 0, dur = 3.5) {
+  if (text) comms.push({ text, at: commClock + delay, dur });
+}
+function updateComm(dt) {
+  commClock += dt;
+  if (commNow && (commNow.t += dt) > commNow.dur) commNow = null;
+  if (!commNow && comms.length && comms[0].at <= commClock) {
+    commNow = { ...comms.shift(), t: 0 };
+    sfx.comm();
+  }
+}
+function endPrologue() {
+  if (S.phase !== 'prologue') return;
+  comms.length = 0;
+  commNow = null;
+  S.phase = 'normal';
+  S.phaseT = 0;
+  S.stageT = 0;
+  S.rhythmT = 0;
+  const st = stageAt(S.stage);
+  showMsg('GO AHEAD!', `STAGE ${S.stage}  ${st.name}`, READY_TIME);
+  say('Go ahead!');
+  queueComm(STORY.stage[S.stage - 1], READY_TIME + 0.3);
+}
+// プロローグと章の区切りは、見たら覚えておく (2 回目からは出さない)
+let storySeen = {};
+try { storySeen = JSON.parse(localStorage.getItem('skyrunner.storySeen') || '{}'); } catch (_) { /* 保存なし */ }
+function markStory(key) {
+  if (DEV_RUN) return; // 開発用の起動では覚えない
+  storySeen[key] = true;
+  try { localStorage.setItem('skyrunner.storySeen', JSON.stringify(storySeen)); } catch (_) { /* 保存不可 */ }
+}
+const storyOnce = (key) => !storySeen[key] || settings.storyAlways;
+// 章の区切り (6 面と 12 面のあと): 2 行を出し、その間は次の面へ進まない。出したら true
+function chapterBreak(n, after) {
+  const lines = STORY.chapter[n];
+  if (!lines || !storyOnce('chapter' + n)) return false;
+  lines.forEach((text, i) => queueComm(text, after + i * 3.2, 3.0));
+  markStory('chapter' + n);
+  return true;
 }
 
 // ステージ表の内容を反映する
@@ -335,6 +392,7 @@ function applyStage(n, first = false) {
     S.phase = 'normal';
     showMsg(first ? 'GO AHEAD!' : title, first ? `${title}  ${st.name}` : st.name, first ? READY_TIME : 2.5);
   }
+  if (!first) queueComm(STORY.stage[n - 1], 2.6); // 面の名前のあとに、ベリルの 1 行
   say(first ? 'Go ahead!' : `Stage ${n}`);
 }
 
@@ -404,6 +462,24 @@ refreshStageList();
 stageSel.value = String(selectedStage);
 stageSel.addEventListener('change', () => { selectedStage = Number(stageSel.value); });
 
+// タイトル画面の曲 (SKY HIGHWAY の録音、assets/music/skyhighway.mp3)。くり返し流す。
+// ブラウザは最初にクリックやキーを押すまで音を出せないので、そのときに鳴らし始める。出撃すると止め、タイトルへ戻るとまた流す
+const titleMusic = new Audio('./assets/music/skyhighway.mp3');
+titleMusic.loop = true;
+titleMusic.volume = 0.6;
+if (new URLSearchParams(location.search).has('debug')) window.__titleMusic = titleMusic; // 開発用
+let titleMuted = false;
+function playTitleMusic() {
+  if (S.mode !== 'title' || !settings.bgm || previewing || titleMuted) return stopTitleMusic(false);
+  if (titleMusic.paused) titleMusic.play().catch(() => { /* まだ操作がなく、鳴らせない */ });
+}
+function stopTitleMusic(rewind = true) {
+  titleMusic.pause();
+  if (rewind) titleMusic.currentTime = 0;
+}
+addEventListener('pointerdown', () => playTitleMusic());
+addEventListener('keydown', () => playTitleMusic());
+
 // サウンドテスト: BGM は押すたびに 再生 / 停止、効果音は押すたびに鳴らす
 let previewing = null;
 const bgmButtons = [];
@@ -412,6 +488,7 @@ function stopPreview() {
   previewing = null;
   previewBGM(null);
   bgmButtons.forEach((b) => b.classList.remove('playing'));
+  playTitleMusic(); // 試聴をやめたら、タイトルの曲に戻る
 }
 const sndButton = (name, desc, onClick) => {
   const b = document.createElement('button');
@@ -440,6 +517,7 @@ function buildBgmList() {
       stopPreview();
       if (again) return;
       previewing = m.id;
+      stopTitleMusic(false); // 試聴の間は、タイトルの曲を止める
       previewBGM(m.id);
       b.classList.add('playing');
     });
@@ -488,6 +566,7 @@ function toTitle() {
   setPaused(false);
   setEngine(0);
   stopBGM();
+  playTitleMusic();
   const session = renderer.xr.getSession();
   if (session) session.end();
 }
@@ -620,6 +699,11 @@ function allClear() {
   setBGMMode('ending', { key: 0, tempo: 152 }); // エンディングの曲 (ステージのテンポの影響を受けない)
   startBGM(); // STAGE CLEAR で止めた曲を、エンディングの曲で始める
   combat.clearHostiles();
+  // お話のエンディング: はじめの 2 行は敵の見送りの始まりに、終わりの 2 行は THANK YOU の前に重ねて出す (長さは変えない)
+  comms.length = 0;
+  commNow = null;
+  STORY.endingStart.forEach((text, i) => queueComm(text, 5.2 + i * 4, 3.8));
+  STORY.endingEnd.forEach((text, i) => queueComm(text, ENDING_LEN - 14 + i * 4, 3.8));
   if (DEV_ENDING) return; // 確認用 (?ending) は、クリアしたことにしない
   try { localStorage.setItem('skyrunner.cleared', '1'); } catch (_) { /* 保存不可 */ } // クリアのごほうび用
   // 読み込み直さなくても、タイトルに戻ったらごほうびが出るように
@@ -641,7 +725,8 @@ const ENDING_LIST = (() => {
 
 // エンディング (約 80 秒): 障害物は出さず、敵を 1 体ずつ目の前に呼んで紹介する (初めて出てきた面の景色で)。
 // 最後に点数の内訳。5 秒たったら飛ばせる
-const ENDING_START = 5, ENDING_PER = 4.4;
+// 紹介する敵が増えても、エンディングは 90 秒前後に収める (1 体 4.4 秒まで)
+const ENDING_START = 5, ENDING_PER = Math.min(4.4, 78 / ENDING_LIST.length);
 const ENDING_LEN = ENDING_START + ENDING_LIST.length * ENDING_PER + 6;
 function updateEnding() {
   const i = Math.floor((S.phaseT - ENDING_START) / ENDING_PER);
@@ -714,6 +799,10 @@ function updateStage(dt) {
     } else {
       S.phase = 'clear';
       showMsg('STAGE CLEAR!', (escaped ? '敵は逃げ去った' : `BOSS BONUS ${combat.lastBossBonus}`) + recordStage(), 4.5);
+      // ボスを倒したときの 1 行 (逃げられたときの文があれば、それ)。6 面のあとは章の区切りも
+      const bl = STORY.boss[(st.kind === 'rush' ? st.rush[S.rushIndex] : st.boss)?.type];
+      if (bl) queueComm(escaped ? bl[1] || '' : bl[0], 0.4, 3.0);
+      S.clearLen = chapterBreak(S.stage, 3.5) ? 10 : 5;
       sfx.clear();
       // もとの面には戻さない: 曲は止め、障害物は出さず、景色は次の面の色へ移していく
       stopBGM();
@@ -723,7 +812,7 @@ function updateStage(dt) {
         world.setCeiling(nx.ceiling);
       }
     }
-  } else if (S.phase === 'clear' && S.phaseT > 5) {
+  } else if (S.phase === 'clear' && S.phaseT > (S.clearLen || 5)) {
     nextStage();
   } else if (S.phase === 'ending') {
     updateEnding();
@@ -737,10 +826,13 @@ function updateStage(dt) {
     world.mode = 'normal';
     showMsg(`BONUS ${pts}`, (pylon ? `なぎ倒した街灯 ${S.bonusCount} 本 (最大 ${S.bonusBest} 連続)` : `なぎ倒した木 ${S.bonusCount} 本 × ${BONUS_TREE}`) + recordStage(), 3.5);
     sfx.clear();
-  } else if (S.phase === 'bonusEnd' && S.phaseT > 3.5) {
+    S.clearLen = chapterBreak(S.stage, 1.0) ? 7.6 : 3.5; // 12 面のあとは章の区切り
+  } else if (S.phase === 'bonusEnd' && S.phaseT > (S.clearLen || 3.5)) {
     endBonus();
     nextStage();
   }
+  // プロローグの終わり: 4 行を出しきったら (または飛ばしたら) 出撃する
+  if (S.phase === 'prologue' && S.phaseT > 0.6 + STORY.prologue.length * 3.4) endPrologue();
   // 点数が一定を超えるごとに残機を増やす
   if (S.extendIdx < EXTENDS.length && combat.score >= EXTENDS[S.extendIdx]) {
     S.extendIdx++;
@@ -1130,6 +1222,7 @@ function update(dt) {
   } else {
     // エンディングを飛ばすのはポーズのボタンだけ (決定は機関砲と同じボタンなので、撃ち続けていた人がうっかり飛ばさないように)
     if (S.phase === 'ending') { if (S.phaseT > ENDING_START && a.pause) gameOver(true); }
+    else if (S.phase === 'prologue' && (a.pause || a.confirm)) endPrologue(); // プロローグは飛ばせる
     else if (a.pause) togglePause(!S.paused);
     else if (S.paused && a.back) toTitle();
     else if (S.paused && a.confirm) togglePause(false);
@@ -1155,7 +1248,7 @@ function update(dt) {
 
       S.factor = approach(S.factor, 1, SPEED.ret * dt);
 
-      S.ready = Math.min(1, S.ready + dt / READY_TIME);
+      S.ready = S.phase === 'prologue' ? 0 : Math.min(1, S.ready + dt / READY_TIME); // プロローグの間は前に進まない
       // 基準速度は、面が変わっても 3 秒ほどかけて移る。MISS やつまずきの減速も、急には落とさない
       S.baseSpeed = approach(S.baseSpeed, S.baseTarget ?? S.baseSpeed, 4 * dt);
       if (S.slowT > 0) {
@@ -1224,6 +1317,7 @@ function update(dt) {
 
   flash.material.opacity = Math.max(0, flash.material.opacity - dt * 1.2);
   viewFade.material.opacity = Math.max(0, viewFade.material.opacity - dt / 0.35);
+  if (!S.paused) updateComm(dt);
   viewFade.visible = viewFade.material.opacity > 0;
   // 手元のミニ HUD: VR でプレイ中だけ、左手のコントローラーに出す
   const showWrist = renderer.xr.isPresenting && S.mode === 'play' && !NO_HUD;
@@ -1281,6 +1375,7 @@ function update(dt) {
     missileMax: MISSILE_MAX,
     locks: combat.locks.length,
     msg: S.paused ? 'PAUSE' : S.msg,
+    comm: !S.paused && commNow ? commNow.text : '',
     sub: S.paused ? pauseMenuText() + '\n' + (a.source === 'pad' ? 'START: 再開   B: タイトルへ' : a.source === 'xr' ? 'X/トリガー: 再開   A: タイトルへ' : a.source === 'wheel' ? 'ポーズ / 機関砲のボタン: 再開   タイトルへのボタン: タイトルへ' : 'Esc/クリック: 再開   Backspace: タイトルへ') : S.sub,
     hint: S.paused ? buildInfo : S.mode === 'over' && S.overT > 2 ? (S.entry?.state === 'input' ? ENTRY_HINT[a.source] || ENTRY_HINT.kb : S.entry?.state === 'sending' ? '' : RETRY_HINT[a.source]) : '', // プレイ中は操作方法を出さない
     lives: S.lives,
@@ -1397,14 +1492,18 @@ function unlockHard() {
   if (!cleared) settings.hard = false;
 }
 unlockHard();
-for (const key of ['bgm', 'engine', 'invertY', 'vrGentle', 'autoFire', 'hard', 'seated', 'leftHanded']) {
+for (const key of ['bgm', 'engine', 'invertY', 'vrGentle', 'autoFire', 'hard', 'seated', 'leftHanded', 'storyAlways']) {
   const el = document.getElementById(key);
   el.checked = settings[key];
-  el.addEventListener('change', () => { settings[key] = el.checked; saveSettings(); applyAudioSettings(); showHiScore(); input.leftHanded = settings.leftHanded; });
+  el.addEventListener('change', () => { settings[key] = el.checked; saveSettings(); applyAudioSettings(); showHiScore(); input.leftHanded = settings.leftHanded; playTitleMusic(); });
 }
 input.leftHanded = settings.leftHanded;
 addEventListener('keydown', (e) => {
-  if (e.code === 'KeyM' && !e.repeat && S.entry?.state !== 'input') showMsg(toggleMute() ? 'SOUND OFF' : 'SOUND ON', '', 1);
+  if (e.code === 'KeyM' && !e.repeat && S.entry?.state !== 'input') {
+    titleMuted = toggleMute();
+    titleMusic.muted = titleMuted;
+    showMsg(titleMuted ? 'SOUND OFF' : 'SOUND ON', '', 1);
+  }
 });
 selScale.addEventListener('change', () => { settings.scale = Number(selScale.value); saveSettings(); });
 btnStart.addEventListener('click', () => launch(selectedStage)); // クリックの情報をステージ番号と取り違えないように

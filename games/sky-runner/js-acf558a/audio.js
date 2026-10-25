@@ -112,6 +112,20 @@ const APPEAR = {
   mammoth: (t) => [0, 0.32, 0.64].forEach((d, i) => { osc('sine', 70, t + d, 0.25, 0.18 + i * 0.06, appearBus, 40); noise(t + d, 0.2, 0.15 + i * 0.05, 220, appearBus); }),
   // 水晶のクラゲ: ゆっくり揺れる、やわらかい鈴の音
   jelly: (t) => [76, 79, 83].forEach((m, i) => osc('sine', mtof(m), t + i * 0.22, 0.6, 0.05, appearBus, mtof(m) * 0.97)),
+  // 岩の亀: 重い足音 2 つ
+  tortoise: (t) => [0, 0.4].forEach((d) => { osc('sine', 55, t + d, 0.3, 0.2, appearBus, 35); noise(t + d, 0.2, 0.12, 300, appearBus); }),
+  // 砂時計の番人: さらさら流れる砂と、時計の鐘
+  hourglass: (t) => { noise(t, 1.0, 0.12, 3500, appearBus, 'bandpass'); osc('triangle', mtof(84), t + 0.2, 0.8, 0.06, appearBus); },
+  // 巨大オニヤンマ: ぶうんという羽音
+  dragonfly: (t) => { osc('sawtooth', 110, t, 1.0, 0.08, appearBus, 130); osc('sawtooth', 113, t, 1.0, 0.06, appearBus, 125); },
+  // 地を走る巨大蜘蛛: かさかさと速い足音
+  gspider: (t) => { for (let i = 0; i < 8; i++) noise(t + i * 0.06, 0.04, 0.18, 2200, appearBus, 'bandpass'); },
+  // 黒曜石のエイ: 地面をすべる低いうなり
+  ray: (t) => { noise(t, 0.9, 0.15, 500, appearBus); osc('sine', 90, t, 0.9, 0.1, appearBus, 70); },
+  // 雷の結晶球: ぱちぱちという放電
+  stormorb: (t) => { for (let i = 0; i < 5; i++) noise(t + i * 0.09, 0.03, 0.2, 5000, appearBus); },
+  // 磁石の浮遊機雷: ゆっくりした警告音
+  magnetmine: (t) => [0, 0.5].forEach((d) => osc('square', 440, t + d, 0.15, 0.04, appearBus, 430)),
   // 衛星コア: 不思議な電子のうねり
   orbiter: (t) => { osc('sine', 500, t, 0.7, 0.08, appearBus, 1000); osc('sine', 750, t, 0.7, 0.05, appearBus, 1500); },
 };
@@ -324,6 +338,13 @@ export const sfx = {
       osc('square', 880, t + i * 0.5, 0.22, 0.15, sfxBus);
       osc('square', 660, t + i * 0.5 + 0.25, 0.22, 0.15, sfxBus);
     }
+  },
+  // 通信の文が出るときの音 (ピピッ)
+  comm() {
+    if (!ctx) return;
+    const t = now();
+    osc('sine', 1760, t, 0.06, 0.06, sfxBus);
+    osc('sine', 2350, t + 0.09, 0.07, 0.06, sfxBus);
   },
   clear() {
     if (!ctx) return;
