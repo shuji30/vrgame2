@@ -52,6 +52,7 @@ let cleared = false;
 try { cleared = localStorage.getItem('skyrunner.cleared') === '1'; } catch (_) { /* 保存なし */ }
 const hardMode = () => cleared && settings.hard;
 const OBSTACLE_DAMAGE = 20;
+const BUSH_DAMAGE = 10;      // 低い茂みにぶつかったとき (宇宙船も人間も)
 const RING_BONUS = 500; // 浮遊リングをくぐったときの点
 
 // ハイスコアは、ふつうと難しいモードで分ける
@@ -194,7 +195,7 @@ function startPlay(stageNo) {
   S.fromStart = stageNo === 1;
   initAudio();
   Object.assign(S, {
-    mode: 'play', paused: false, entry: null, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0, pz: SIDE_Z_START, vz: 0,
+    mode: 'play', paused: false, entry: null, chapterHead: 0, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0, pz: SIDE_Z_START, vz: 0,
     stage: 1, phase: 'normal', phaseT: 0, stageT: 0, baseSpeed: SPEED.base, lives: LIVES, life: LIFE_MAX, lowLifeT: 0, extendIdx: 0, overT: 0, slowT: 0,
   });
   if (isSide()) S.py = 8; // 横スクロールは画面の中ほどの高さから
@@ -223,6 +224,13 @@ function applyStage(n, first = false) {
   }
   S.stageT = 0;
   S.phaseT = 0;
+  S.stageScore0 = combat.score; // 面ごとの記録用: この面で取った点と、被弾したか
+  S.stageHits0 = S.hits;
+  if ((n - 1) % CHAPTER === 0) { // 章 (6 面ずつ) の頭から通したときだけ、章の記録を残す
+    S.chapterHead = n;
+    S.chapterScore0 = combat.score;
+    S.chapterHits0 = S.hits;
+  }
   // ボスラッシュの何体目から始めるか (CONTINUE で太陽の前から / 開発用: ?rush=7)
   S.rushIndex = pendingRush ?? Math.max(0, Number(new URLSearchParams(location.search).get('rush')) || 0);
   pendingRush = null;
@@ -233,6 +241,8 @@ function applyStage(n, first = false) {
   combat.mult = combat.hard ? HARD_MULT : 1;
   combat.density = st.density;
   combat.waveTable = st.waves;
+  combat.stageT = 0;
+  combat.mammothN = 0;
   world.applyTheme(st.palette);
   world.setObstacles(st.obstacles);
   world.setCeiling(st.ceiling);
@@ -262,11 +272,61 @@ function togglePause(p) {
 
 // タイトルのステージ選択 (開発用の ?stage=N があれば、それを最初に選んでおく)
 let selectedStage = Math.max(1, Math.min(STAGE_COUNT, DEV_START_STAGE));
+// ---- 面ごとの記録 (ふつう / 難しいモード別に保存): { 面の番号: { best: その面で取った点の最高, nohit: 被弾なしでクリアした, clear: クリアした } }
+// 章 (1〜6・7〜12・13〜18 面) の記録も同じ形で c1・c2・c3 に入れる (章の頭から最後の面まで通したとき)
+const CHAPTER = 6;
+const chapterHead = (n) => Math.floor((n - 1) / CHAPTER) * CHAPTER + 1;
+// ステージ選択や CONTINUE で途中から遊んでも残る (ハイスコアは 1 面から通したときだけ)
+const records = { normal: {}, hard: {} };
+try { Object.assign(records, JSON.parse(localStorage.getItem('skyrunner.records') || '{}')); } catch (_) { /* 保存なし */ }
+// 面をクリアしたときに呼ぶ。STAGE CLEAR の下に足す行 (新記録・被弾なし) を返す
+function recordStage() {
+  const table = (records[combat.hard ? 'hard' : 'normal'] ||= {});
+  const r = (table[S.stage] ||= { best: 0, nohit: false, clear: false });
+  const pts = combat.score - (S.stageScore0 ?? 0);
+  const nohit = S.hits === S.stageHits0;
+  const isNew = !r.clear || pts > r.best;
+  r.best = Math.max(r.best, pts);
+  r.clear = true;
+  r.nohit ||= nohit;
+  const notes = [isNew && 'NEW RECORD!', nohit && '◆ NO DAMAGE'];
+  // 章の最後の面 (6・12・18 面) を、章の頭から通してクリアした: 章の記録
+  if (S.stage % CHAPTER === 0 && S.chapterHead === S.stage - CHAPTER + 1) {
+    const key = `c${S.stage / CHAPTER}`;
+    const c = (table[key] ||= { best: 0, nohit: false, clear: false });
+    const cpts = combat.score - S.chapterScore0, cnohit = S.hits === S.chapterHits0;
+    notes.push(`CHAPTER ${S.stage / CHAPTER} ${!c.clear || cpts > c.best ? 'NEW RECORD!' : 'CLEAR'}${cnohit ? ' ◆' : ''}`);
+    c.best = Math.max(c.best, cpts);
+    c.clear = true;
+    c.nohit ||= cnohit;
+  }
+  try { localStorage.setItem('skyrunner.records', JSON.stringify(records)); } catch (_) { /* 保存不可 */ }
+  refreshStageList();
+  const note = notes.filter(Boolean).join('   ');
+  return note ? `\n${note}` : ''; // 2 行目の下にもう 1 行
+}
+
 const stageSel = document.getElementById('stageSel');
+const chapterGroups = [];
 STAGES.forEach((st, i) => {
-  const kind = st.kind === 'bonus' ? '  ★BONUS' : st.kind === 'rush' ? '  ★BOSS RUSH' : '';
-  stageSel.add(new Option(`STAGE ${String(i + 1).padStart(2, '0')}  ${st.name}${kind}`, String(i + 1)));
+  if (i % CHAPTER === 0) chapterGroups.push(stageSel.appendChild(document.createElement('optgroup')));
+  chapterGroups.at(-1).appendChild(new Option('', String(i + 1)));
 });
+// 一覧の文字: 面の名前と、記録 (クリアした面はその面で取った点の最高、被弾なしでクリアしたら ◆。まだ行っていない面は ─)
+function refreshStageList() {
+  const table = records[hardMode() ? 'hard' : 'normal'] || {};
+  STAGES.forEach((st, i) => {
+    const kind = st.kind === 'bonus' ? '  ★BONUS' : st.kind === 'rush' ? '  ★BOSS RUSH' : '';
+    const r = table[i + 1];
+    const rec = r?.clear ? `   ${r.nohit ? '◆' : '✓'} ${r.best.toLocaleString()}` : i + 1 > progress ? '   ─' : '';
+    stageSel.options[i].text = `STAGE ${String(i + 1).padStart(2, '0')}  ${st.name}${kind}${rec}`;
+  });
+  chapterGroups.forEach((g, k) => {
+    const c = table[`c${k + 1}`];
+    g.label = `CHAPTER ${k + 1}  (STAGE ${k * CHAPTER + 1}〜${(k + 1) * CHAPTER})${c?.clear ? `   ${c.nohit ? '◆' : '✓'} ${c.best.toLocaleString()}` : ''}`;
+  });
+}
+refreshStageList();
 stageSel.value = String(selectedStage);
 stageSel.addEventListener('change', () => { selectedStage = Number(stageSel.value); });
 
@@ -334,6 +394,12 @@ const showHiScore = () => {
   const btn = document.getElementById('btnContinue');
   btn.hidden = progress <= 1;
   btn.querySelector('small').textContent = progress === STAGE_COUNT && sunCheckpoint ? '最終ボスの前から' : `STAGE ${progress} から`;
+  // 章の頭からの CONTINUE (章の記録をねらえる)。到達した面が章の頭なら CONTINUE と同じなので出さない
+  const ch = document.getElementById('btnChapter');
+  ch.hidden = progress <= 1 || chapterHead(progress) === progress;
+  ch.firstChild.textContent = `CHAPTER ${Math.ceil(progress / CHAPTER)} `;
+  ch.querySelector('small').textContent = `章の頭 STAGE ${chapterHead(progress)} から`;
+  refreshStageList(); // 難しいモードを切りかえたら、その記録を出す
 };
 
 function toTitle() {
@@ -353,7 +419,7 @@ function toTitle() {
 }
 
 // ---- VR に入る。床の高さが取れない機器では 'local' にして高さを補正する
-async function enterVR() {
+async function enterVR(stageNo) {
   initAudio();
   try {
     renderer.xr.setFramebufferScaleFactor(settings.scale);
@@ -367,7 +433,7 @@ async function enterVR() {
     session.addEventListener('end', onSessionEnd);
     await renderer.xr.setSession(session);
     renderer.xr.setFoveation?.(1); // 視野の端を粗く描いて軽くする (Quest で効く)
-    startPlay();
+    startPlay(stageNo);
   } catch (err) {
     console.error(err);
     document.getElementById('status').textContent = `VR を開始できませんでした: ${err.message}`;
@@ -567,7 +633,7 @@ function updateStage(dt) {
       sfx.warning();
     } else {
       S.phase = 'clear';
-      showMsg('STAGE CLEAR!', escaped ? '敵は逃げ去った' : `BOSS BONUS ${combat.lastBossBonus}`, 4.5);
+      showMsg('STAGE CLEAR!', (escaped ? '敵は逃げ去った' : `BOSS BONUS ${combat.lastBossBonus}`) + recordStage(), 4.5);
       sfx.clear();
       // もとの面には戻さない: 曲は止め、障害物は出さず、景色は次の面の色へ移していく
       stopBGM();
@@ -588,7 +654,7 @@ function updateStage(dt) {
     const pts = S.bonusCount * BONUS_TREE;
     combat.score += pts;
     world.mode = 'normal';
-    showMsg(`BONUS ${pts}`, `なぎ倒した木 ${S.bonusCount} 本 × ${BONUS_TREE}`, 3.5);
+    showMsg(`BONUS ${pts}`, `なぎ倒した木 ${S.bonusCount} 本 × ${BONUS_TREE}` + recordStage(), 3.5);
     sfx.clear();
   } else if (S.phase === 'bonusEnd' && S.phaseT > 3.5) {
     endBonus();
@@ -1046,7 +1112,7 @@ function update(dt) {
   }
   if (play && running && !ride.active && S.invuln <= 0) {
     const o = world.hitTest(P, avatar.radius * 0.7); // 障害物には少し小さめの当たりで (かすっただけでは当たらない)
-    if (o) onHit(OBSTACLE_DAMAGE); // 宇宙船も人間も同じダメージ
+    if (o) onHit(o.kind === 'bush' ? BUSH_DAMAGE : OBSTACLE_DAMAGE); // 宇宙船も人間も同じダメージ (低い茂みは軽め)
     if (o && o.kind === 'bush' && settings.player === 'human' && S.mode === 'play') avatar.stumble(); // 人間は茂みにつまずく (見た目だけ)
     if (o && ['tree', 'bush', 'mushroom', 'crystal'].includes(o.kind)) world.knockDown(o); // ぶつかった木などは、すり抜けずに倒れる
   }
@@ -1059,7 +1125,7 @@ function update(dt) {
   if (play && running) updateCombat(dt, speed, riding ? { ...a, fire: false, handFire: [], missile: false } : a);
   if (combat.announce) {
     showMsg(combat.announce, '', 2);
-    say(combat.announce.toLowerCase().replace('!', ''));
+    say(combat.announce.split('  ')[0].toLowerCase().replace('!', '')); // 点数は読み上げない
     combat.announce = '';
   }
   else if (S.mode === 'over') updateCombat(dt, speed, { ...a, fire: false, handFire: [], missile: false }); // 爆発や煙の続きを見せる
@@ -1132,8 +1198,30 @@ function update(dt) {
   });
 
   S.fps += (1 / Math.max(dt, 1e-4) - S.fps) * 0.05;
-  debugPanel.draw(dt, { fps: S.fps, xr: renderer.xr.isPresenting, refSpace: S.refSpace, scale: settings.scale, version: buildInfo, calls: renderer.info.render.calls, tris: renderer.info.render.triangles }, input);
+  if (debugPanel.visible) trackPerf();
+  debugPanel.draw(dt, { fps: S.fps, xr: renderer.xr.isPresenting, refSpace: S.refSpace, scale: settings.scale, version: buildInfo, calls: renderer.info.render.calls, tris: renderer.info.render.triangles, perf: perfLines() }, input);
 }
+
+// 開発用 (?debug): 面と場面 (通常・ボスなど) ごとに、いちばん重かった 5 秒を残す。
+// 平均 fps がいちばん低かった 5 秒と、その間の描画回数の最大・敵と弾の数。Quest で 1〜18 面を通して、重い所を探すのに使う
+const perf = { win: [], worst: new Map(), last: performance.now() };
+function trackPerf() {
+  const now = performance.now(), ms = now - perf.last; // dt は 0.05 秒で切っているので、本当の時間で測る
+  perf.last = now;
+  if (S.mode !== 'play' || S.paused) { perf.win.length = 0; return; }
+  perf.win.push([now, ms, renderer.info.render.calls]);
+  while (now - perf.win[0][0] > 5000) perf.win.shift();
+  if (now - perf.win[0][0] < 4900) return; // 5 秒たまるまで待つ
+  const fps = (1000 * perf.win.length) / perf.win.reduce((a, w) => a + w[1], 0);
+  const key = `STAGE ${String(S.stage).padStart(2, '0')} ${['warning', 'boss'].includes(S.phase) ? 'BOSS' : S.phase.toUpperCase()}`;
+  const w = perf.worst.get(key);
+  if (!w || fps < w.fps) {
+    perf.worst.set(key, { fps, calls: Math.max(...perf.win.map((x) => x[2])), enemies: combat.enemies.length, bullets: combat.bullets.length });
+  }
+}
+const perfLines = () => [...perf.worst].sort((a, b) => a[1].fps - b[1].fps).slice(0, 8)
+  .map(([k, w]) => `${k.padEnd(18)} fps ${w.fps.toFixed(0).padStart(3)}  calls ${String(w.calls).padStart(4)}  敵 ${w.enemies}  弾 ${w.bullets}`);
+window.__perf = () => perfLines(); // 開発用: 重かった 5 秒の一覧
 
 // 開発用: プロモーション動画の録画で、ゲームの音を取り出す
 window.__audioStream = () => captureAudioStream();
@@ -1166,8 +1254,13 @@ addEventListener('resize', () => {
 });
 
 // ---- タイトル画面
-const btnVR = document.getElementById('btnVR');
-const btnDesk = document.getElementById('btnDesk');
+// 出撃ボタンは 1 つ。「VR で遊ぶ」にチェックがあれば VR、なければデスクトップ (マウス / パッド / タッチ) で始める
+const chkVR = document.getElementById('useVR');
+const btnStart = document.getElementById('btnStart');
+const startNote = () => {
+  document.getElementById('startNote').textContent = chkVR.checked ? 'VR ヘッドセット' : isTouchDevice() ? 'タッチ / パッド' : 'マウス / パッド';
+};
+const launch = (stageNo) => (chkVR.checked ? enterVR(stageNo) : startPlay(stageNo));
 const selScale = document.getElementById('scale');
 const status = document.getElementById('status');
 const padStatus = document.getElementById('pads');
@@ -1213,12 +1306,14 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyM' && !e.repeat && S.entry?.state !== 'input') showMsg(toggleMute() ? 'SOUND OFF' : 'SOUND ON', '', 1);
 });
 selScale.addEventListener('change', () => { settings.scale = Number(selScale.value); saveSettings(); });
-btnDesk.addEventListener('click', () => startPlay(selectedStage)); // クリックの情報をステージ番号と取り違えないように
+btnStart.addEventListener('click', () => launch(selectedStage)); // クリックの情報をステージ番号と取り違えないように
 document.getElementById('btnContinue').addEventListener('click', () => {
   if (progress === STAGE_COUNT && sunCheckpoint) pendingRush = sunIndex(); // 最終ボスの前から
-  startPlay(progress);
+  launch(progress);
 });
-btnVR.addEventListener('click', enterVR);
+document.getElementById('btnChapter').addEventListener('click', () => launch(chapterHead(progress)));
+chkVR.addEventListener('change', () => { settings.useVR = chkVR.checked; saveSettings(); startNote(); });
+startNote();
 if (new URLSearchParams(location.search).has('play')) startPlay(); // 開発用: ?play ですぐ開始
 if (new URLSearchParams(location.search).has('bonus')) { // 開発用: ?play&bonus でボーナスステージ (5 面) から始める
   S.ready = 1;
@@ -1231,7 +1326,11 @@ if (!window.isSecureContext) {
   status.textContent = 'このブラウザは WebXR に対応していません (デスクトップモードで遊べます)。';
 } else {
   navigator.xr.isSessionSupported('immersive-vr').then((ok) => {
-    btnVR.disabled = !ok;
+    // VR が使えるときだけチェックできる。使えるなら最初はチェックを入れておく (前回の選択を覚える)
+    chkVR.disabled = !ok;
+    chkVR.checked = ok && settings.useVR !== false;
+    document.getElementById('vrNote').textContent = ok ? 'ヘッドセット' : 'ヘッドセットが見つかりません';
+    startNote();
     status.textContent = ok
       ? 'VR ヘッドセットを使えます。'
       : 'VR ヘッドセットが見つかりません。PCVR の場合は OpenXR ランタイム (Pimax Play / SteamVR) が起動しているか確認してください。';

@@ -72,7 +72,7 @@ function makeHatch(c, body, i) {
   const m = mat(0x30202a, 0xff7020);
   const mesh = new THREE.Mesh(GEO.hatch, m);
   mesh.scale.set(3.6, 3, 1).multiplyScalar(body.k);
-  const h = { kind: 'hatch', mesh, mats: [m], r: 2.4 * body.k, hp: 30 + c.level * 2, score: 500, t: 0, flash: 0, fireT: Infinity, body, slot: i, noItem: true };
+  const h = { kind: 'hatch', mesh, mats: [m], r: 2.4 * body.k, hp: 20 + c.level * 2, score: 500, t: 0, flash: 0, fireT: Infinity, body, slot: i, noItem: true };
   mesh.position.copy(body.mesh.position).add(hatchOffset(i, c.sideMode).multiplyScalar(body.k));
   c.addEnemy(h, 0);
   h.shadow.visible = false;

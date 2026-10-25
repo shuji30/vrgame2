@@ -45,11 +45,15 @@ export function spawnWorm(c, def) {
   const w = {
     kind: 'worm', mesh: g, mats: [headM, eyeM], r: 3.4 * k, hp, maxHp: hp, score: 0, t: 0, flash: 0, fireT: Infinity,
     k, state: 'under', timer: 2.5, u: 0, path: [], segs: [], from: new THREE.Vector3(), to: new THREE.Vector3(), apex: 14, dur: 2.4,
-    marker: null, fired: false, dir: 1, bossGroup: grp, noLock: true,
+    fired: false, dir: 1, bossGroup: grp, noLock: true,
   };
   grp.ratio = () => Math.max(0, w.hp / w.maxHp);
   c.bossGroup = grp;
   g.position.set(0, HIDE_Y, -50);
+  // 飛び出す場所の印: 1 つを使い回す (飛ぶたびに材質を作らない)。combat.remove が片付ける
+  w.marker = new THREE.Mesh(GEO.marker, new THREE.MeshBasicMaterial({ color: 0xff8a30, transparent: true, opacity: 0.8, depthWrite: false }));
+  w.marker.visible = false;
+  c.scene.add(w.marker);
   c.addEnemy(w, 3 * k);
   w.shadow.visible = false;
   for (let i = 0; i < 11; i++) {
@@ -103,9 +107,8 @@ export const WORM_KINDS = {
             e.apex = ctx.side ? 15 : rand(11, 16) + P.y * 0.5; // 高く飛んでいても届くように
             e.dur = Math.max(2.4, 2.9 - (c.level - 1) * 0.05); // 弾が届くよう、ゆっくり跳ぶ
           }
-          e.marker = new THREE.Mesh(GEO.marker, new THREE.MeshBasicMaterial({ color: 0xff8a30, transparent: true, opacity: 0.8, depthWrite: false }));
           e.marker.position.set(e.from.x, 0.08, e.from.z);
-          c.scene.add(e.marker);
+          e.marker.visible = true;
           e.state = 'warn';
           e.timer = 1;
         }
@@ -114,8 +117,7 @@ export const WORM_KINDS = {
         e.marker.material.opacity = 0.4 + 0.5 * Math.abs(Math.sin(e.t * 12));
         if (Math.random() < dt * 14) c.sparks.emit(_a.set(e.from.x + rand(-2, 2), 0.5, e.from.z + rand(-2, 2)), new THREE.Vector3(rand(-2, 2), rand(3, 7), rand(-2, 2)), new THREE.Color(0xc8a070), 1.4, 0.6); // 砂煙
         if (e.timer <= 0) {
-          c.scene.remove(e.marker);
-          e.marker = null;
+          e.marker.visible = false;
           e.state = 'leap';
           e.u = 0;
           if (e.charge) sfx.roar();
@@ -123,7 +125,8 @@ export const WORM_KINDS = {
           e.path = [];
         }
       } else {
-        // 弧を描いて飛ぶ (放物線)
+        // 弧を描いて飛ぶ (放物線)。頭上を越えるときは、頂上の高さを今のプレイヤーの高さに合わせ直す (上へ動いても当たらない)
+        if (e.charge) e.apex = (P.y + 9 + 4) / (4 * (55 / 80) * (25 / 80)) - 4;
         e.u += dt / e.dur;
         const u = Math.min(1, e.u);
         e.vel = e.vel || new THREE.Vector3();
@@ -153,7 +156,8 @@ export const WORM_KINDS = {
       e.noLock = e.state !== 'leap' || p.y < 0;
     },
     onDeath(c, e) {
-      if (e.marker) c.scene.remove(e.marker);
+      c.scene.remove(e.marker);
+      e.marker.material.dispose();
       for (const s of e.segs) if (!s.dead) { s.dead = true; if (s.mesh.position.y > 0) c.explode(s.mesh.position, false); }
     },
   },

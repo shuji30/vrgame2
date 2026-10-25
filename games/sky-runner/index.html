@@ -64,6 +64,11 @@
 
   /* 出撃ボタン */
   .buttons { display: grid; gap: 10px; }
+  .vr-toggle { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px;
+    background: rgba(0, 0, 0, 0.25); font-weight: bold; cursor: pointer; }
+  .vr-toggle input { width: 20px; height: 20px; accent-color: var(--sun); }
+  .vr-toggle small { margin-left: auto; font-size: 12px; font-weight: normal; color: rgba(255, 255, 255, 0.6); }
+  .vr-toggle:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
   button { font: inherit; cursor: pointer; border: 0; border-radius: 12px; }
   .launch { min-width: 0; display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 14px 20px;
     font-family: var(--logo); font-size: 20px; letter-spacing: 0.04em; color: #1a0b2e;
@@ -223,8 +228,8 @@
     <select id="stageSel" class="stage-select" aria-label="ステージ"></select>
 
     <div class="buttons">
-      <button id="btnVR" class="launch" disabled>VR で出撃 <small>ヘッドセット</small></button>
-      <button id="btnDesk" class="launch secondary">デスクトップで出撃 <small>マウス / パッド</small></button>
+      <label class="vr-toggle"><input type="checkbox" id="useVR" disabled> VR で遊ぶ <small id="vrNote">ヘッドセットが見つかりません</small></label>
+      <button id="btnStart" class="launch">出撃 <small id="startNote">マウス / パッド</small></button>
       <button id="btnContinue" class="launch secondary" hidden>CONTINUE <small>STAGE 1 から</small></button>
       <button id="btnChapter" class="launch secondary" hidden>CHAPTER <small>STAGE 1 から</small></button>
     </div>
@@ -362,7 +367,7 @@
     <button class="tbtn fire" data-hold="fire" aria-label="射撃">FIRE</button>
   </div>
 </div>
-<script type="module" src="./js-d3c63cc/main.js"></script>
+<script type="module" src="./js-4745c05/main.js"></script>
 <script>
   // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
   if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {
