@@ -12,6 +12,7 @@ const SPAWN_SPACING = 14;   // 何 m 進むごとに障害物を出すか (速�
 const REMOVE_Z = 40;        // 後ろを振り返っても急に消えて見えないよう、少し後ろまで残す
 const CHECKER = 8;          // 市松模様の1マス (m)
 export const CEIL_Y = 26;   // 天井の高さ (m)
+const _m4 = new THREE.Matrix4(), _v3 = new THREE.Vector3(), _v3b = new THREE.Vector3(), _q = new THREE.Quaternion(), _s3 = new THREE.Vector3(); // InstancedMesh の行列を作る作業用
 
 export const THEMES = [
   { name: 'MEADOW', a: 0xe9cf6a, b: 0x3e9c3c, fog: 0xf6dcae, sky: 0x2f72d8, mount: 0x5a70a8, col: ['#f4f4f4', '#e2559a'], bush: 0x2e8b3a },
@@ -85,18 +86,129 @@ function stripeTexture(c1, c2) {
   return tex;
 }
 
+// 夜の面のビルの壁: 暗い紺に、明かりのついた窓 (縦に 4 回くり返す)
+function towerTexture() {
+  const cv = document.createElement('canvas');
+  cv.width = 32;
+  cv.height = 64;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#0c1222';
+  g.fillRect(0, 0, 32, 64);
+  for (let y = 2; y < 64; y += 8) for (let x = 2; x < 32; x += 6) {
+    if (Math.random() < 0.55) {
+      g.fillStyle = Math.random() < 0.1 ? '#ff6a7a' : Math.random() < 0.5 ? '#9fd8ff' : '#ffe2a0';
+      g.fillRect(x, y, 3, 4);
+    }
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, 4);
+  return tex;
+}
+
 // 障害物の種類 (ステージ表 obstacles の重みの名前)
 export const OBSTACLE_KINDS = ['column', 'bush', 'tree', 'rock', 'mushroom', 'crystal', 'arch', 'monolith', 'spike', 'ring', 'pylon'];
+
+// ---- 夜の景色 (1 面 SKY HIGHWAY)
+// 星と三日月 (カメラに付いて動く、霧の外)
+function makeNightSky() {
+  const g = new THREE.Group();
+  const pos = [];
+  for (let i = 0; i < 700; i++) {
+    const a = rand(0, Math.PI * 2), h = rand(0.08, 1);
+    const r = Math.sqrt(1 - h * h);
+    pos.push(Math.cos(a) * r * 1300, h * 1300, Math.sin(a) * r * 1300);
+  }
+  const stars = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)),
+    new THREE.PointsMaterial({ color: 0xdfe8ff, size: 2.2, sizeAttenuation: false, fog: false, depthWrite: false, transparent: true, opacity: 0.85 }));
+  stars.renderOrder = -1;
+  // 三日月: 丸い光から、少しずらした丸を消して作る
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const x = c.getContext('2d');
+  x.fillStyle = '#f4f6ff';
+  x.shadowColor = '#bcd0ff';
+  x.shadowBlur = 16;
+  x.beginPath(); x.arc(64, 64, 40, 0, Math.PI * 2); x.fill();
+  x.globalCompositeOperation = 'destination-out';
+  x.shadowBlur = 0;
+  x.beginPath(); x.arc(84, 52, 38, 0, Math.PI * 2); x.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const moon = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, fog: false, depthWrite: false, transparent: true }));
+  moon.position.set(420, 620, -1050);
+  moon.scale.setScalar(150);
+  moon.renderOrder = -1;
+  g.add(stars, moon);
+  return g;
+}
+// ビル街のシルエット (山の代わり): 暗い紺の箱に、窓の明かり
+function makeSkyline() {
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 128;
+  const x = c.getContext('2d');
+  x.fillStyle = '#070a16';
+  x.fillRect(0, 0, 64, 128);
+  for (let yy = 4; yy < 128; yy += 8) for (let xx = 4; xx < 64; xx += 8) {
+    if (Math.random() < 0.38) {
+      x.fillStyle = Math.random() < 0.15 ? '#ff6a7a' : Math.random() < 0.5 ? '#9fd8ff' : '#ffe9b0';
+      x.globalAlpha = rand(0.35, 0.9);
+      x.fillRect(xx, yy, 4, 4);
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  // 窓の模様の細かさ 3 種類ごとに InstancedMesh 1 つ (70 棟を 3 回で描く)
+  const g = new THREE.Group();
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  const spots = [[], [], []];
+  for (let i = 0; i < 70; i++) {
+    const w = rand(28, 80), h = rand(50, 260);
+    _m4.compose(_v3.set(-1300 + i * 38 + rand(-14, 14), h / 2 - 2, -1050 + rand(-90, 30)), _q.identity(), _s3.set(w, h, rand(20, 50)));
+    spots[Math.floor(rand(0, 3))].push(_m4.clone());
+  }
+  spots.forEach((list, k) => {
+    const t = tex.clone(); t.repeat.set(k + 1, (k + 1) * 2); t.needsUpdate = true;
+    const im = new THREE.InstancedMesh(box, new THREE.MeshBasicMaterial({ map: t, fog: false }), Math.max(1, list.length));
+    im.count = list.length;
+    list.forEach((m, i) => im.setMatrixAt(i, m));
+    im.frustumCulled = false;
+    g.add(im);
+  });
+  return g;
+}
+// 光の筋: 道の左右の低い所 (横 24〜70 m、高さ 0.3〜6 m) を流れる細い光。白・青、ときどき赤。
+// VR で酔わないよう、目の高さの正面には置かず、床より速くは流さない (床の速さの 0.6〜1 倍)。
+// 80 本を InstancedMesh 1 つ (色は instanceColor) で描く
+const TRAIL_N = 80;
+function makeTrails() {
+  const im = new THREE.InstancedMesh(new THREE.BoxGeometry(0.22, 0.22, 1),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, fog: true }), TRAIL_N);
+  const cols = [0xe8f4ff, 0x6ab8ff, 0xff4060].map((c) => new THREE.Color(c));
+  im.userData.list = [];
+  for (let i = 0; i < TRAIL_N; i++) {
+    const side = Math.random() < 0.5 ? -1 : 1;
+    im.userData.list.push({ x: side * rand(24, 70), y: rand(0.3, 6), z: rand(-520, 40), len: rand(18, 55), v: rand(0.6, 1) });
+    im.setColorAt(i, cols[Math.random() < 0.12 ? 2 : Math.random() < 0.5 ? 1 : 0]);
+  }
+  im.frustumCulled = false;
+  return im;
+}
 
 export class World {
   constructor(scene) {
     this.scene = scene;
     scene.fog = new THREE.Fog(0xffffff, FOG_NEAR, FOG_FAR);
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x667788, 1.8));
+    this.hemi = new THREE.HemisphereLight(0xffffff, 0x667788, 1.8);
+    scene.add(this.hemi);
     const sun = new THREE.DirectionalLight(0xffffff, 2.2);
     sun.position.set(30, 60, 25);
     scene.add(sun);
+    this.sunLight = sun;
 
     // 地面
     this.groundUni = {
@@ -138,17 +250,26 @@ export class World {
 
     // 遠景の山 (フォグの外側にあるので、色をあらかじめ空になじませる)
     this.mountMat = new THREE.MeshBasicMaterial({ fog: false });
-    this.mountains = new THREE.Group();
-    const cone = new THREE.ConeGeometry(1, 1, 5);
+    // 26 個を InstancedMesh 1 つで描く
+    this.mountains = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 5), this.mountMat, 26);
     for (let i = 0; i < 26; i++) {
-      const m = new THREE.Mesh(cone, this.mountMat);
       const w = rand(60, 150), h = rand(40, 130);
-      m.scale.set(w, h, w * 0.6);
-      m.position.set(-1100 + i * 88 + rand(-30, 30), h / 2 - 2, -1100 + rand(-80, 40));
-      m.rotation.y = rand(0, Math.PI);
-      this.mountains.add(m);
+      _m4.compose(_v3.set(-1100 + i * 88 + rand(-30, 30), h / 2 - 2, -1100 + rand(-80, 40)), _q.setFromAxisAngle(_v3b.set(0, 1, 0), rand(0, Math.PI)), _s3.set(w, h, w * 0.6));
+      this.mountains.setMatrixAt(i, _m4);
     }
+    this.mountains.frustumCulled = false;
     scene.add(this.mountains);
+
+    // 夜の景色 (パレットに night: true がある面だけ。1 面 SKY HIGHWAY): 星・三日月・ビル街・道の左右を流れる光の筋
+    this.nightSky = makeNightSky();
+    this.nightSky.visible = false;
+    scene.add(this.nightSky);
+    this.skyline = makeSkyline();
+    this.skyline.visible = false;
+    scene.add(this.skyline);
+    this.trails = makeTrails();
+    this.trails.visible = false;
+    scene.add(this.trails);
 
     // 障害物の共有ジオメトリとマテリアル
     this.geo = {
@@ -170,6 +291,7 @@ export class World {
       pylon: new THREE.MeshStandardMaterial({ color: 0x8a8fa8, metalness: 0.7, roughness: 0.35 }),
       lamp: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xff4ad8, emissiveIntensity: 1.2 }),
       column: new THREE.MeshStandardMaterial({ roughness: 0.5 }),
+      tower: (() => { const t = towerTexture(); return new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.8, roughness: 0.6 }); })(),
       cap: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 }),
       bush: new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.9 }),
       trunk: new THREE.MeshStandardMaterial({ color: 0x7a4a24, roughness: 0.9 }),
@@ -216,6 +338,16 @@ export class World {
     // 水晶はステージの空の色を明るくした色、ほのかに光らせる
     this.mat.crystal.color.setHex(th.crystal ?? th.sky).lerp(new THREE.Color(0xffffff), 0.45);
     this.mat.crystal.emissive.setHex(th.crystal ?? th.sky).multiplyScalar(0.25);
+    this.mat.lamp.emissive.setHex(th.lamp ?? 0xff4ad8);
+    // 夜の面: 星・月・ビル街・光の筋を出し、山を隠して、明かりを月の光くらいに落とす
+    const night = !!th.night;
+    this.nightSky.visible = this.skyline.visible = this.trails.visible = night;
+    this.mountains.visible = !night;
+    this.hemi.intensity = night ? 0.75 : 1.8;
+    this.hemi.color.setHex(night ? 0x9fb4ff : 0xffffff);
+    this.hemi.groundColor.setHex(night ? 0x1a2030 : 0x667788);
+    this.sunLight.intensity = night ? 0.9 : 2.2;
+    this.sunLight.color.setHex(night ? 0xc8d8ff : 0xffffff);
   }
 
   // 色を time 秒かけて移す (エンディング用。VR で視野全体の明るさが急に跳ばないように)。
@@ -410,6 +542,18 @@ export class World {
         parts.push({ c: 'box', hx: r * 1.1, hz: r * 1.1, y0: y0 - 0.9, y1: y0 });
       }
       o = { kind: 'column', group: g, r, h: CEIL_Y, hang, parts };
+    } else if (roll < 0.4 && this.theme?.night) {
+      // 夜の面 (1 面) の柱はビル: 四角い箱に明かりのついた窓。当たりは箱
+      const r = rand(1.8, 3.4) * (lane ? 0.75 : 1);
+      const h = tallH(24, 40);
+      const body = new THREE.Mesh(this.geo.cap, this.mat.tower);
+      body.scale.set(r * 2, h, r * 2);
+      body.position.y = h / 2;
+      const roof = new THREE.Mesh(this.geo.cap, this.mat.pylon);
+      roof.scale.set(r * 2.2, 0.6, r * 2.2);
+      roof.position.y = h + 0.3;
+      g.add(body, roof);
+      o = { kind: 'column', group: g, r: r * 1.42, h: h + 0.6, parts: [{ c: 'box', hx: r * 1.1, hz: r * 1.1, y0: 0, y1: h + 0.6 }] };
     } else if (roll < 0.4) {
       // 巨大な柱: 半分ほどは飛び越えられる高さ、残りは横によけるしかない高さ
       const r = rand(1.8, 3.4) * (lane ? 0.75 : 1);
@@ -532,6 +676,22 @@ export class World {
     if (this.ceiling.visible) this.ceiling.position.x = camPos.x;
     this.sky.position.set(camPos.x, 0, camPos.z);
     this.mountains.position.x = camPos.x * 0.9; // ほぼ無限遠に見せる
+    if (this.nightSky.visible) {
+      this.nightSky.position.set(camPos.x, 0, camPos.z);
+      this.skyline.position.x = camPos.x * 0.9;
+      // 光の筋: 道の左右の低い所を、床と同じかゆっくり後ろへ流れる (流れきったら、また遠くから)
+      // 酔い対策「強」では出さない
+      this.trails.visible = !this.calmTrails;
+      this.trails.position.x = this.side ? 0 : camPos.x;
+      if (this.trails.visible) {
+        this.trails.userData.list.forEach((t, i) => {
+          t.z += speed * t.v * dt;
+          if (t.z > 40) t.z -= 560;
+          this.trails.setMatrixAt(i, _m4.compose(_v3.set(t.x, t.y, t.z), _q.identity(), _s3.set(1, 1, t.len)));
+        });
+        this.trails.instanceMatrix.needsUpdate = true;
+      }
+    }
 
     if (spawn) {
       this.spawnAcc += d;

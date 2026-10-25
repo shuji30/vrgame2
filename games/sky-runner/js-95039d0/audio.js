@@ -321,6 +321,30 @@ export const sfx = {
     osc('triangle', 2600, t, 0.12, 0.12, sfxBus, 1800);
     osc('sine', 3900, t, 0.08, 0.06, sfxBus);
   },
+  // 岩の亀が首を出すときの低いうなり
+  growl() {
+    if (!ctx) return;
+    const t = now();
+    osc('sawtooth', 70, t, 0.7, 0.3, sfxBus, 50);
+    noise(t, 0.6, 0.35, 400, sfxBus);
+  },
+  // 砂時計が赤く光るときの、時計のカチッ (3 回)
+  tick() {
+    if (!ctx) return;
+    const t = now();
+    for (let i = 0; i < 3; i++) osc('square', 2400, t + i * 0.25, 0.03, 0.12, sfxBus, 1800);
+  },
+  // エイの割れ目が光るときの、溶岩のシュッ
+  hiss() {
+    if (!ctx) return;
+    noise(now(), 0.7, 0.45, 3500, sfxBus, 'bandpass');
+  },
+  // 雷の結晶球の予告の線が出るときの、ぱちぱちする電気の音
+  crackle() {
+    if (!ctx) return;
+    const t = now();
+    for (let i = 0; i < 6; i++) noise(t + i * 0.09 + Math.random() * 0.04, 0.04, 0.4, 5000, sfxBus, 'bandpass');
+  },
   lock() {
     if (!ctx) return;
     osc('square', 1760, now(), 0.05, 0.08, sfxBus);
@@ -961,7 +985,11 @@ let realMusic = true;
 export function setRealMusic(on) {
   realMusic = on;
 }
-const RECORDED_GAIN = 1.2; // 録音の曲の音量 (プログラムの曲と同じくらいに聞こえるよう)
+// 録音の曲の音量。mp3 は RMS -14.3 dBFS ほどにそろっているので、BGM の出口 (0.35 × 全体 0.6) を通ったあとに、
+// ゲームの音源の曲 (約 -16 dBFS) と同じくらい (約 -17 dBFS) になる倍率 (2026-10-25 に測って決めた。前の 1.2 では 10 dB 小さかった)
+const RECORDED_GAIN = 3.4;
+// ファイルごとの補正 (ほかより小さく録音されている曲): 10 ボスは RMS -18.6 dBFS なので 4.3 dB 上げる
+const RECORDED_TRIM = { boss: 1.64 };
 const recorded = {}; // パス → audio 要素
 let recordedNow = null;
 function recordedEl(url) {
@@ -969,7 +997,8 @@ function recordedEl(url) {
     const el = new Audio(url);
     el.loop = true;
     const g = ctx.createGain();
-    g.gain.value = RECORDED_GAIN;
+    const key = Object.keys(RECORDED_SONGS).find((k) => RECORDED_SONGS[k] === url);
+    g.gain.value = RECORDED_GAIN * (RECORDED_TRIM[key] || 1);
     ctx.createMediaElementSource(el).connect(g).connect(bgmBus);
     recorded[url] = el;
   }

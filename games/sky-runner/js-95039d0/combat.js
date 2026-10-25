@@ -557,7 +557,7 @@ export class Combat {
   remove(o) {
     this.scene.remove(o.mesh);
     if (o.shadow) this.scene.remove(o.shadow);
-    if (o.marker) this.scene.remove(o.marker); // 地面の予告の印 (氷晶の冠のつららなど)
+    if (o.marker) { this.scene.remove(o.marker); o.marker.userData.dispose?.forEach((d) => d.dispose()); } // 地面の予告の印 (氷晶の冠のつららなど)
     if (o.gapMarker) this.scene.remove(o.gapMarker); // 氷の柵の抜け道の印
     if (o.beam) EXTRA[o.kind]?.endBeam?.(this, o); // 光翼の光線 (面が変わったときも片付ける)
     if (o.mats) o.mats.forEach((m) => m.dispose());

@@ -467,7 +467,7 @@ stageSel.addEventListener('change', () => { selectedStage = Number(stageSel.valu
 // 聞く / 止める (自分で押して聞くものなので、BGM やリアルミュージックの設定に関係なく流す)。くり返し流し、出撃したら止める
 const titleMusic = new Audio('./assets/music/skyhighway.mp3');
 titleMusic.loop = true;
-titleMusic.volume = 0.6;
+titleMusic.volume = 0.85; // ゲームの中の録音の曲と同じくらいの大きさ
 if (new URLSearchParams(location.search).has('debug')) window.__titleMusic = titleMusic; // 開発用
 let titleMuted = false;
 const btnTheme = document.getElementById('btnTheme');
@@ -1335,6 +1335,7 @@ function update(dt) {
   // ビネットの強さ: 速さと上下左右の動きに合わせる (VR のときだけ)
   {
     const lvl = renderer.xr.isPresenting ? VIGNETTE_LEVELS[settings.vignette] ?? 0 : 0;
+    world.calmTrails = settings.vignette === 'strong'; // 酔い対策「強」では 1 面の光の筋を出さない
     const motion = play && running
       ? THREE.MathUtils.clamp(Math.max(0, speed / (SPEED.base * SPEED.max) - 0.85) * 1.6 + Math.abs(S.vy) / MOVE_Y * 0.7 + Math.abs(S.vx) / MOVE_X * 0.5 + Math.abs(S.vz) / MOVE_X * 0.3, 0, 1)
       : 0;
@@ -1434,6 +1435,8 @@ window.__obstacles = () => world.obstacles.map((o) => [o.kind, o.hang ? 'hang' :
 window.__debugClear = () => allClear(); // 開発用: すぐ全面クリアにする (エンディングとごほうびの確認)
 window.__enemies = () => combat.enemies.map((e) => [e.kind, ...e.mesh.position.toArray().map((v) => Math.round(v * 10) / 10)]); // 開発用: 敵の位置
 // 開発用: 自動テストから状態を読む
+window.__enemyState = () => combat.enemies.map((e) => [e.kind, Math.round(e.mesh.position.z), e.state ?? e.G?.state ?? e.pair?.state ?? '', e.flips ?? '', e.sand == null ? '' : +e.sand.toFixed(2)]); // 開発用: 敵の動きの段階
+window.__debugGod = () => { S.invuln = 1e9; }; // 開発用: 当たらない (長い面の確認)
 window.__debugSub = () => `${S.sub}  ${JSON.stringify(S.entry)}`; // 開発用: ゲームオーバーの 2 行目とランキングの入力
 window.__debugState = () => ({
   gameMode: settings.mode, msg: S.msg, bonusCount: S.bonusCount, destroyed: avatar.destroyed, shipVisible: avatar.models.ship?.obj.visible, overT: S.overT, frame: renderer.info.render.frame, mode: S.mode, py: S.py, version: document.getElementById('version').textContent, phase: S.phase, stage: S.stage, lives: S.lives, boss: combat.bossRatio, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,

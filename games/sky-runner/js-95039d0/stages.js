@@ -21,10 +21,12 @@
 
 export const STAGES = [
   {
-    name: 'SUNNY FIELD', kind: 'normal', length: 45, speed: 40, diff: 1, density: 0.9,
+    // 夜の空の道 (2026-10-25 にユーザーの希望で、曲 (01 Gravity Left Behind) とイメージ「スカイハイウェイ」に合わせて夜にした。
+    // 前は昼の SUNNY FIELD)。星と三日月、ビル街、道の左右を流れる光の筋、街灯と縞の柱
+    name: 'SKY HIGHWAY', kind: 'normal', length: 45, speed: 40, diff: 1, density: 0.9,
     waves: [['fighter', 3], ['dart', 1.5], ['gremlin', 1], ['mammoth', 2.5]],
-    obstacles: { bush: 3, tree: 2, ring: 1.2, column: 0.5, lane: 0.25 },
-    palette: { a: 0xe9cf6a, b: 0x3e9c3c, fog: 0xf6dcae, sky: 0x2f72d8, mount: 0x5a70a8, col: ['#f4f4f4', '#e2559a'], bush: 0x2e8b3a },
+    obstacles: { pylon: 2.2, column: 1.2, ring: 1.0, lane: 0.25 },
+    palette: { a: 0x161b28, b: 0x0a0d14, fog: 0x1c2a4c, sky: 0x02040c, mount: 0x0a1020, col: ['#e8f4ff', '#ff3050'], bush: 0x2a3a5a, crystal: 0x6ab8ff, lamp: 0x9fd8ff, night: true },
     bgm: { key: 0, tempo: 152, song: 'rock' },
     boss: { type: 'serpent', hp: 380, escape: 0 },
   },
@@ -227,11 +229,11 @@ export const STORY = {
     'むかし、空にはガラスの太陽があった',
     'ある朝、その太陽にひびが入った',
     'こぼれた光は、石や虫に宿ってあばれだした',
-    '行こう、ランナー。太陽まで 18 の土地をこえて',
+    '行こう、ランナー。18 の土地の先の太陽へ',
   ],
   // 面のはじめの 1 行 (1〜18 面)
   stage: [
-    '聞こえる? まずは撃って、よけて、体を慣らそう',
+    '夜の空の道だ。撃って、よけて、慣れよう',
     '海べりの鏡は光を返してくる。気をつけて',
     '甘い色の森。でも結晶はかたいよ',
     '天井のある谷。上にはにげられない',
@@ -245,7 +247,7 @@ export const STORY = {
     'つけっぱなしの街灯、ぜんぶ倒しちゃって',
     '太陽が見えてきた。トンボの編隊が来る',
     '暗い広間。床を走る足音…蜘蛛だ',
-    '黒曜石のエイが、低くすべってくる',
+    '黒曜石のエイ。宙返りで腹を見せたら撃て',
     '嵐の中だ。雷の帯は上か下へよけて',
     '磁石の機雷は、はじける前に撃って',
     'ここが太陽の前。かけらが集まってくる',
