@@ -2,6 +2,7 @@
 // 円盤が赤く光る 1 秒の予告のあと、それぞれがプレイヤーのいた所へ飛んできて、通り過ぎたら弧を描いて戻る。
 // 円盤は壊せず弾を跳ね返す。中央の核を撃って倒す (核は扇の弾も撃つ)。横スクロールでは円盤を核の上下に付ける
 import * as THREE from 'three';
+import { eyeGuard } from '../enemies.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SPAWN_Z = -230;
@@ -122,6 +123,9 @@ export const TURBINE_KINDS = {
         if (e.u >= 1) {
           e.state = 'throw';
           e.u = 0;
+          e.dx = 0;
+          e.veer = 0;
+          e.eyeChecked = false;
           e.from.copy(p);
           // プレイヤーのいた所を 14 m 通り過ぎてから戻る (うしろにいる間は当たらない)
           e.to.copy(ctx.player).add(_b.subVectors(ctx.player, p).normalize().multiplyScalar(14));
@@ -129,7 +133,16 @@ export const TURBINE_KINDS = {
       } else if (e.state === 'throw') {
         e.u += dt / 1.6; // VR で怖すぎないよう、ゆっくり
         p.lerpVectors(e.from, e.to, Math.min(1, e.u));
-        if (e.u >= 1) { e.state = 'back'; e.u = 0; e.from.copy(p); }
+        // 円盤は目を通らない: 目の 8 m 手前で、当たる位置なら弾かれて戻る (ダメージ)。外れていれば横へそれる (表面から目まで 6 m 以上)
+        if (e.veer && Math.abs(p.x + e.dx - ctx.player.x) < e.r + 6) e.dx += e.veer * 30 * dt;
+        p.x += e.dx;
+        const wasDead = e.dead;
+        if (eyeGuard(c, e, ctx, p, e.r, e.dmg)) {
+          e.dead = wasDead; // 壊せない円盤なので消さずに、弾かれて戻る
+          e.state = 'back';
+          e.u = 0;
+          e.from.copy(p);
+        } else if (e.u >= 1) { e.state = 'back'; e.u = 0; e.from.copy(p); }
       } else {
         // 横へふくらむ弧を描いて戻る (金色に光る。上やうしろは通らない)
         e.u += dt / 1.4;
