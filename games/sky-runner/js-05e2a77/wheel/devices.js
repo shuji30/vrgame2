@@ -33,8 +33,10 @@ export function defaultConfig() {
     // wheelDeg: ドライバーで設定しているハンドルの回転角 (左端〜右端)。lockDeg: 端まで切ったことにする角度 (90° = 左右 45° ずつ)
     steer: { wheelDeg: 900, lockDeg: 90, deadzone: 0.04, gamma: 1, invert: false },
     // FFB: 被弾や障害物に当たったときの短い振動、中央へ戻すばね (真ん中から離すほど強く戻る)、回す重さ (ダンパー。0 = 出さない)。
-    // invert: 力の向きを反転 (機種によって一定の力の向きが逆)。v: 設定の版 (2 からばねとダンパーをはじめから効かせる)
-    ffb: { enabled: true, rumble: 0.5, spring: 0.35, damper: 0.15, invert: false, v: 2 },
+    // sign: 一定の力の向き (+1 = 正の力で軸の値が増える。機種によって逆。ばねのテストのはじめか、ゲームで初めて読んだときに自動で調べる)。
+    // signKnown: 調べ終えたか (分かるまでは戻す力を出さない。逆向きだと外へ押してしまうため)。
+    // v: 設定の版 (2 からばねとダンパーをはじめから効かせる)
+    ffb: { enabled: true, rumble: 0.5, spring: 0.35, damper: 0.15, sign: 1, signKnown: false, v: 2 },
   };
 }
 
@@ -195,18 +197,38 @@ export class WheelInput {
     if (!f.enabled || !this.bridge.connected) return;
     const now = performance.now();
     const r = now < this.rumbleUntil ? this.rumbleMag * f.rumble : 0;
-    // ばねは割り当て済みのハンドルが見えているときだけ
     // 中央へ戻すばね: ハンドルの位置から戻す力を計算して、一定の力 (constant) で出す。
     // ダイレクトドライブのハンコンは、機器のばね効果 (spring) に対応していないことが多いため (TURBO KART と同じやり方)。
     // 真ん中から離すほど強く、大きく回すと少し余計に強くなる。設定のばねのテストの間 (4 秒) は、設定を開いていても出す
-    const testing = now < this.springTestUntil;
-    const x = (this.last || testing) && this.config.bindings.steer ? this.steerPos() : null;
-    let c = 0;
-    if (x != null) {
-      const k = testing ? Math.max(0.3, f.spring) : f.spring;
-      c = Math.max(-1, Math.min(1, -(x * 0.6 + x * Math.abs(x) * 0.4) * k * 1.6)) * (f.invert ? -1 : 1);
+    // 力の向きがまだ分からなければ、ゲームで初めてハンドルを読んだときに 1 回だけ調べる
+    if (this.last && this.config.bindings.steer && !f.signKnown && !this.springTest) {
+      this.springTest = { probeUntil: now + 300, until: now + 300, x0: this.steerPos(), learned: false };
     }
+    const T = this.springTest, testing = T && now < T.until;
+    const x = (this.last || testing || (T && !T.learned)) && this.config.bindings.steer ? this.steerPos() : null; // 調べ終わりの 1 回は、設定を開いていても読む
+    let c = 0;
+    if (testing && now < T.probeUntil) {
+      c = 0.3; // テストのはじめの 0.3 秒: 弱く押して、どちらへ動くかで力の向きを調べる
+    } else if (x != null) {
+      if (T && !T.learned && T.x0 != null) {
+        T.learned = true;
+        const dx = x - T.x0;
+        if (Math.abs(dx) > 0.01) { f.sign = dx > 0 ? 1 : -1; f.signKnown = true; this.save(); }
+      }
+      const k = testing ? Math.max(0.3, f.spring) : f.spring;
+      if (f.signKnown) c = Math.max(-1, Math.min(1, -(x * 0.6 + x * Math.abs(x) * 0.4) * k * 1.6)) * f.sign;
+    }
+    // 左右のテスト: 調べた力の向きと「左右を反転」の設定で、言った向きへ 1 秒押す
+    const P = this.pushTest;
+    if (P && now >= P.start && now < P.start + 1000 && f.signKnown) c = 0.35 * P.dir * (this.config.steer.invert ? -1 : 1) * f.sign;
     this.bridge.force({ r, hz: 30, c, d: x != null ? f.damper : 0 });
+  }
+
+  // 設定の左右のテスト (dir: -1 左 / 1 右)。力の向きがまだ分からなければ、先に 0.3 秒で調べてから押す
+  testPush(dir) {
+    const now = performance.now(), known = this.config.ffb.signKnown;
+    if (!known && this.config.bindings.steer) this.springTest = { probeUntil: now + 300, until: now + 300, x0: this.steerPos(), learned: false };
+    this.pushTest = { dir, start: now + (known ? 0 : 350) };
   }
 
   // ハンドルの物理的な位置 (-1..1。端まで切る角度で ±1。遊び・曲がり方・左右の反転の設定は入れない)
@@ -216,9 +238,10 @@ export class WheelInput {
     return raw == null ? null : mapSteer(raw, { ...B.cal, ...this.config.steer, invert: false, deadzone: 0, gamma: 1 }).value;
   }
 
-  // 設定のばねのテスト: 4 秒間、戻す力を出す (ハンドルを左右に回して確かめる)
+  // 設定のばねのテスト: はじめの 0.3 秒で力の向きを調べ、そのあと 4 秒間、戻す力を出す (ハンドルを左右に回して確かめる)
   testSpring() {
-    this.springTestUntil = performance.now() + 4000;
+    const now = performance.now();
+    this.springTest = { probeUntil: now + 300, until: now + 4300, x0: this.config.bindings.steer ? this.steerPos() : null, learned: false };
   }
 
   // 短い振動 (被弾・障害物など)。strength 0..1、ms ミリ秒 (長くても 0.5 秒まで)
