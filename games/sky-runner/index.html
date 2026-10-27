@@ -187,6 +187,9 @@
   #touch .tpad { position: absolute; right: 0; bottom: 0; width: 230px; height: 230px; }
   #touch .fire { right: 18px; bottom: 18px; width: 96px; height: 96px; background: rgba(255, 90, 40, 0.5); }
   #touch .missile { right: 124px; bottom: 34px; width: 70px; height: 70px; }
+  /* 機関砲を自動で撃つときは FIRE を出さず、ミサイルをその場所へ */
+  #touch.auto-fire .fire { display: none; }
+  #touch.auto-fire .missile { right: 18px; bottom: 18px; width: 96px; height: 96px; }
   #touch .tbtns { position: absolute; right: 12px; top: calc(12px + env(safe-area-inset-top, 0px)); display: flex; gap: 8px; }
   #touch .small { position: static; width: 52px; height: 40px; border-radius: 10px; font-size: 13px; }
   canvas { touch-action: none; }
@@ -390,7 +393,7 @@
     <button class="tbtn fire" data-hold="fire" aria-label="射撃">FIRE</button>
   </div>
 </div>
-<script type="module" src="./js-65d9ec2/main.js"></script>
+<script type="module" src="./js-9c2662a/main.js"></script>
 <script>
   // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
   if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {

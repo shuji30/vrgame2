@@ -170,7 +170,8 @@ export class Avatar {
 
   // kind: 'ship' | 'human' | 'girl'、view: '1st' | '3rd'
   // sidePos: 横スクロールのときのプレイヤーの位置 (ワールド座標)
-  update(dt, { kind, view, vx, vy, thrust, presenting, sidePos, missiles, locks }) {
+  // talking: 女の子が話している (口を動かす)
+  update(dt, { kind, view, vx, vy, thrust, presenting, sidePos, missiles, locks, talking }) {
     this.t += dt;
     this.radius = RADIUS[kind];
 
@@ -243,7 +244,7 @@ export class Avatar {
         m.obj.rotation.z = Math.sin(this.fallT * 9) * 0.15 * Math.max(0, 1 - this.fallT);
         if (!this.fallHold && this.fallT > 1.6) this.fallT = -1; // 起き上がって復帰する
       }
-      m.tick?.(dt, this.fallT >= 0); // 女の子: 表情と、髪・スカートの揺れ
+      m.tick?.(dt, this.fallT >= 0, talking); // 女の子: 表情と口、髪・スカートの揺れ
 
       // 炎: 速度に合わせて伸び縮みし、ちらつく
       for (const [i, f] of m.flames.entries()) {

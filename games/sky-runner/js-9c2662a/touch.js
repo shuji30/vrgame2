@@ -79,8 +79,11 @@ export class TouchControls {
     return had;
   }
 
-  show(on) {
+  // autoFire: 機関砲を自動で撃つ設定のときは、FIRE ボタンを出さない
+  show(on, autoFire = false) {
     this.root.hidden = !on;
+    this.root.classList.toggle('auto-fire', autoFire);
+    if (autoFire) this.fire = false;
     if (!on) {
       this.fire = false;
       this.move.x = this.move.y = 0;

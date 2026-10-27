@@ -1652,6 +1652,7 @@ export class Combat {
     for (const [i, target] of targets.entries()) {
       if (this.missileStock <= 0) break;
       this.missileStock--;
+      this.missilesFired = (this.missilesFired || 0) + 1; // 撃った数 (女の子の掛け声に使う。残りの数は同じフレームで補充されることがある)
       const g = new THREE.Group();
       g.add(new THREE.Mesh(GEO.mBody, MAT.missile));
       const tip = new THREE.Mesh(GEO.mTip, MAT.missileTip);
