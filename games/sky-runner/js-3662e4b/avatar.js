@@ -1,10 +1,9 @@
 // プレイヤーの見た目 (宇宙船 / 人間 / 女の子) と視点 (一人称 / 三人称)
 // モデルは Blender で作った assets/ship.glb と assets/harrier.glb (blender の元データは assets/models.blend)、
-// 女の子は「ふたりの休日」の assets/girl.vrm (src/girl.js)
+// 女の子は「ふたりの休日」の assets/girl.vrm (src/girl.js)。15MB と大きく three-vrm も要るので、選んだときに初めて読む
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { CockpitPanel, openCockpit } from './cockpit.js';
-import { loadGirl } from './girl.js';
 
 // 三人称で、目の高さから見てモデルをどこに置くか (rig の中の座標)
 const THIRD_OFFSET = {
@@ -87,7 +86,13 @@ export class Avatar {
     scene.add(this.shadow);
   }
 
-  async load(base) {
+  load(base) {
+    this.base = base;
+    this.loaded = this.loadModels(base);
+    return this.loaded;
+  }
+
+  async loadModels(base) {
     const loader = new GLTFLoader();
     const files = { ship: 'ship.glb', human: 'harrier.glb' };
     await Promise.all(Object.entries(files).map(async ([kind, file]) => {
@@ -118,17 +123,21 @@ export class Avatar {
         Object.assign(this.models[kind], { panel, arch: obj.getObjectByName('CanopyArch') });
       }
     }));
-    // 女の子 (VRM)。炎は人間のモデルのものを借りる
-    try {
-      const flame = this.models.human?.obj.getObjectByName('HFlameL');
-      const girl = await loadGirl(base + 'girl.vrm', flame);
+  }
+
+  // 女の子 (VRM) を読む (1 回だけ)。three-vrm が読めなくても、ほかのプレイヤーでは遊べるように import も後から。
+  // 炎は人間のモデルのものを借りる
+  loadGirl() {
+    this.girlLoading ||= (async () => {
+      await this.loaded;
+      const { loadGirl } = await import('./girl.js');
+      const girl = await loadGirl(this.base + 'girl.vrm', this.models.human?.obj.getObjectByName('HFlameL'));
       girl.obj.visible = false;
       this.mount.add(girl.obj);
       this.models.girl = girl;
-      this.girlCredit = girl.credit;
-    } catch (e) {
-      console.error('女の子のモデルを読み込めませんでした', e);
-    }
+      return girl;
+    })();
+    return this.girlLoading;
   }
 
   get ready() { return Object.keys(this.models).length > 0; }
@@ -161,7 +170,8 @@ export class Avatar {
 
   // kind: 'ship' | 'human' | 'girl'、view: '1st' | '3rd'
   // sidePos: 横スクロールのときのプレイヤーの位置 (ワールド座標)
-  update(dt, { kind, view, vx, vy, thrust, presenting, sidePos, missiles, locks }) {
+  // talking: 女の子が話している (口を動かす)
+  update(dt, { kind, view, vx, vy, thrust, presenting, sidePos, missiles, locks, talking }) {
     this.t += dt;
     this.radius = RADIUS[kind];
 
@@ -234,7 +244,7 @@ export class Avatar {
         m.obj.rotation.z = Math.sin(this.fallT * 9) * 0.15 * Math.max(0, 1 - this.fallT);
         if (!this.fallHold && this.fallT > 1.6) this.fallT = -1; // 起き上がって復帰する
       }
-      m.tick?.(dt, this.fallT >= 0); // 女の子: 表情と、髪・スカートの揺れ
+      m.tick?.(dt, this.fallT >= 0, talking); // 女の子: 表情と口、髪・スカートの揺れ
 
       // 炎: 速度に合わせて伸び縮みし、ちらつく
       for (const [i, f] of m.flames.entries()) {

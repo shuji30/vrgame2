@@ -14,7 +14,8 @@ import { WheelPanel } from './wheel/calibration.js';
 import { THEMES } from './world.js';
 import { VERSION, loadBuildInfo } from './version.js';
 import { RANK_CHARS, fetchTop, submitScore } from './ranking.js';
-import { BGM_LIST, SE_LIST, captureAudioStream, initAudio, previewBGM, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, setRealMusic, setRealSfx, toggleMute } from './audio.js';
+import { BGM_LIST, SE_LIST, captureAudioStream, initAudio, previewBGM, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, setRealMusic, setRealSfx, toggleMute, isMuted, playVoice } from './audio.js';
+import { createGirlVoice } from './girlvoice.js';
 
 // ---- 定数
 const X_LIMIT = 96;        // 左右の移動範囲 (m)
@@ -107,9 +108,17 @@ const wheelPanel = document.getElementById('wheelPanel');
 new WheelPanel(wheelPanel, input.wheel);
 const debugPanel = new DebugPanel(rig);
 const avatar = new Avatar(scene, rig, camera);
-avatar.load('./assets/')
-  .then(() => { if (avatar.girlCredit) document.getElementById('credit').textContent = `女の子のモデル: ${avatar.girlCredit}`; }) // VRM のライセンスで作者の表示が要る
-  .catch((e) => console.error('モデルを読み込めませんでした', e));
+// 女の子の声 (プレイヤーが女の子のときだけ話す。吹き出しは出さない)
+const girlVoice = createGirlVoice({ isMuted });
+const girlSays = (kind, opts) => settings.player === 'girl' && girlVoice.say(kind, opts);
+// 女の子の録音の声を鳴らす (鳴らせなければ、同じ場面の音声合成の台詞)
+const girlVoiceOr = (kind, opts) => { if (settings.player === 'girl') playVoice(kind, () => girlSays(kind, opts)); };
+// 出撃の「ゴーアヘッド」: 女の子は録音の「いくよー！」 (鳴らせなければ音声合成、日本語の声も無ければ英語のまま)
+const goAhead = () => {
+  if (settings.player === 'girl') playVoice('go', () => { if (!girlSays('go', { cut: true })) say('Go ahead!'); });
+  else say('Go ahead!');
+};
+avatar.load('./assets/').catch((e) => console.error('モデルを読み込めませんでした', e));
 const combat = new Combat(scene);
 const ride = new SledRide(scene);
 combat.forceWave = new URLSearchParams(location.search).get('wave'); // 開発用: ?wave=moai などで出す敵を固定する
@@ -271,6 +280,7 @@ function startPlay(stageNo) {
   Object.assign(S, {
     mode: 'play', paused: false, entry: null, chapterHead: 0, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0, pz: SIDE_Z_START, vz: 0,
     stage: 1, phase: 'normal', phaseT: 0, stageT: 0, baseSpeed: SPEED.base, lives: LIVES, life: LIFE_MAX, lowLifeT: 0, extendIdx: 0, overT: 0, slowT: 0,
+    killsHeard: 0, idleT: 30, pinchT: 0, attackT: 0,
   });
   if (isSide()) S.py = 8; // 横スクロールは画面の中ほどの高さから
   world.clear();
@@ -325,7 +335,7 @@ function endPrologue() {
   S.rhythmT = 0;
   const st = stageAt(S.stage);
   showMsg('GO AHEAD!', `STAGE ${S.stage}  ${st.name}`, READY_TIME);
-  say('Go ahead!');
+  goAhead();
   queueComm(STORY.stage[S.stage - 1], READY_TIME + 0.3);
 }
 // プロローグと章の区切りは、見たら覚えておく (2 回目からは出さない)
@@ -397,7 +407,11 @@ function applyStage(n, first = false) {
     showMsg(first ? 'GO AHEAD!' : title, first ? `${title}  ${st.name}` : st.name, first ? READY_TIME : 2.5);
   }
   if (!first) queueComm(STORY.stage[n - 1], 2.6); // 面の名前のあとに、ベリルの 1 行
-  say(first ? 'Go ahead!' : `Stage ${n}`);
+  if (first) goAhead();
+  else {
+    say(`Stage ${n}`);
+    if (st.kind !== 'bonus') girlSays('stage', { queue: true });
+  }
 }
 
 function togglePause(p) {
@@ -591,24 +605,42 @@ function toTitle() {
 }
 
 // ---- VR に入る。床の高さが取れない機器では 'local' にして高さを補正する
+// VR を始める途中の段階を、出撃ボタンのすぐ下に出す (止まったときに、どこで止まったか分かるように)
+const vrStatus = document.getElementById('vrStatus');
+function vrStep(text) {
+  vrStatus.hidden = !text;
+  vrStatus.textContent = text;
+  if (text) console.log('[VR]', text);
+}
+
 async function enterVR(stageNo) {
   initAudio();
+  // 10 秒たっても VR に入れないときは、ランタイムを確かめるよう出す
+  const slow = setTimeout(() => vrStep(`${vrStatus.textContent} — 10 秒たっても返事がありません。SteamVR / Pimax Play が起動していて、OpenXR ランタイムになっているか確かめてください`), 10000);
   try {
+    vrStep('VR を始めています… (1/3 ヘッドセットに頼んでいます)');
     renderer.xr.setFramebufferScaleFactor(settings.scale);
     if (input.wheel.hasBindings()) input.wheel.bridge.connect(); // VR の最中はブリッジ経由でハンコンを読む
     const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] });
+    vrStep('VR を始めています… (2/3 床の高さを調べています)');
     let type = 'local-floor';
     try { await session.requestReferenceSpace('local-floor'); } catch (_) { type = 'local'; }
     renderer.xr.setReferenceSpaceType(type);
     S.refSpace = type;
     S.floorOffset = type === 'local' ? 1.6 : 0;
     session.addEventListener('end', onSessionEnd);
+    vrStep('VR を始めています… (3/3 描く準備をしています)');
     await renderer.xr.setSession(session);
     renderer.xr.setFoveation?.(1); // 視野の端を粗く描いて軽くする (Quest で効く)
+    vrStep('');
     startPlay(stageNo);
   } catch (err) {
     console.error(err);
-    document.getElementById('status').textContent = `VR を開始できませんでした: ${err.message}`;
+    const msg = `VR を開始できませんでした: ${err.name ? `${err.name}: ` : ''}${err.message}`;
+    vrStep(msg);
+    document.getElementById('status').textContent = msg;
+  } finally {
+    clearTimeout(slow);
   }
 }
 
@@ -715,6 +747,7 @@ function allClear() {
   showMsg('ALL CLEAR!!', `CONGRATULATIONS!  SCORE ${combat.score}`, 5);
   sfx.clear();
   say('Congratulations');
+  girlSays('ending', { queue: true });
   setBGMMode('ending', { key: 0, tempo: 152 }); // エンディングの曲 (ステージのテンポの影響を受けない)
   startBGM(); // STAGE CLEAR で止めた曲を、エンディングの曲で始める
   combat.clearHostiles();
@@ -794,6 +827,7 @@ function updateStage(dt) {
     S.phaseT = 0;
     showMsg('WARNING!!', warningText(st.kind === 'rush' ? st.rush[S.rushIndex] : st.boss), 3.5);
     sfx.warning();
+    girlSays('warning', { queue: true });
   } else if (S.phase === 'warning' && S.phaseT > 3.5) {
     S.phase = 'boss';
     S.phaseT = 0;
@@ -816,6 +850,7 @@ function updateStage(dt) {
       if (next.type === 'sun') saveSunCheckpoint(); // 最終ボスの前まで来たら、CONTINUE で太陽の前から始められる
       combat.spawnItem(new THREE.Vector3(P.x, Math.max(3, P.y), -60));
       sfx.warning();
+      girlVoiceOr('bossDown', { queue: true });
     } else {
       S.phase = 'clear';
       showMsg('STAGE CLEAR!', (escaped ? '敵は逃げ去った' : `BOSS BONUS ${combat.lastBossBonus}`) + recordStage(), 4.5);
@@ -824,6 +859,7 @@ function updateStage(dt) {
       if (bl) queueComm(escaped ? bl[1] || '' : bl[0], 0.4, 3.0);
       S.clearLen = chapterBreak(S.stage, 3.5) ? 10 : 5;
       sfx.clear();
+      girlVoiceOr(escaped ? 'escaped' : 'bossDown', { queue: true }); // 女の子は録音の声
       // もとの面には戻さない: 曲は止め、障害物は出さず、景色は次の面の色へ移していく
       stopBGM();
       if (S.stage < STAGE_COUNT) {
@@ -860,6 +896,7 @@ function updateStage(dt) {
       S.lives++;
       showMsg('EXTEND!', '残機 +1', 1.5);
       sfx.clear();
+      girlSays('extend', { queue: true });
     }
   }
 }
@@ -888,6 +925,7 @@ function startBonus(title = 'BONUS STAGE', name = '') {
   setBGMMode('bonus');
   showMsg(title, `${name ? name + ' - ' : ''}BONUS STAGE: 水晶のそりで木をなぎ倒せ!`, 3);
   say('Bonus stage');
+  girlSays('bonus', { queue: true });
 }
 
 function endBonus() {
@@ -947,7 +985,10 @@ function gameOver(cleared = false) {
   // どの面まで行ったかも出す (全面クリアは ALL CLEAR)
   const reached = cleared ? 'ALL CLEAR' : `STAGE ${S.stage}/${STAGE_COUNT} ${stageAt(S.stage).name}`;
   showMsg(cleared ? 'CONGRATULATIONS!' : 'GAME OVER', `${reached}\nSCORE ${combat.score}   ${combat.hard ? 'HARD HI' : 'HI'} ${hiNow()}`, Infinity);
-  if (!cleared) say('Game over');
+  if (!cleared) {
+    say('Game over');
+    setTimeout(() => girlVoiceOr('over', { queue: true }), 1500); // やられた「きゃー」と重ならないように
+  }
   // オンラインのランキング: 1 面から通したときだけ、イニシャルを入れて送る
   S.entry = S.fromStart && combat.score > 0 ? {
     state: 'input', pos: 0, chars: [...lastInitials()].map((c) => Math.max(0, RANK_CHARS.indexOf(c))),
@@ -1065,6 +1106,7 @@ function onHit(damage) {
     S.invuln = 0.8;
     flash.material.opacity = 0.25 + damage / 80;
     sfx.damage();
+    if (settings.player === 'girl') playVoice('damage', () => girlSays('hit')); // 女の子は録音の声 (鳴らせなければ音声合成)
     input.rumble(0.6 + damage / 100, 200);
     return;
   }
@@ -1072,7 +1114,9 @@ function onHit(damage) {
   S.lives--;
   const human = onFoot(settings.player);
   if (human) {
-    sfx.scream(settings.player === 'girl' ? 1.7 : 1); // 「あーっ」 (女の子は高い声)
+    // 「あーっ」。女の子は録音の「きゃー」 (鳴らせなければ音声合成、日本語の声も無ければ高い声の合成音)
+    if (settings.player === 'girl') playVoice('down', () => { if (!girlSays('scream')) sfx.scream(1.7); });
+    else sfx.scream();
     avatar.fall(S.lives <= 0);
   }
   if (S.lives <= 0) {
@@ -1111,6 +1155,7 @@ function onPickup(type) {
     showMsg('RECOVER!', `LIFE +${heal}`, 1.2);
   }
   sfx.heal();
+  girlSays('heal');
   input.rumble(0.3, 100);
 }
 
@@ -1216,6 +1261,7 @@ function updateCombat(dt, speed, a) {
 function update(dt) {
   const a = input.state;
   if (a.debug) debugPanel.toggle();
+  girlVoice.update(dt);
 
   let speed = 15; // タイトル画面では景色だけゆっくり流す
   let running = true;
@@ -1297,6 +1343,7 @@ function update(dt) {
   avatar.update(dt, {
     kind: settings.player, view: side ? 'side' : inGame ? settings.view : '3rd',
     vx: S.vx, vy: S.vy, thrust: inGame ? speed / SPEED.base : 0.3, presenting: renderer.xr.isPresenting, sidePos,
+    talking: settings.player === 'girl' && girlVoice.talking,
   });
   P.copy(avatar.hitPoint);
   world.side = side;
@@ -1312,6 +1359,7 @@ function update(dt) {
       combat.score += Math.round(RING_BONUS * combat.mult);
       showMsg(`RING +${Math.round(RING_BONUS * combat.mult)}`, '', 0.8);
       sfx.lock();
+      girlSays('ring', { chance: 0.5 });
       input.rumble(0.2, 40);
     }
   }
@@ -1325,7 +1373,30 @@ function update(dt) {
   if (play && running && S.life < LIFE_MAX * 0.3 && (S.lowLifeT -= dt) <= 0) {
     S.lowLifeT = 1.2;
     sfx.lowLife();
+    // 女の子は録音の「ピンチ」 (20 秒に 1 回まで。鳴らせなければ音声合成)
+    if (settings.player === 'girl' && S.pinchT <= 0) {
+      S.pinchT = 20;
+      playVoice('pinch', () => girlSays('lowLife'));
+    }
   }
+  S.pinchT -= dt;
+  // 女の子のおしゃべり: 敵を倒したとき (ときどき) と、道中のひとりごと (25〜45 秒に 1 回)
+  if (play && running && settings.player === 'girl') {
+    if (combat.kills > S.killsHeard) girlSays('kill', { chance: 0.25 });
+    // ミサイルを撃ったら録音の掛け声 (3 秒に 1 回まで)
+    if ((combat.missilesFired || 0) > (S.firedSeen || 0) && S.attackT <= 0) {
+      S.attackT = 3;
+      playVoice('attack');
+    }
+    S.attackT -= dt;
+    if (S.phase === 'normal' && (S.idleT -= dt) <= 0) {
+      S.idleT = 25 + Math.random() * 20;
+      if (Math.random() < 0.5) playVoice('idle', () => girlSays('idle')); // 半分は録音 (「たのしいね」「そら、きれいだね」)
+      else girlSays('idle');
+    }
+  }
+  S.killsHeard = combat.kills;
+  S.firedSeen = combat.missilesFired || 0;
   const riding = ['bonus', 'bonusEnd'].includes(S.phase); // ボーナスステージはそりを操るだけ (撃たない)
   if (play && running) updateCombat(dt, speed, riding ? { ...a, fire: false, handFire: [], missile: false } : a);
   if (combat.announce) {
@@ -1490,6 +1561,11 @@ function setPlayer(kind) {
   settings.player = kind;
   saveSettings();
   playerInputs.forEach((el) => { el.checked = el.value === kind; });
+  if (kind === 'girl') {
+    avatar.loadGirl()
+      .then((g) => { if (g.credit) document.getElementById('credit').textContent = `女の子のモデル: ${g.credit}`; }) // VRM のライセンスで作者の表示が要る
+      .catch((e) => console.error('女の子のモデルを読み込めませんでした', e));
+  }
 }
 setPlayer(PLAYERS.includes(settings.player) ? settings.player : 'ship');
 // モードの選択 (3D / 横スクロール)

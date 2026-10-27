@@ -123,12 +123,17 @@ export async function loadGirl(url, flameSrc) {
     eye.copy(bones.leftEye.getWorldPosition(_p)).add(bones.rightEye.getWorldPosition(_q)).multiplyScalar(0.5);
   } else bones.head?.getWorldPosition(eye);
 
+  let mouthT = 0;
   return {
     obj, eye, flames, muzzles: [muzzle], legs, vrm,
-    // 毎フレーム: 表情 (やられたら驚く) と揺れもの (髪・スカート)
-    tick(dt, fallen) {
+    // 毎フレーム: 表情 (やられたら驚く)、話している間は口 (あ・お を交互に)、揺れもの (髪・スカート)
+    tick(dt, fallen, talking) {
+      mouthT += dt;
+      const open = talking ? 0.25 + 0.45 * Math.abs(Math.sin(mouthT * 11)) : 0;
       face('happy', fallen ? 0 : 0.35);
       face('surprised', fallen ? 1 : 0);
+      face('aa', fallen ? 0 : open * (Math.sin(mouthT * 4.3) > 0 ? 1 : 0.4));
+      face('oh', fallen ? 0 : open * (Math.sin(mouthT * 4.3) > 0 ? 0 : 0.6));
       vrm.update(dt);
     },
     credit: vrm.meta ? `${vrm.meta.name || ''} (作: ${(vrm.meta.authors || []).join(', ')})` : '',

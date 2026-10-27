@@ -44,6 +44,7 @@ export function initAudio() {
   const d = noiseBuf.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   loadSamples();
+  loadVoices();
 }
 
 // ---- 録音の効果音 (assets/sfx。AI で作った音を scripts/prep-sfx.mjs で整えたもの)。1 種類 4 通りあり、鳴らすたびに順に替える。
@@ -96,6 +97,42 @@ function playSample(k, vol, { rate = 1, dur = 0 } = {}) {
   return true;
 }
 const rand = (a, b) => a + Math.random() * (b - a);
+
+// 女の子の声の録音 (プレイヤーが女の子のとき)。場面 → ファイル (2 つ以上あれば順に使う)。
+// リアル効果音の設定とは関係なく使う (声なので)。録音はほかの効果音より小さいので、大きくして鳴らす (vol: 倍率)
+const VOICE_FILES = {
+  go: { files: ['girl_go_a_head'], vol: 2.2 },
+  down: { files: ['girl_down'], vol: 2.2 },
+  damage: { files: ['girl_damege', 'girl_damage2', 'girl_damage3'], vol: 2.2 },
+  pinch: { files: ['girl_pinchi'], vol: 4 }, // ほかの声より 7 dB 小さい
+  attack: { files: ['girl_attack'], vol: 2 },
+  idle: { files: ['girl_im_fun', 'girl_sky_is_butiful'], vol: 2.8 }, // 道中のひとりごと
+  escaped: { files: ['girl_boss_is_away'], vol: 3.5 }, // ボスに逃げられた
+  bossDown: { files: ['girl_boss_down'], vol: 3 }, // ボスを倒した
+  over: { files: ['girl_game_over'], vol: 2.5 }, // ゲームオーバー
+};
+const voiceBufs = {}, voiceTurn = {};
+function loadVoices() {
+  for (const [k, { files }] of Object.entries(VOICE_FILES)) {
+    voiceBufs[k] = Promise.all(files.map((n) => fetch(`./assets/sfx/${n}.mp3`).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b))));
+    voiceBufs[k].catch(() => { /* 読めなければ、呼んだ側の代わりの声で */ });
+  }
+}
+// 女の子の声を鳴らす。読み込みの途中なら、読めしだい鳴らす (出撃の直後の「いくよー」が、最初の 1 回だけ抜けないように)。
+// 鳴らせないとき (音を消している・読めなかった) は fallback を呼ぶ
+export function playVoice(kind, fallback = () => {}) {
+  if (!ctx || muted || !voiceBufs[kind]) return fallback();
+  const asked = now();
+  voiceBufs[kind].then((bufs) => {
+    if (now() - asked > 1.5) return; // 読むのに時間がかかりすぎたら、もう鳴らさない (場面がずれる)
+    const t = now(), src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = bufs[(voiceTurn[kind] = (voiceTurn[kind] || 0) + 1) % bufs.length];
+    g.gain.value = VOICE_FILES[kind].vol;
+    src.connect(g).connect(sfxBus);
+    src.start(t);
+    src.onended = () => g.disconnect();
+  }, fallback);
+}
 
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -1251,7 +1288,15 @@ export const SE_LIST = [
   { name: 'WARNING', desc: 'ボス接近', play: () => sfx.warning() },
   { name: 'STAGE CLEAR', desc: 'ステージクリア', play: () => sfx.clear() },
   { name: 'RUNNER SCREAM', desc: 'ランナーがやられた声', play: () => sfx.scream() },
-  { name: 'GIRL SCREAM', desc: '女の子がやられた声', play: () => sfx.scream(1.7) },
+  { name: 'GIRL GO', desc: '女の子の「いくよー」', play: () => playVoice('go') },
+  { name: 'GIRL DAMAGE', desc: '女の子が当たった声', play: () => playVoice('damage') },
+  { name: 'GIRL DOWN', desc: '女の子がやられた声', play: () => playVoice('down') },
+  { name: 'GIRL PINCH', desc: '女の子のピンチの声', play: () => playVoice('pinch') },
+  { name: 'GIRL ATTACK', desc: '女の子がミサイルを撃つ声', play: () => playVoice('attack') },
+  { name: 'GIRL IDLE', desc: '女の子のひとりごと', play: () => playVoice('idle') },
+  { name: 'GIRL ESCAPED', desc: 'ボスに逃げられた女の子の声', play: () => playVoice('escaped') },
+  { name: 'GIRL BOSS DOWN', desc: 'ボスを倒した女の子の声', play: () => playVoice('bossDown') },
+  { name: 'GIRL GAME OVER', desc: 'ゲームオーバーの女の子の声', play: () => playVoice('over') },
 ];
 
 // 曲を試し聞きする (id が null なら止める)。BGM の設定がオフでも鳴らす
@@ -1273,6 +1318,8 @@ export function captureAudioStream() {
   outNode.connect(dest);
   return dest.stream;
 }
+
+export const isMuted = () => muted;
 
 export function toggleMute() {
   muted = !muted;
