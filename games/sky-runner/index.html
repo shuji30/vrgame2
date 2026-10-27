@@ -169,6 +169,7 @@
   th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
   th { color: var(--sun); font-weight: normal; }
   .note { font-size: 12px; opacity: 0.75; margin: 0; line-height: 1.5; }
+  .vr-status { opacity: 1; font-size: 13px; color: var(--sun); }
   a { color: #9fd0ff; }
   .footer { margin-top: auto; display: flex; justify-content: space-between; gap: 12px; align-items: flex-end; }
   .version { font-size: 11px; opacity: 0.55; font-variant-numeric: tabular-nums; text-align: right; }
@@ -243,6 +244,7 @@
       <label class="vr-toggle"><input type="checkbox" id="realMusic"> リアルミュージック <small>録音の曲 (オフはゲームの音源の曲)</small></label>
       <label class="vr-toggle"><input type="checkbox" id="realSfx"> リアル効果音 <small>録音の効果音 (オフはゲームの音源の音)</small></label>
       <button id="btnStart" class="launch">出撃 <small id="startNote">マウス / パッド</small></button>
+      <p class="note vr-status" id="vrStatus" role="status" hidden></p>
       <button id="btnContinue" class="launch secondary" hidden>CONTINUE <small>STAGE 1 から</small></button>
       <button id="btnChapter" class="launch secondary" hidden>CHAPTER <small>STAGE 1 から</small></button>
     </div>
@@ -388,7 +390,7 @@
     <button class="tbtn fire" data-hold="fire" aria-label="射撃">FIRE</button>
   </div>
 </div>
-<script type="module" src="./js-05e2a77/main.js"></script>
+<script type="module" src="./js-d74eef6/main.js"></script>
 <script>
   // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
   if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {
