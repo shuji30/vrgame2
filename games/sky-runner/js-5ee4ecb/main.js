@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { World } from './world.js';
 import { Input } from './input.js';
 import { Hud, DebugPanel } from './hud.js';
-import { Avatar } from './avatar.js';
+import { Avatar, onFoot } from './avatar.js';
 import { SledRide } from './ride.js';
 import { Combat, MISSILE_MAX, loadEnemyModels, FLASH_MAT } from './combat.js';
 import { BOSS_INFO, ENEMY_INFO, STAGES, STAGE_COUNT, STORY, stageAt } from './stages.js';
@@ -72,7 +72,7 @@ try {
 // ---- 設定 (localStorage に保存)
 const settings = { scale: 1.0, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true, autoFire: true, hard: false, seated: false, leftHanded: false, storyAlways: false, realMusic: true, realSfx: true };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('skyrunner.settings') || '{}')); } catch (_) { /* 保存なし */ }
-// 開発用: ?player=ship|human&view=1st|3rd で上書きする
+// 開発用: ?player=ship|human|girl&view=1st|3rd で上書きする
 for (const key of ['player', 'view', 'mode']) {
   const v = new URLSearchParams(location.search).get(key);
   if (v) settings[key] = v;
@@ -107,7 +107,9 @@ const wheelPanel = document.getElementById('wheelPanel');
 new WheelPanel(wheelPanel, input.wheel);
 const debugPanel = new DebugPanel(rig);
 const avatar = new Avatar(scene, rig, camera);
-avatar.load('./assets/').catch((e) => console.error('モデルを読み込めませんでした', e));
+avatar.load('./assets/')
+  .then(() => { if (avatar.girlCredit) document.getElementById('credit').textContent = `女の子のモデル: ${avatar.girlCredit}`; }) // VRM のライセンスで作者の表示が要る
+  .catch((e) => console.error('モデルを読み込めませんでした', e));
 const combat = new Combat(scene);
 const ride = new SledRide(scene);
 combat.forceWave = new URLSearchParams(location.search).get('wave'); // 開発用: ?wave=moai などで出す敵を固定する
@@ -924,8 +926,8 @@ function gameOver(cleared = false) {
   S.overT = 0;
   S.boomT = cleared ? Infinity : 0;
   S.cleared = cleared;
-  if (!cleared && settings.player === 'human') {
-    S.boomT = Infinity; // 人間は爆発せず、地面に倒れる (avatar.fall)
+  if (!cleared && onFoot(settings.player)) {
+    S.boomT = Infinity; // 人間・女の子は爆発せず、地面に倒れる (avatar.fall)
   } else if (!cleared) {
     avatar.destroyed = true;
     playerExplosion(true);
@@ -997,7 +999,7 @@ function nextEntryChar() {
   const name = e.chars.map((c) => RANK_CHARS[c]).join('');
   try { localStorage.setItem('skyrunner.initials', name); } catch (_) { /* 保存不可 */ }
   e.state = 'sending';
-  submitScore({ name, score: e.score, mode: e.mode, stage: e.stage, cleared: e.cleared, player: settings.player, version: VERSION })
+  submitScore({ name, score: e.score, mode: e.mode, stage: e.stage, cleared: e.cleared, player: settings.player === 'girl' ? 'human' : settings.player, version: VERSION }) // ランキングの表は ship / human しか受け付けないので、女の子は human として送る
     .then(({ rank, total }) => { Object.assign(e, { state: 'done', rank, total }); loadRanking(); })
     .catch((err) => { console.warn(err); e.state = 'error'; });
 }
@@ -1068,9 +1070,9 @@ function onHit(damage) {
   }
   // ライフが尽きた: 残機を 1 減らしてライフを満タンに戻す
   S.lives--;
-  const human = settings.player === 'human';
+  const human = onFoot(settings.player);
   if (human) {
-    sfx.scream(); // 「あーっ」
+    sfx.scream(settings.player === 'girl' ? 1.7 : 1); // 「あーっ」 (女の子は高い声)
     avatar.fall(S.lives <= 0);
   }
   if (S.lives <= 0) {
@@ -1157,7 +1159,7 @@ function updateCombat(dt, speed, a) {
   const presenting = renderer.xr.isPresenting;
   const kind = settings.player, view = settings.view;
   const side = isSide();
-  const humanVR = presenting && kind === 'human' && view === '1st' && !side;
+  const humanVR = presenting && onFoot(kind) && view === '1st' && !side;
   camera.getWorldPosition(eyeW);
 
   // ロックオンの向き: 横スクロールは前 (画面の右)、VR は視線 (人間の一人称は右手のコントローラー)、デスクトップは正面
@@ -1205,7 +1207,7 @@ function updateCombat(dt, speed, a) {
     aimOrigin, aimDir, guns, firing,
     missile: a.missile, missileOrigin: avatar.center(kind, missileOrigin),
     showAim: !humanVR, halfHeight,
-    gunStyle: kind === 'human' ? 'fireball' : 'beam',
+    gunStyle: onFoot(kind) ? 'fireball' : 'beam',
     onPlayerHit: (damage) => onHit(damage),
     onPickup,
   });
@@ -1221,7 +1223,7 @@ function update(dt) {
   if (S.mode === 'title') {
     // パッドの A / START でもデスクトップモードを開始できる
     if (a.confirm && (a.source === 'pad' || a.source === 'wheel') && !renderer.xr.isPresenting) startPlay();
-    if (a.leftRight) setPlayer(a.leftRight < 0 ? 'ship' : 'human');
+    if (a.leftRight) setPlayer(PLAYERS[Math.max(0, Math.min(PLAYERS.length - 1, PLAYERS.indexOf(settings.player) + Math.sign(a.leftRight)))]);
   } else if (S.mode === 'over') {
     // ゲームオーバー: 景色だけゆっくり止まっていく。2 秒たったら、もう一度 / タイトルへ
     S.overT += dt;
@@ -1316,7 +1318,7 @@ function update(dt) {
   if (play && running && !ride.active && S.invuln <= 0) {
     const o = world.hitTest(P, avatar.radius * 0.7); // 障害物には少し小さめの当たりで (かすっただけでは当たらない)
     if (o) onHit(o.kind === 'bush' ? BUSH_DAMAGE : OBSTACLE_DAMAGE); // 宇宙船も人間も同じダメージ (低い茂みは軽め)
-    if (o && o.kind === 'bush' && settings.player === 'human' && S.mode === 'play') avatar.stumble(); // 人間は茂みにつまずく (見た目だけ)
+    if (o && o.kind === 'bush' && onFoot(settings.player) && S.mode === 'play') avatar.stumble(); // 人間・女の子は茂みにつまずく (見た目だけ)
     if (o && ['tree', 'bush', 'mushroom', 'crystal', 'pylon'].includes(o.kind)) world.knockDown(o); // ぶつかった木などは、すり抜けずに倒れる
   }
   // ライフが少ないときは警告音
@@ -1388,7 +1390,7 @@ function update(dt) {
     dist: Math.floor(S.dist),
     hits: S.hits,
     kmh: Math.round(speed * 3.6),
-    view: `${settings.player === 'ship' ? 'SHIP' : 'HUMAN'} ${isSide() ? 'SIDE' : settings.view.toUpperCase()}`,
+    view: `${settings.player.toUpperCase()} ${isSide() ? 'SIDE' : settings.view.toUpperCase()}`,
     score: combat.score,
     missiles: combat.missileStock,
     missileMax: MISSILE_MAX,
@@ -1481,14 +1483,15 @@ const selScale = document.getElementById('scale');
 const status = document.getElementById('status');
 const padStatus = document.getElementById('pads');
 
-// プレイヤーの選択 (宇宙船 / 人間)。パッドの左右でも切り替えられる
+// プレイヤーの選択 (宇宙船 / 人間 / 女の子)。パッドの左右でも切り替えられる
+const PLAYERS = ['ship', 'human', 'girl'];
 const playerInputs = [...document.querySelectorAll('input[name="player"]')];
 function setPlayer(kind) {
   settings.player = kind;
   saveSettings();
   playerInputs.forEach((el) => { el.checked = el.value === kind; });
 }
-setPlayer(settings.player === 'human' ? 'human' : 'ship');
+setPlayer(PLAYERS.includes(settings.player) ? settings.player : 'ship');
 // モードの選択 (3D / 横スクロール)
 const modeInputs = [...document.querySelectorAll('input[name="mode"]')];
 function setMode(mode) {

@@ -332,14 +332,15 @@ export const sfx = {
     noise(t, 1.0, 0.25, 1400, sfxBus, 'bandpass');
   },
   // やられたときの叫び声「あーっ」: 声帯の音 (のこぎり波) を、母音「あ」の響き (フォルマント) に通す
-  scream() {
+  // pitch: 声の高さの倍率 (女の子は 1.7)
+  scream(pitch = 1) {
     if (!ctx) return;
     const t = now(), dur = 1.4;
     const o = ctx.createOscillator();
     o.type = 'sawtooth';
-    o.frequency.setValueAtTime(330, t);
-    o.frequency.linearRampToValueAtTime(380, t + 0.15);
-    o.frequency.exponentialRampToValueAtTime(140, t + dur); // 落ちながら声が下がる
+    o.frequency.setValueAtTime(330 * pitch, t);
+    o.frequency.linearRampToValueAtTime(380 * pitch, t + 0.15);
+    o.frequency.exponentialRampToValueAtTime(140 * pitch, t + dur); // 落ちながら声が下がる
     const lfo = ctx.createOscillator();
     lfo.frequency.value = 6;
     const lg = ctx.createGain();
@@ -1250,6 +1251,7 @@ export const SE_LIST = [
   { name: 'WARNING', desc: 'ボス接近', play: () => sfx.warning() },
   { name: 'STAGE CLEAR', desc: 'ステージクリア', play: () => sfx.clear() },
   { name: 'RUNNER SCREAM', desc: 'ランナーがやられた声', play: () => sfx.scream() },
+  { name: 'GIRL SCREAM', desc: '女の子がやられた声', play: () => sfx.scream(1.7) },
 ];
 
 // 曲を試し聞きする (id が null なら止める)。BGM の設定がオフでも鳴らす

@@ -70,7 +70,7 @@
       <label>敵を固定 <select id="lWave"><option value="">しない</option></select></label>
     </div>
     <div class="row">
-      <label>機体 <select id="lPlayer"><option value="">設定のまま</option><option value="ship">宇宙船</option><option value="human">人間</option></select></label>
+      <label>機体 <select id="lPlayer"><option value="">設定のまま</option><option value="ship">宇宙船</option><option value="human">人間</option><option value="girl">女の子</option></select></label>
       <label>視点 <select id="lView"><option value="">設定のまま</option><option value="1st">一人称</option><option value="3rd">三人称</option></select></label>
       <label>モード <select id="lMode"><option value="">設定のまま</option><option value="3d">3D</option><option value="side">横スクロール</option></select></label>
       <label><input type="checkbox" id="lDebug"> デバッグ表示 (fps・描画回数・重かった 5 秒)</label>
@@ -127,9 +127,9 @@
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
 </script>
 <script type="module">
-import { STAGES, STAGE_COUNT, BOSS_INFO, ENEMY_INFO } from './js-22e2d05/stages.js';
-import { VERSION } from './js-22e2d05/version.js';
-import { fetchRecent } from './js-22e2d05/ranking.js';
+import { STAGES, STAGE_COUNT, BOSS_INFO, ENEMY_INFO } from './js-5ee4ecb/stages.js';
+import { VERSION } from './js-5ee4ecb/version.js';
+import { fetchRecent } from './js-5ee4ecb/ranking.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, attrs = {}, ...kids) => {

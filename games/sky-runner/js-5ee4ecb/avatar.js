@@ -1,16 +1,22 @@
-// プレイヤーの見た目 (宇宙船 / 人間) と視点 (一人称 / 三人称)
-// モデルは Blender で作った assets/ship.glb と assets/harrier.glb (blender の元データは assets/models.blend)
+// プレイヤーの見た目 (宇宙船 / 人間 / 女の子) と視点 (一人称 / 三人称)
+// モデルは Blender で作った assets/ship.glb と assets/harrier.glb (blender の元データは assets/models.blend)、
+// 女の子は「ふたりの休日」の assets/girl.vrm (src/girl.js)
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { CockpitPanel, openCockpit } from './cockpit.js';
+import { loadGirl } from './girl.js';
 
 // 三人称で、目の高さから見てモデルをどこに置くか (rig の中の座標)
 const THIRD_OFFSET = {
   ship: new THREE.Vector3(0, -1.6, -9),
   human: new THREE.Vector3(0, -1.1, -5),
+  girl: new THREE.Vector3(0, -1.0, -4.5), // 小柄なので少し近くから
 };
 // 当たり判定の半径 (m)。宇宙船と人間で難しさが変わらないよう、同じにする (宇宙船は翼が大きいが、遊びやすさを優先して小さめ)
-const RADIUS = { ship: 0.6, human: 0.6 };
+const RADIUS = { ship: 0.6, human: 0.6, girl: 0.6 };
+
+// 宇宙船のほかは、自分の体で飛ぶ (地面を走る・一人称では体を出さない・やられると倒れる)
+export const onFoot = (kind) => kind !== 'ship';
 
 const _v = new THREE.Vector3();
 const _m = new THREE.Matrix4();
@@ -33,11 +39,23 @@ function makeLimbs(obj) {
     }
     return pivot;
   };
+  const L = limb(-0.115, -0.3, 0.02, ['ThighL', 'KneeL', 'ShinL', 'BootL']);
+  const R = limb(0.115, -0.3, 0.02, ['ThighR', 'KneeR', 'ShinR', 'BootR']);
+  const arm = limb(-0.28, 0.46, 0, ['UpperArmL', 'ForeArmL', 'HandL']); // 右腕はキャノンを構えているので振らない
+  const feet = ['BootL', 'BootR'].map((n) => obj.getObjectByName(n)).filter(Boolean);
   return {
-    L: limb(-0.115, -0.3, 0.02, ['ThighL', 'KneeL', 'ShinL', 'BootL']),
-    R: limb(0.115, -0.3, 0.02, ['ThighR', 'KneeR', 'ShinR', 'BootR']),
-    arm: limb(-0.28, 0.46, 0, ['UpperArmL', 'ForeArmL', 'HandL']), // 右腕はキャノンを構えているので振らない
-    feet: ['BootL', 'BootR'].map((n) => obj.getObjectByName(n)).filter(Boolean),
+    // run: 0 = 飛ぶ … 1 = 走る、sw: 脚を振る位相の sin
+    pose(run, sw) {
+      L.rotation.x = run * (LEG_DOWN + sw * 0.7);
+      R.rotation.x = run * (LEG_DOWN - sw * 0.7);
+      arm.rotation.x = run * sw * 0.7;
+    },
+    // 低いほうの足の裏 (ブーツの下端) の高さ (ワールド座標)
+    footY() {
+      let foot = Infinity;
+      for (const f of feet) foot = Math.min(foot, _box.setFromObject(f).min.y);
+      return foot;
+    },
   };
 }
 
@@ -100,6 +118,17 @@ export class Avatar {
         Object.assign(this.models[kind], { panel, arch: obj.getObjectByName('CanopyArch') });
       }
     }));
+    // 女の子 (VRM)。炎は人間のモデルのものを借りる
+    try {
+      const flame = this.models.human?.obj.getObjectByName('HFlameL');
+      const girl = await loadGirl(base + 'girl.vrm', flame);
+      girl.obj.visible = false;
+      this.mount.add(girl.obj);
+      this.models.girl = girl;
+      this.girlCredit = girl.credit;
+    } catch (e) {
+      console.error('女の子のモデルを読み込めませんでした', e);
+    }
   }
 
   get ready() { return Object.keys(this.models).length > 0; }
@@ -130,7 +159,7 @@ export class Avatar {
     this.fallHold = hold;
   }
 
-  // kind: 'ship' | 'human'、view: '1st' | '3rd'
+  // kind: 'ship' | 'human' | 'girl'、view: '1st' | '3rd'
   // sidePos: 横スクロールのときのプレイヤーの位置 (ワールド座標)
   update(dt, { kind, view, vx, vy, thrust, presenting, sidePos, missiles, locks }) {
     this.t += dt;
@@ -145,7 +174,7 @@ export class Avatar {
     }
 
     for (const [k, m] of Object.entries(this.models)) {
-      const show = k === kind && !(view === '1st' && (kind === 'human' || this.riding)) && !this.destroyed && !this.hidden;
+      const show = k === kind && !(view === '1st' && (onFoot(kind) || this.riding)) && !this.destroyed && !this.hidden;
       m.obj.rotation.order = view === 'side' ? 'YXZ' : 'XYZ';
       m.obj.visible = show;
       if (m.arch) m.arch.visible = view !== '1st'; // 前のキャノピーの枠は、コックピットから見ると視界をふさぐので消す
@@ -179,16 +208,13 @@ export class Avatar {
         m.run = (m.run || 0) + ((onGround ? 1 : 0) - (m.run || 0)) * Math.min(1, dt * 8);
         m.runPhase = (m.runPhase || 0) + dt * (9 + thrust * 3);
         const sw = Math.sin(m.runPhase);
-        m.legs.L.rotation.x = m.run * (LEG_DOWN + sw * 0.7);
-        m.legs.R.rotation.x = m.run * (LEG_DOWN - sw * 0.7);
-        m.legs.arm.rotation.x = m.run * sw * 0.7;
+        m.legs.pose(m.run, sw);
         m.obj.rotation.x *= 1 - m.run * 0.85;
-        if (m.run > 0.01 && m.legs.feet.length) {
-          // 低いほうの足の裏 (ブーツの下端) が地面 (y = 0) にちょうど着くように、体の高さを合わせる
+        if (m.run > 0.01) {
+          // 低いほうの足の裏が地面 (y = 0) にちょうど着くように、体の高さを合わせる
           this.rig.updateMatrixWorld(true); // このフレームで動かしたリグの位置も反映して測る
-          let foot = Infinity;
-          for (const f of m.legs.feet) foot = Math.min(foot, _box.setFromObject(f).min.y);
-          m.obj.position.y -= m.run * foot;
+          const foot = m.legs.footY();
+          if (foot < Infinity) m.obj.position.y -= m.run * foot;
         }
       }
 
@@ -208,6 +234,7 @@ export class Avatar {
         m.obj.rotation.z = Math.sin(this.fallT * 9) * 0.15 * Math.max(0, 1 - this.fallT);
         if (!this.fallHold && this.fallT > 1.6) this.fallT = -1; // 起き上がって復帰する
       }
+      m.tick?.(dt, this.fallT >= 0); // 女の子: 表情と、髪・スカートの揺れ
 
       // 炎: 速度に合わせて伸び縮みし、ちらつく
       for (const [i, f] of m.flames.entries()) {

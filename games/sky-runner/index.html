@@ -50,6 +50,8 @@
   /* 機体の選択カード */
   .section-label { margin: 6px 0 -6px; font-size: 12px; letter-spacing: 0.2em; color: var(--sun); }
   .players { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  .players.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .players.three .card { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; gap: 4px; padding: 10px 6px; }
   .players label { cursor: pointer; }
   .players input { position: absolute; opacity: 0; }
   .players .card { min-width: 0; display: grid; grid-template-columns: 54px 1fr; align-items: center; gap: 10px; padding: 10px 12px;
@@ -190,14 +192,16 @@
 
   @media (max-width: 560px) {
     .menu { padding: 20px 16px; background: var(--panel); }
-    .players { grid-template-columns: minmax(0, 1fr); }
+    .players, .players.three { grid-template-columns: minmax(0, 1fr); }
+    .players.three .card { grid-template-columns: 54px 1fr; justify-items: start; text-align: left; gap: 10px; padding: 10px 12px; }
     .launch small { display: none; }
   }
 </style>
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+  "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.5.5/lib/three-vrm.module.min.js"
 } }
 </script>
 </head>
@@ -209,13 +213,16 @@
     <button id="btnTheme" class="theme-btn" type="button">♪ オープニング曲を<span>聞く</span></button>
 
     <p class="section-label">SELECT PLAYER</p>
-    <div class="players" role="radiogroup" aria-label="プレイヤー">
+    <div class="players three" role="radiogroup" aria-label="プレイヤー">
       <label><input type="radio" name="player" value="ship"><span class="card">
         <svg viewBox="0 0 54 44" aria-hidden="true"><path d="M27 2 L33 22 L52 30 L52 34 L33 31 L31 40 L27 37 L23 40 L21 31 L2 34 L2 30 L21 22 Z" fill="#e8ecf4"/><path d="M27 10 L30 22 L24 22 Z" fill="#3ec0ff"/><path d="M8 30 L21 26 L21 29 Z M46 30 L33 26 L33 29 Z" fill="#2a5bd8"/></svg>
         <span><b>宇宙船</b><small>コックピットから操縦</small></span></span></label>
       <label><input type="radio" name="player" value="human"><span class="card">
         <svg viewBox="0 0 54 44" aria-hidden="true"><circle cx="27" cy="8" r="6" fill="#e2334a"/><rect x="20" y="15" width="14" height="14" rx="3" fill="#e8ecf4"/><rect x="34" y="17" width="16" height="5" rx="2" fill="#7c8698"/><path d="M22 29 L18 42 L22 42 L26 30 Z M32 29 L36 42 L32 42 L28 30 Z" fill="#2a5bd8"/><path d="M16 18 L20 18 L20 26 L16 30 Z" fill="#ffb347"/></svg>
         <span><b>人間</b><small>ジェットパックで飛ぶ</small></span></span></label>
+      <label><input type="radio" name="player" value="girl"><span class="card">
+        <svg viewBox="0 0 54 44" aria-hidden="true"><path d="M17 12 Q17 2 27 2 Q37 2 37 12 L38 24 L16 24 Z" fill="#5a3a2a"/><circle cx="27" cy="11" r="7" fill="#ffe0c8"/><path d="M20 7 Q27 2 34 7 L34 9 Q27 5 20 9 Z" fill="#5a3a2a"/><rect x="21" y="18" width="12" height="10" rx="3" fill="#ffffff"/><path d="M33 20 L46 19 L46 22 L33 23 Z" fill="#ffe0c8"/><circle cx="48" cy="20" r="3" fill="#ffb347"/><path d="M20 27 L34 27 L37 33 L17 33 Z" fill="#e2668c"/><path d="M22 33 L20 40 L23 40 L25 33 Z M29 33 L31 40 L34 40 L32 33 Z" fill="#ffe0c8"/><path d="M19 40 L24 40 L24 42 L19 42 Z M30 40 L35 40 L35 42 L30 42 Z" fill="#3ec0ff"/></svg>
+        <span><b>女の子</b><small>ふたりの休日から</small></span></span></label>
     </div>
 
     <p class="section-label">MODE</p>
@@ -364,6 +371,7 @@
     <p class="note" id="pads"></p>
     <div class="footer">
       <p class="note" id="back" hidden><a href="../../">◀ ゲーム選択に戻る</a></p>
+      <p class="version" id="credit"></p>
       <p class="version" id="version"></p>
     </div>
   </div>
@@ -380,7 +388,7 @@
     <button class="tbtn fire" data-hold="fire" aria-label="射撃">FIRE</button>
   </div>
 </div>
-<script type="module" src="./js-22e2d05/main.js"></script>
+<script type="module" src="./js-5ee4ecb/main.js"></script>
 <script>
   // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
   if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {
