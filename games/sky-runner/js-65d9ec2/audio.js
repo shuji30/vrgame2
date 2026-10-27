@@ -44,6 +44,7 @@ export function initAudio() {
   const d = noiseBuf.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   loadSamples();
+  loadVoices();
 }
 
 // ---- 録音の効果音 (assets/sfx。AI で作った音を scripts/prep-sfx.mjs で整えたもの)。1 種類 4 通りあり、鳴らすたびに順に替える。
@@ -96,6 +97,68 @@ function playSample(k, vol, { rate = 1, dur = 0 } = {}) {
   return true;
 }
 const rand = (a, b) => a + Math.random() * (b - a);
+
+// 女の子の声の録音 (プレイヤーが女の子のとき)。場面 → ファイル (2 つ以上あれば順に使う)。
+// リアル効果音の設定とは関係なく使う (声なので)。録音ごとに大きさがちがうので、読み込んだときに測って
+// 平均の大きさを VOICE_RMS_DB にそろえる (小さい録音を上げすぎないよう、倍率は 5 まで)
+const numbered = (base, count) => Array.from({ length: count }, (_, i) => `${base}${i + 1}`);
+const VOICE_FILES = {
+  go: ['girl_go_a_head'],
+  down: ['girl_down'],
+  damage: ['girl_damege', 'girl_damage2', 'girl_damage3'],
+  pinch: ['girl_pinchi'],
+  attack: ['girl_attack'], // ミサイルを撃った
+  idle: ['girl_im_fun', 'girl_sky_is_butiful', ...numbered('girl_idle', 3)], // 道中のひとりごと
+  escaped: ['girl_boss_is_away'], // ボスに逃げられた
+  bossDown: ['girl_boss_down'], // ボスを倒した
+  over: ['girl_game_over'],
+  stage: numbered('girl_stage', 3), // 2 面目からの面の始まり
+  warning: numbered('girl_warning', 3), // ボスの警告
+  heal: numbered('girl_heal', 2),
+  kill: numbered('girl_kill', 4), // 敵を倒した
+  ring: numbered('girl_ring', 2),
+  extend: ['girl_extend'],
+  bonus: ['girl_bonus'],
+  ending: ['girl_ending'],
+};
+const VOICE_RMS_DB = -19;
+const voiceBufs = {}, voiceTurn = {};
+let voiceNow = null; // いま鳴っている声 (重ねないため)
+export const voicePlaying = () => !!voiceNow; // 声が鳴っている間は口を動かす
+function loadVoices() {
+  for (const [k, files] of Object.entries(VOICE_FILES)) {
+    voiceBufs[k] = Promise.all(files.map((f) => fetch(`./assets/sfx/${f}.mp3`).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b))
+      .then((buf) => {
+        const d = buf.getChannelData(0);
+        let sum = 0;
+        for (let i = 0; i < d.length; i++) sum += d[i] * d[i];
+        const db = 10 * Math.log10(sum / d.length || 1e-9);
+        return { buf, gain: Math.min(5, Math.pow(10, (VOICE_RMS_DB - db) / 20)) };
+      })));
+    voiceBufs[k].catch(() => { /* 読めなければ、呼んだ側の代わりの声で */ });
+  }
+}
+// 女の子の声を鳴らす。読み込みの途中なら、読めしだい鳴らす (出撃の直後の「いくよー」が、最初の 1 回だけ抜けないように)。
+// 鳴らせないとき (音を消している・読めなかった) は fallback を呼ぶ。
+// light: 軽い声 (敵を倒した・リングなど)。ほかの声が鳴っている間は鳴らさない。軽くない声は、鳴っている声を止めて鳴らす
+export function playVoice(kind, fallback = () => {}, { light = false } = {}) {
+  if (!ctx || muted || !voiceBufs[kind]) return fallback();
+  if (light && voiceNow) return;
+  const asked = now();
+  voiceBufs[kind].then((list) => {
+    if (now() - asked > 1.5) return; // 読むのに時間がかかりすぎたら、もう鳴らさない (場面がずれる)
+    if (light && voiceNow) return;
+    try { voiceNow?.stop(); } catch (_) { /* 止まっている */ }
+    const { buf, gain } = list[(voiceTurn[kind] = (voiceTurn[kind] || 0) + 1) % list.length];
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = buf;
+    g.gain.value = gain;
+    src.connect(g).connect(sfxBus);
+    src.start(now());
+    voiceNow = src;
+    src.onended = () => { g.disconnect(); if (voiceNow === src) voiceNow = null; };
+  }, fallback);
+}
 
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -1251,7 +1314,17 @@ export const SE_LIST = [
   { name: 'WARNING', desc: 'ボス接近', play: () => sfx.warning() },
   { name: 'STAGE CLEAR', desc: 'ステージクリア', play: () => sfx.clear() },
   { name: 'RUNNER SCREAM', desc: 'ランナーがやられた声', play: () => sfx.scream() },
-  { name: 'GIRL SCREAM', desc: '女の子がやられた声', play: () => sfx.scream(1.7) },
+  { name: 'GIRL GO', desc: '女の子の「いくよー」', play: () => playVoice('go') },
+  { name: 'GIRL DAMAGE', desc: '女の子が当たった声', play: () => playVoice('damage') },
+  { name: 'GIRL DOWN', desc: '女の子がやられた声', play: () => playVoice('down') },
+  { name: 'GIRL PINCH', desc: '女の子のピンチの声', play: () => playVoice('pinch') },
+  { name: 'GIRL ATTACK', desc: '女の子がミサイルを撃つ声', play: () => playVoice('attack') },
+  { name: 'GIRL IDLE', desc: '女の子のひとりごと', play: () => playVoice('idle') },
+  { name: 'GIRL ESCAPED', desc: 'ボスに逃げられた女の子の声', play: () => playVoice('escaped') },
+  { name: 'GIRL BOSS DOWN', desc: 'ボスを倒した女の子の声', play: () => playVoice('bossDown') },
+  { name: 'GIRL GAME OVER', desc: 'ゲームオーバーの女の子の声', play: () => playVoice('over') },
+  ...[['stage', '次の面'], ['warning', 'ボスの警告'], ['heal', '回復'], ['kill', '敵を倒した'], ['ring', 'リング'], ['extend', '残機が増えた'], ['bonus', 'ボーナス'], ['ending', '全面クリア']]
+    .map(([k, d]) => ({ name: `GIRL ${k.toUpperCase()}`, desc: `女の子の声 (${d})`, play: () => playVoice(k) })),
 ];
 
 // 曲を試し聞きする (id が null なら止める)。BGM の設定がオフでも鳴らす
@@ -1273,6 +1346,8 @@ export function captureAudioStream() {
   outNode.connect(dest);
   return dest.stream;
 }
+
+export const isMuted = () => muted;
 
 export function toggleMute() {
   muted = !muted;
