@@ -106,13 +106,15 @@ export class Hud {
         text(g, `${d.life}`, lx1 + 10, ly + lh - 3, 26, '#fff');
       }
 
-      // ミサイルの残り (四角) とロック数
-      for (let i = 0; i < d.missileMax; i++) {
-        g.fillStyle = i < d.missiles ? '#ffffff' : 'rgba(255,255,255,0.2)';
-        g.fillRect(24 + i * 22, 420, 16, 34);
+      // ミサイルの残り (四角) とロック数。コックピットの計器に出ているとき (cockpit) は出さない
+      if (!d.cockpit) {
+        for (let i = 0; i < d.missileMax; i++) {
+          g.fillStyle = i < d.missiles ? '#ffffff' : 'rgba(255,255,255,0.2)';
+          g.fillRect(24 + i * 22, 420, 16, 34);
+        }
+        text(g, 'MISSILE', 24, 408, 22, '#fff');
+        if (d.locks) text(g, `LOCK ${d.locks}`, 24 + d.missileMax * 22 + 16, 452, 34, '#ff4040');
       }
-      text(g, 'MISSILE', 24, 408, 22, '#fff');
-      if (d.locks) text(g, `LOCK ${d.locks}`, 24 + d.missileMax * 22 + 16, 452, 34, '#ff4040');
 
     }
 

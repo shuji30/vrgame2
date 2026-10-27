@@ -14,7 +14,7 @@ import { WheelPanel } from './wheel/calibration.js';
 import { THEMES } from './world.js';
 import { VERSION, loadBuildInfo } from './version.js';
 import { RANK_CHARS, fetchTop, submitScore } from './ranking.js';
-import { BGM_LIST, SE_LIST, captureAudioStream, initAudio, previewBGM, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, setRealMusic, setRealSfx, toggleMute, isMuted, playVoice } from './audio.js';
+import { BGM_LIST, SE_LIST, captureAudioStream, initAudio, previewBGM, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, setRealMusic, setRealSfx, toggleMute, isMuted, playVoice, voicePlaying } from './audio.js';
 import { createGirlVoice } from './girlvoice.js';
 
 // ---- 定数
@@ -111,8 +111,20 @@ const avatar = new Avatar(scene, rig, camera);
 // 女の子の声 (プレイヤーが女の子のときだけ話す。吹き出しは出さない)
 const girlVoice = createGirlVoice({ isMuted });
 const girlSays = (kind, opts) => settings.player === 'girl' && girlVoice.say(kind, opts);
-// 女の子の録音の声を鳴らす (鳴らせなければ、同じ場面の音声合成の台詞)
-const girlVoiceOr = (kind, opts) => { if (settings.player === 'girl') playVoice(kind, () => girlSays(kind, opts)); };
+// 女の子の録音の声を鳴らす (鳴らせなければ、同じ場面の音声合成の台詞)。
+// chance: 話す確率、delay: 遅らせる秒 (英語のアナウンスや、やられた声と重ならないように)、light: 軽い声 (ほかの声が鳴っている間は黙る)。
+// 同じ場面は VOICE_WAIT 秒あける
+const VOICE_WAIT = { kill: 8, ring: 10, heal: 5, attack: 3, pinch: 20 };
+const voiceAt = {};
+function girlVoiceOr(kind, { chance = 1, delay = 0, light = false, tts = kind, ...opts } = {}) {
+  if (settings.player !== 'girl' || Math.random() > chance) return;
+  const t = performance.now() / 1000;
+  if (t - (voiceAt[kind] ?? -Infinity) < (VOICE_WAIT[kind] ?? 0)) return;
+  voiceAt[kind] = t;
+  const play = () => playVoice(kind, () => tts && girlSays(tts, opts), { light });
+  if (delay) setTimeout(play, delay * 1000);
+  else play();
+}
 // 出撃の「ゴーアヘッド」: 女の子は録音の「いくよー！」 (鳴らせなければ音声合成、日本語の声も無ければ英語のまま)
 const goAhead = () => {
   if (settings.player === 'girl') playVoice('go', () => { if (!girlSays('go', { cut: true })) say('Go ahead!'); });
@@ -280,7 +292,7 @@ function startPlay(stageNo) {
   Object.assign(S, {
     mode: 'play', paused: false, entry: null, chapterHead: 0, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0, pz: SIDE_Z_START, vz: 0,
     stage: 1, phase: 'normal', phaseT: 0, stageT: 0, baseSpeed: SPEED.base, lives: LIVES, life: LIFE_MAX, lowLifeT: 0, extendIdx: 0, overT: 0, slowT: 0,
-    killsHeard: 0, idleT: 30, pinchT: 0, attackT: 0,
+    killsHeard: 0, idleT: 30,
   });
   if (isSide()) S.py = 8; // 横スクロールは画面の中ほどの高さから
   world.clear();
@@ -410,7 +422,7 @@ function applyStage(n, first = false) {
   if (first) goAhead();
   else {
     say(`Stage ${n}`);
-    if (st.kind !== 'bonus') girlSays('stage', { queue: true });
+    if (st.kind !== 'bonus') girlVoiceOr('stage', { delay: 1.2, queue: true });
   }
 }
 
@@ -747,7 +759,7 @@ function allClear() {
   showMsg('ALL CLEAR!!', `CONGRATULATIONS!  SCORE ${combat.score}`, 5);
   sfx.clear();
   say('Congratulations');
-  girlSays('ending', { queue: true });
+  girlVoiceOr('ending', { delay: 1.5, queue: true });
   setBGMMode('ending', { key: 0, tempo: 152 }); // エンディングの曲 (ステージのテンポの影響を受けない)
   startBGM(); // STAGE CLEAR で止めた曲を、エンディングの曲で始める
   combat.clearHostiles();
@@ -827,7 +839,7 @@ function updateStage(dt) {
     S.phaseT = 0;
     showMsg('WARNING!!', warningText(st.kind === 'rush' ? st.rush[S.rushIndex] : st.boss), 3.5);
     sfx.warning();
-    girlSays('warning', { queue: true });
+    girlVoiceOr('warning', { queue: true });
   } else if (S.phase === 'warning' && S.phaseT > 3.5) {
     S.phase = 'boss';
     S.phaseT = 0;
@@ -896,7 +908,7 @@ function updateStage(dt) {
       S.lives++;
       showMsg('EXTEND!', '残機 +1', 1.5);
       sfx.clear();
-      girlSays('extend', { queue: true });
+      girlVoiceOr('extend', { queue: true });
     }
   }
 }
@@ -925,7 +937,7 @@ function startBonus(title = 'BONUS STAGE', name = '') {
   setBGMMode('bonus');
   showMsg(title, `${name ? name + ' - ' : ''}BONUS STAGE: 水晶のそりで木をなぎ倒せ!`, 3);
   say('Bonus stage');
-  girlSays('bonus', { queue: true });
+  girlVoiceOr('bonus', { delay: 1.2, queue: true });
 }
 
 function endBonus() {
@@ -987,7 +999,7 @@ function gameOver(cleared = false) {
   showMsg(cleared ? 'CONGRATULATIONS!' : 'GAME OVER', `${reached}\nSCORE ${combat.score}   ${combat.hard ? 'HARD HI' : 'HI'} ${hiNow()}`, Infinity);
   if (!cleared) {
     say('Game over');
-    setTimeout(() => girlVoiceOr('over', { queue: true }), 1500); // やられた「きゃー」と重ならないように
+    girlVoiceOr('over', { delay: 1.5, queue: true }); // やられた「きゃー」と重ならないように
   }
   // オンラインのランキング: 1 面から通したときだけ、イニシャルを入れて送る
   S.entry = S.fromStart && combat.score > 0 ? {
@@ -1106,7 +1118,7 @@ function onHit(damage) {
     S.invuln = 0.8;
     flash.material.opacity = 0.25 + damage / 80;
     sfx.damage();
-    if (settings.player === 'girl') playVoice('damage', () => girlSays('hit')); // 女の子は録音の声 (鳴らせなければ音声合成)
+    girlVoiceOr('damage', { tts: 'hit' }); // 女の子は録音の声 (鳴らせなければ音声合成)
     input.rumble(0.6 + damage / 100, 200);
     return;
   }
@@ -1155,7 +1167,7 @@ function onPickup(type) {
     showMsg('RECOVER!', `LIFE +${heal}`, 1.2);
   }
   sfx.heal();
-  girlSays('heal');
+  girlVoiceOr('heal', { light: true });
   input.rumble(0.3, 100);
 }
 
@@ -1343,7 +1355,8 @@ function update(dt) {
   avatar.update(dt, {
     kind: settings.player, view: side ? 'side' : inGame ? settings.view : '3rd',
     vx: S.vx, vy: S.vy, thrust: inGame ? speed / SPEED.base : 0.3, presenting: renderer.xr.isPresenting, sidePos,
-    talking: settings.player === 'girl' && girlVoice.talking,
+    talking: settings.player === 'girl' && (girlVoice.talking || voicePlaying()),
+    missiles: combat.missileStock, locks: combat.locks.length, // コックピットの計器に出す
   });
   P.copy(avatar.hitPoint);
   world.side = side;
@@ -1359,7 +1372,7 @@ function update(dt) {
       combat.score += Math.round(RING_BONUS * combat.mult);
       showMsg(`RING +${Math.round(RING_BONUS * combat.mult)}`, '', 0.8);
       sfx.lock();
-      girlSays('ring', { chance: 0.5 });
+      girlVoiceOr('ring', { chance: 0.5, light: true });
       input.rumble(0.2, 40);
     }
   }
@@ -1373,26 +1386,16 @@ function update(dt) {
   if (play && running && S.life < LIFE_MAX * 0.3 && (S.lowLifeT -= dt) <= 0) {
     S.lowLifeT = 1.2;
     sfx.lowLife();
-    // 女の子は録音の「ピンチ」 (20 秒に 1 回まで。鳴らせなければ音声合成)
-    if (settings.player === 'girl' && S.pinchT <= 0) {
-      S.pinchT = 20;
-      playVoice('pinch', () => girlSays('lowLife'));
-    }
+    girlVoiceOr('pinch', { tts: 'lowLife' }); // 女の子は録音の「ピンチ」 (20 秒に 1 回まで。鳴らせなければ音声合成)
   }
-  S.pinchT -= dt;
   // 女の子のおしゃべり: 敵を倒したとき (ときどき) と、道中のひとりごと (25〜45 秒に 1 回)
   if (play && running && settings.player === 'girl') {
-    if (combat.kills > S.killsHeard) girlSays('kill', { chance: 0.25 });
-    // ミサイルを撃ったら録音の掛け声 (3 秒に 1 回まで)
-    if ((combat.missilesFired || 0) > (S.firedSeen || 0) && S.attackT <= 0) {
-      S.attackT = 3;
-      playVoice('attack');
-    }
-    S.attackT -= dt;
+    if (combat.kills > S.killsHeard) girlVoiceOr('kill', { chance: 0.25, light: true });
+    // ミサイルを撃ったら掛け声 (3 秒に 1 回まで)
+    if ((combat.missilesFired || 0) > (S.firedSeen || 0)) girlVoiceOr('attack', { light: true, tts: null });
     if (S.phase === 'normal' && (S.idleT -= dt) <= 0) {
       S.idleT = 25 + Math.random() * 20;
-      if (Math.random() < 0.5) playVoice('idle', () => girlSays('idle')); // 半分は録音 (「たのしいね」「そら、きれいだね」)
-      else girlSays('idle');
+      girlVoiceOr('idle', { light: true });
     }
   }
   S.killsHeard = combat.kills;
@@ -1455,7 +1458,7 @@ function update(dt) {
     hud.mesh.scale.setScalar(renderer.xr.isPresenting ? 1 : Math.min(1.7, (visW / 1.6) * 0.98));
   }
   // スマートフォン: プレイ中だけタッチ操作のボタンを出す
-  touch.show(isTouchDevice() && inGame && !renderer.xr.isPresenting);
+  touch.show(isTouchDevice() && inGame && !renderer.xr.isPresenting, settings.autoFire);
   hud.draw({
     play,
     dist: Math.floor(S.dist),
@@ -1466,6 +1469,7 @@ function update(dt) {
     missiles: combat.missileStock,
     missileMax: MISSILE_MAX,
     locks: combat.locks.length,
+    cockpit: avatar.cockpitShown, // 宇宙船のコックピットの計器に、ミサイルとロックが出ている
     msg: S.paused ? 'PAUSE' : S.msg,
     comm: !S.paused && commNow ? commNow.text : '',
     sub: S.paused ? pauseMenuText() + '\n' + (a.source === 'pad' ? 'START: 再開   B: タイトルへ' : a.source === 'xr' ? 'X/トリガー: 再開   A: タイトルへ' : a.source === 'wheel' ? 'ポーズ / 機関砲のボタン: 再開   タイトルへのボタン: タイトルへ' : 'Esc/クリック: 再開   Backspace: タイトルへ') : S.sub,
