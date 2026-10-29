@@ -70,7 +70,7 @@
       <label>敵を固定 <select id="lWave"><option value="">しない</option></select></label>
     </div>
     <div class="row">
-      <label>機体 <select id="lPlayer"><option value="">設定のまま</option><option value="ship">宇宙船</option><option value="human">人間</option><option value="girl">女の子</option></select></label>
+      <label>機体 <select id="lPlayer"><option value="">設定のまま</option><option value="ship">宇宙船</option><option value="human">ロボット</option><option value="girl">女の子</option></select></label>
       <label>視点 <select id="lView"><option value="">設定のまま</option><option value="1st">一人称</option><option value="3rd">三人称</option></select></label>
       <label>モード <select id="lMode"><option value="">設定のまま</option><option value="3d">3D</option><option value="side">横スクロール</option></select></label>
       <label><input type="checkbox" id="lDebug"> デバッグ表示 (fps・描画回数・重かった 5 秒)</label>
@@ -127,9 +127,9 @@
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
 </script>
 <script type="module">
-import { STAGES, STAGE_COUNT, BOSS_INFO, ENEMY_INFO } from './js-17d31c3/stages.js';
-import { VERSION } from './js-17d31c3/version.js';
-import { fetchRecent } from './js-17d31c3/ranking.js';
+import { STAGES, STAGE_COUNT, BOSS_INFO, ENEMY_INFO } from './js-323d6f0/stages.js';
+import { VERSION } from './js-323d6f0/version.js';
+import { fetchRecent } from './js-323d6f0/ranking.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, attrs = {}, ...kids) => {
@@ -229,12 +229,12 @@ async function loadRanking() {
   const st = count((r) => r.stage);
   bars($('rStages'), STAGES.map((s, i) => [`${String(i + 1).padStart(2, '0')} ${s.name}`, st.get(i + 1) || 0]), rows.length);
   bars($('rVersions'), [...count((r) => r.version || '(なし)')].sort((a, b) => String(b[0]).localeCompare(String(a[0]), undefined, { numeric: true })).slice(0, 12));
-  bars($('rPlayers'), [...count((r) => ({ ship: '宇宙船', human: '人間' })[r.player] || '(なし)')]);
-  const cols = [['順位', (r, i) => String(i + 1), true], ['名前', (r) => r.name], ['点', (r) => fmt(r.score), true], ['面', (r) => (r.cleared ? '★ ALL' : String(r.stage)), true], ['機体', (r) => ({ ship: '宇宙船', human: '人間' })[r.player] || ''], ['版', (r) => r.version || ''], ['日時', when]];
+  bars($('rPlayers'), [...count((r) => ({ ship: '宇宙船', human: 'ロボット', girl: '女の子' })[r.player] || '(なし)')]);
+  const cols = [['順位', (r, i) => String(i + 1), true], ['名前', (r) => r.name], ['点', (r) => fmt(r.score), true], ['面', (r) => (r.cleared ? '★ ALL' : String(r.stage)), true], ['機体', (r) => ({ ship: '宇宙船', human: 'ロボット', girl: '女の子' })[r.player] || ''], ['版', (r) => r.version || ''], ['日時', when]];
   for (const [mode, id] of [['normal', 'rTopNormal'], ['hard', 'rTopHard']]) {
     scoreTable($(id), rows.filter((r) => r.mode === mode).sort((a, b) => b.score - a.score).slice(0, 20), cols);
   }
-  scoreTable($('rRecent'), rows.slice(0, 30), [['日時', when], ['名前', (r) => r.name], ['点', (r) => fmt(r.score), true], ['モード', (r) => (r.mode === 'hard' ? '難しい' : 'ふつう')], ['面', (r) => (r.cleared ? '★ ALL' : String(r.stage)), true], ['機体', (r) => ({ ship: '宇宙船', human: '人間' })[r.player] || ''], ['版', (r) => r.version || '']]);
+  scoreTable($('rRecent'), rows.slice(0, 30), [['日時', when], ['名前', (r) => r.name], ['点', (r) => fmt(r.score), true], ['モード', (r) => (r.mode === 'hard' ? '難しい' : 'ふつう')], ['面', (r) => (r.cleared ? '★ ALL' : String(r.stage)), true], ['機体', (r) => ({ ship: '宇宙船', human: 'ロボット', girl: '女の子' })[r.player] || ''], ['版', (r) => r.version || '']]);
 }
 $('rReload').addEventListener('click', loadRanking);
 loadRanking();

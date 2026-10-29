@@ -94,6 +94,21 @@
 
   /* 設定・操作方法 (開閉できる) */
   details { border: 1px solid var(--line); border-radius: 10px; background: rgba(0, 0, 0, 0.25); }
+  .coop { display: grid; gap: 10px; padding: 4px 12px 12px; }
+  .coop-entry, .coop-lobby { display: grid; gap: 8px; }
+  .coop label { display: grid; gap: 4px; font-size: 13px; }
+  .coop input { min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.4); color: inherit; font: inherit; }
+  #coopCode { text-transform: uppercase; letter-spacing: 0.3em; }
+  .coop-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+  .coop-row:has(> :only-child) { grid-template-columns: minmax(0, 1fr); }
+  .coop button { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: rgba(62, 192, 255, 0.18); color: inherit; font: inherit; font-weight: bold; cursor: pointer; }
+  .coop button:disabled { opacity: 0.5; cursor: default; }
+  .coop-code { margin: 0; }
+  .coop-code b { color: var(--sun); font-size: 22px; letter-spacing: 0.25em; }
+  .coop-players { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+  .coop-players li { padding: 6px 10px; border-radius: 8px; background: rgba(255, 255, 255, 0.05); display: flex; justify-content: space-between; gap: 8px; }
+  .coop-players .ok { color: #7dff9a; }
+  .coop-players .wait { color: var(--sun); }
   summary { cursor: pointer; padding: 9px 12px; font-size: 14px; font-weight: bold; list-style: none; }
   summary::-webkit-details-marker { display: none; }
   summary::before { content: "▸ "; color: var(--sun); }
@@ -104,6 +119,7 @@
   .stage-select option { background: #1a2238; color: #fff; }
   .settings label .lock-note { display: none; color: rgba(255, 255, 255, 0.55); }
   .settings label.locked { opacity: 0.55; }
+  .players label.locked { opacity: 0.4; pointer-events: none; } /* 協力プレイでは横スクロールを選べない */
   .settings label.locked .lock-note { display: inline; }
   .snd-list button:disabled { opacity: 0.45; cursor: default; }
   .sound { padding: 0 12px 12px; }
@@ -223,7 +239,7 @@
         <span><b>宇宙船</b><small>コックピットから操縦</small></span></span></label>
       <label><input type="radio" name="player" value="human"><span class="card">
         <svg viewBox="0 0 54 44" aria-hidden="true"><circle cx="27" cy="8" r="6" fill="#e2334a"/><rect x="20" y="15" width="14" height="14" rx="3" fill="#e8ecf4"/><rect x="34" y="17" width="16" height="5" rx="2" fill="#7c8698"/><path d="M22 29 L18 42 L22 42 L26 30 Z M32 29 L36 42 L32 42 L28 30 Z" fill="#2a5bd8"/><path d="M16 18 L20 18 L20 26 L16 30 Z" fill="#ffb347"/></svg>
-        <span><b>人間</b><small>ジェットパックで飛ぶ</small></span></span></label>
+        <span><b>ロボット</b><small>ジェットパックで飛ぶ</small></span></span></label>
       <label><input type="radio" name="player" value="girl"><span class="card">
         <svg viewBox="0 0 54 44" aria-hidden="true"><path d="M17 12 Q17 2 27 2 Q37 2 37 12 L38 24 L16 24 Z" fill="#5a3a2a"/><circle cx="27" cy="11" r="7" fill="#ffe0c8"/><path d="M20 7 Q27 2 34 7 L34 9 Q27 5 20 9 Z" fill="#5a3a2a"/><rect x="21" y="18" width="12" height="10" rx="3" fill="#ffffff"/><path d="M33 20 L46 19 L46 22 L33 23 Z" fill="#ffe0c8"/><circle cx="48" cy="20" r="3" fill="#ffb347"/><path d="M20 27 L34 27 L37 33 L17 33 Z" fill="#e2668c"/><path d="M22 33 L20 40 L23 40 L25 33 Z M29 33 L31 40 L34 40 L32 33 Z" fill="#ffe0c8"/><path d="M19 40 L24 40 L24 42 L19 42 Z M30 40 L35 40 L35 42 L30 42 Z" fill="#3ec0ff"/></svg>
         <span><b>女の子</b><small>ふたりの休日から</small></span></span></label>
@@ -253,6 +269,29 @@
     </div>
     <p class="press">PRESS START</p>
     <div class="hiscore"><span>HI-SCORE</span><span id="hiscore">0</span></div>
+
+    <details id="coopPanel">
+      <summary>協力プレイ (オンライン・4 人まで)</summary>
+      <div class="coop">
+        <div class="coop-entry" data-coop="entry">
+          <label>名前 <input id="coopName" maxlength="12" placeholder="なまえ" autocomplete="off"></label>
+          <div class="coop-row">
+            <button id="coopCreate" type="button">ルームを作る</button>
+          </div>
+          <div class="coop-row">
+            <input id="coopCode" maxlength="4" placeholder="コード (4 文字)" autocomplete="off" aria-label="ルームのコード">
+            <button id="coopJoin" type="button">参加する</button>
+          </div>
+        </div>
+        <div class="coop-lobby" data-coop="lobby" hidden>
+          <p class="coop-code">ルーム <b id="coopRoom">----</b> <small>このコードを仲間に伝えます</small></p>
+          <ul id="coopPlayers" class="coop-players"></ul>
+          <p class="note" id="coopHint"></p>
+          <button id="coopLeave" type="button">ルームを抜ける</button>
+        </div>
+        <p class="note" id="coopStatus" role="status"></p>
+      </div>
+    </details>
 
     <details>
       <summary>設定</summary>
@@ -393,7 +432,7 @@
     <button class="tbtn fire" data-hold="fire" aria-label="射撃">FIRE</button>
   </div>
 </div>
-<script type="module" src="./js-17d31c3/main.js"></script>
+<script type="module" src="./js-323d6f0/main.js"></script>
 <script>
   // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
   if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {

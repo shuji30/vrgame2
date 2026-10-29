@@ -9,7 +9,7 @@ import { CockpitPanel, openCockpit } from './cockpit.js';
 const THIRD_OFFSET = {
   ship: new THREE.Vector3(0, -1.6, -9),
   human: new THREE.Vector3(0, -1.1, -5),
-  girl: new THREE.Vector3(0, -1.0, -4.5), // 小柄なので少し近くから
+  girl: new THREE.Vector3(0, -1.1, -5),
 };
 // 当たり判定の半径 (m)。宇宙船と人間で難しさが変わらないよう、同じにする (宇宙船は翼が大きいが、遊びやすさを優先して小さめ)
 const RADIUS = { ship: 0.6, human: 0.6, girl: 0.6 };
@@ -67,6 +67,7 @@ export class Avatar {
     this.recenterPending = true;
     this.destroyed = false;  // ゲームオーバーで爆発したら消す
     this.hidden = false;     // エンディングの間は隠す (影も)
+    this.cockpitShown = false; // 宇宙船のコックピットの計器が見えている (画面のミサイルとロックの表示を消す)
     this.riding = false;     // ボーナスステージで水晶のそりに乗っている (一人称では機体を隠す)
     this.stumbleT = 0;       // 茂みにつまずいてよろけている残り時間
     this.fallT = -1;         // やられて地面に落ちている時間 (-1 = 落ちていない)
@@ -118,6 +119,7 @@ export class Avatar {
       if (kind === 'ship') {
         // コックピットの計器 (ボタンいっぱい) と、深くした座る所 (シート・ペダル)
         const panel = new CockpitPanel();
+        panel.mesh.userData.cockpitPanel = true; // 協力プレイで仲間の機体を描くときは出さない
         (obj.getObjectByName('Ship') || obj).add(panel.mesh);
         openCockpit(obj);
         Object.assign(this.models[kind], { panel, arch: obj.getObjectByName('CanopyArch') });
@@ -188,6 +190,7 @@ export class Avatar {
       m.obj.rotation.order = view === 'side' ? 'YXZ' : 'XYZ';
       m.obj.visible = show;
       if (m.arch) m.arch.visible = view !== '1st'; // 前のキャノピーの枠は、コックピットから見ると視界をふさぐので消す
+      if (m.panel) this.cockpitShown = show && view === '1st'; // コックピットの計器が見えている (ミサイルとロックを出す)
       if (k !== kind) continue;
 
       if (view === 'side') {

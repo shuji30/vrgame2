@@ -16,6 +16,7 @@ import { VERSION, loadBuildInfo } from './version.js';
 import { RANK_CHARS, fetchTop, submitScore } from './ranking.js';
 import { BGM_LIST, SE_LIST, captureAudioStream, initAudio, previewBGM, sfx, setEngine, say, startBGM, stopBGM, setBGMEnabled, setBGMMode, setEngineEnabled, setPaused, setRealMusic, setRealSfx, toggleMute, isMuted, playVoice, voicePlaying } from './audio.js';
 import { createGirlVoice } from './girlvoice.js';
+import { setupCoop } from './net/coop.js';
 
 // ---- 定数
 const X_LIMIT = 96;        // 左右の移動範囲 (m)
@@ -55,7 +56,11 @@ const HARD_HEAL = 20;      // 難しいモードの回復量
 // 全面クリアしたか (ごほうび: タイトルの ★、サウンドテストの 2 曲、難しいモード)
 let cleared = false;
 try { cleared = localStorage.getItem('skyrunner.cleared') === '1'; } catch (_) { /* 保存なし */ }
-const hardMode = () => cleared && settings.hard;
+// 協力プレイ (オンライン)。計画は docs/coop-plan.md。coop は下で作る
+let coop = null;
+let coopStart = null;     // ゲスト: ホストから届いた出撃 (面・難しさ)。ホスト: 自分が配ったもの
+let coopWaiting = false;  // ゲスト: 出撃を押して、ホストを待っている
+const hardMode = () => (coopStart ? !!coopStart.hard : cleared && settings.hard); // 協力プレイでは、ホストの難しさに合わせる
 const OBSTACLE_DAMAGE = 20;
 const BUSH_DAMAGE = 10;      // 低い茂みにぶつかったとき (宇宙船も人間も)
 const RING_BONUS = 500; // 浮遊リングをくぐったときの点
@@ -125,6 +130,36 @@ function girlVoiceOr(kind, { chance = 1, delay = 0, light = false, tts = kind, .
   if (delay) setTimeout(play, delay * 1000);
   else play();
 }
+// 協力プレイ: ルームに集まって、ホストの出撃で全員が同じ面から始める
+coop = setupCoop({
+  scene, avatar,
+  hooks: {
+    start: (msg) => onCoopStart(msg),
+    lobby: () => { coopStart = null; if (S.mode !== 'title') toTitle(); },
+    changed: () => onCoopChanged(),
+  },
+});
+// 協力プレイ: combat.js に役目 (ホスト / ゲスト) と送り方を渡す (出撃のたびに startPlay で作り直す)
+function coopNet() {
+  if (!coop?.playing) return null;
+  return {
+    role: coop.isHost ? 'host' : 'guest',
+    spawn: (rec) => coop.send({ t: 'sp', ...rec }),        // ホスト: 敵の出現
+    snap: (m) => coop.sendFast({ t: 'es', ...m }),         // ホスト: 敵の位置と体力 (最新だけ)
+    hit: (id, a) => coop.sendHost({ t: 'hit', id, a }),    // ゲスト: 自分の弾が敵に当たった
+    kill: (id) => coop.send({ t: 'kill', id }),            // ホスト: 敵が倒れた
+    credit: (to, p, k) => coop.sendTo(to, { t: 'cr', p, k }), // ホスト: 仲間が倒した点数
+  };
+}
+const coopGuest = () => combat.net?.role === 'guest';
+const fromHost = (from) => from === coop.session?.host;
+const coopLive = () => S.mode !== 'title' && S.phase !== 'coopWait';
+coop.on('sp', (m, from) => { if (coopGuest() && fromHost(from) && coopLive()) combat.applySpawn(m); });
+coop.on('es', (m, from) => { if (coopGuest() && fromHost(from) && coopLive()) { combat.applySnap(m); S.hostSeen = performance.now(); } });
+coop.on('kill', (m, from) => { if (coopGuest() && fromHost(from)) combat.netKill(m.id); });
+coop.on('hit', (m, from) => { if (combat.net?.role === 'host' && coopLive()) combat.netHit(from, m.id, Math.min(10, +m.a || 0)); });
+coop.on('cr', (m, from) => { if (combat.net && fromHost(from)) { combat.score += +m.p || 0; combat.kills += +m.k || 0; } });
+coop.on('stage', (m, from) => { if (coopGuest() && fromHost(from)) onStageEvent(m); });
 // 出撃の「ゴーアヘッド」: 女の子は録音の「いくよー！」 (鳴らせなければ音声合成、日本語の声も無ければ英語のまま)
 const goAhead = () => {
   if (settings.player === 'girl') playVoice('go', () => { if (!girlSays('go', { cut: true })) say('Go ahead!'); });
@@ -287,16 +322,21 @@ function startPlay(stageNo) {
   stopTitleMusic(); // タイトルの曲は、出撃したら止める
   wheelPanel.open = false; // ハンコン設定を閉じる (開いている間は、ハンコンをゲームの操作として読まないため)
   input.wheel.panelOpen = false;
-  S.fromStart = stageNo === 1 && !DEV_RUN;
+  S.fromStart = stageNo === 1 && !DEV_RUN && !coop?.active; // 協力プレイの点数はランキングに送らない
   initAudio();
   Object.assign(S, {
     mode: 'play', paused: false, entry: null, chapterHead: 0, factor: 1, ready: 0, dist: 0, hits: 0, invuln: 0, px: 0, py: 1, vx: 0, vy: 0, pz: SIDE_Z_START, vz: 0,
     stage: 1, phase: 'normal', phaseT: 0, stageT: 0, baseSpeed: SPEED.base, lives: LIVES, life: LIFE_MAX, lowLifeT: 0, extendIdx: 0, overT: 0, slowT: 0,
-    killsHeard: 0, idleT: 30,
+    killsHeard: 0, idleT: 30, coopOut: false,
   });
   if (isSide()) S.py = 8; // 横スクロールは画面の中ほどの高さから
+  if (coop?.active) S.px = coop.startX; // 協力プレイは、仲間と重ならないよう横にずらして出撃する
   world.clear();
   combat.reset();
+  combat.net = coopNet(); // 協力プレイの役目 (1 人なら null)
+  S.coopSyncT = 0;
+  S.coopHost = coop?.session?.host; // 出撃したときのホスト (変わったら、ホストが抜けた)
+  S.hostSeen = performance.now();
   avatar.recenter();
   avatar.destroyed = false;
   avatar.hidden = false;
@@ -313,14 +353,19 @@ function startPlay(stageNo) {
   commNow = null;
   if (DEV_ENDING) return allClear(); // 開発用: ?ending で、出撃してすぐエンディング (確認用。記録とごほうびは残さない)
   // お話のプロローグ: 初めて 1 面から出撃したときだけ (設定で毎回にもできる)。前に進まない空に 4 行。ポーズか決定で飛ばせる
-  if (stageNo === 1 && !DEV_BOSS && storyOnce('prologue')) {
+  if (stageNo === 1 && !DEV_BOSS && !coop?.active && storyOnce('prologue')) { // 協力プレイでは出さない (みんなを待たせない)
     S.phase = 'prologue';
     S.phaseT = 0;
     S.ready = 0;
     showMsg('', '', 0);
     STORY.prologue.forEach((text, i) => queueComm(text, 0.6 + i * 3.4, 3.2));
     markStory('prologue');
-  } else queueComm(STORY.stage[stageNo - 1], READY_TIME + 0.3);
+  } else if (!(coopWaiting && !coopStart)) queueComm(STORY.stage[stageNo - 1], READY_TIME + 0.3);
+  if (coopWaiting && !coopStart) {
+    // 協力プレイのゲスト: ホストが出撃するまで、敵も障害物も出ない空で待つ
+    S.phase = 'coopWait';
+    showMsg('WAITING', 'ホストの出撃を待っています', 1e9);
+  }
 }
 
 // ---- お話の通信: 相棒の通信士ベリルの 1 行。HUD の下の方に水色の文字で出す (プレイは止めない)。順番に 1 行ずつ
@@ -419,11 +464,22 @@ function applyStage(n, first = false) {
     showMsg(first ? 'GO AHEAD!' : title, first ? `${title}  ${st.name}` : st.name, first ? READY_TIME : 2.5);
   }
   if (!first) queueComm(STORY.stage[n - 1], 2.6); // 面の名前のあとに、ベリルの 1 行
+  if (!first && S.coopOut) coopRevive(); // 協力プレイ: 観戦していた人は、次の面で復活する
   if (first) goAhead();
   else {
     say(`Stage ${n}`);
     if (st.kind !== 'bonus') girlVoiceOr('stage', { delay: 1.2, queue: true });
   }
+}
+
+// もう一度: 協力プレイでは、ホストだけが押せる (全員でやり直す)。ゲストはホストを待つ
+function retry() {
+  if (coop?.active && !coop.isHost) return;
+  if (coop?.active) {
+    coopStart = { stage: selectedStage, hard: cleared && settings.hard };
+    coop.hostStart(coopStart);
+  }
+  startPlay();
 }
 
 function togglePause(p) {
@@ -601,6 +657,11 @@ function titleScene() {
 
 function toTitle() {
   S.mode = 'title';
+  combat.net = null;
+  coop?.hostLobby(); // 協力プレイのホストがタイトルへ戻ったら、全員ロビーへ
+  if (coop?.isHost) coopStart = null;
+  coopWaiting = false;
+  coop?.setReady(false);
   titleScene();
   showHiScore();
   endBonus();
@@ -670,7 +731,7 @@ const clamp = THREE.MathUtils.clamp;
 const approach = (v, target, step) => (v < target ? Math.min(target, v + step) : Math.max(target, v - step));
 const ease = (t) => t * t * (3 - 2 * t);
 
-const isSide = () => settings.mode === 'side';
+const isSide = () => settings.mode === 'side' && !coop?.active; // 協力プレイは 3D だけ
 const vrGentle = () => renderer.xr.isPresenting && settings.vrGentle;
 // 着座モード: 座って遊ぶと目が低いので、VR のときだけ 0.4 m 上げる
 const seatLift = () => (renderer.xr.isPresenting && settings.seated ? 0.4 : 0);
@@ -833,71 +894,36 @@ function updateStage(dt) {
     if (!rest && S.rest) combat.spawn.wave = Math.min(combat.spawn.wave, 0.6); // 休みが明けたら、すぐ次の群れ
     S.rest = rest;
   } else S.rest = false;
-  const st = stageAt(S.stage);
+  // 面の切り替わりは、1 人とホストだけが決める (ホストは全員に配る。ゲストはホストから届いたときに切り替える)
+  const lead = stageLead();
   if (S.phase === 'normal' && S.stageT > S.stageLen) {
-    S.phase = 'warning';
-    S.phaseT = 0;
-    showMsg('WARNING!!', warningText(st.kind === 'rush' ? st.rush[S.rushIndex] : st.boss), 3.5);
-    sfx.warning();
-    girlVoiceOr('warning', { queue: true });
+    if (lead) stageEvent('warning');
   } else if (S.phase === 'warning' && S.phaseT > 3.5) {
-    S.phase = 'boss';
-    S.phaseT = 0;
-    const def = st.kind === 'rush' ? st.rush[S.rushIndex] : st.boss;
-    combat.level = (def.diff ?? st.diff) + (combat.hard ? 2 : 0);
-    combat.spawnBoss(def);
-    setBGMMode(def.type === 'sun' ? 'finale' : 'boss'); // 最終ボスは専用の曲
+    if (lead) stageEvent('boss');
   } else if (S.phase === 'boss' && (combat.bossDefeated || combat.bossEscaped)) {
-    const escaped = combat.bossEscaped;
-    combat.bossDefeated = combat.bossEscaped = false;
-    combat.clearHostiles(); // 残った敵の弾や破片を消す
-    S.phaseT = 0;
-    if (st.kind === 'rush' && S.rushIndex < st.rush.length - 1) {
-      // ボスラッシュ: 次のボスへ
-      S.rushIndex++;
-      S.phase = 'warning';
-      S.phaseT = -1.5; // WARNING の 3.5 秒と合わせて、ボスの間は 5 秒
-      const next = st.rush[S.rushIndex];
-      showMsg(`BOSS ${S.rushIndex + 1} / ${st.rush.length}`, next.type === 'sun' ? warningText(next) : '回復アイテムを取って、次のボスへ', 3);
-      if (next.type === 'sun') saveSunCheckpoint(); // 最終ボスの前まで来たら、CONTINUE で太陽の前から始められる
-      combat.spawnItem(new THREE.Vector3(P.x, Math.max(3, P.y), -60));
-      sfx.warning();
-      girlVoiceOr('bossDown', { queue: true });
-    } else {
-      S.phase = 'clear';
-      showMsg('STAGE CLEAR!', (escaped ? '敵は逃げ去った' : `BOSS BONUS ${combat.lastBossBonus}`) + recordStage(), 4.5);
-      // ボスを倒したときの 1 行 (逃げられたときの文があれば、それ)。6 面のあとは章の区切りも
-      const bl = STORY.boss[(st.kind === 'rush' ? st.rush[S.rushIndex] : st.boss)?.type];
-      if (bl) queueComm(escaped ? bl[1] || '' : bl[0], 0.4, 3.0);
-      S.clearLen = chapterBreak(S.stage, 3.5) ? 10 : 5;
-      sfx.clear();
-      girlVoiceOr(escaped ? 'escaped' : 'bossDown', { queue: true }); // 女の子は録音の声
-      // もとの面には戻さない: 曲は止め、障害物は出さず、景色は次の面の色へ移していく
-      stopBGM();
-      if (S.stage < STAGE_COUNT) {
-        const nx = stageAt(S.stage + 1);
-        world.fadeTheme(nx.palette, 3);
-        world.setCeiling(nx.ceiling);
-      }
-    }
+    if (lead) stageEvent('bossEnd', { escaped: combat.bossEscaped, bonus: combat.lastBossBonus });
   } else if (S.phase === 'clear' && S.phaseT > (S.clearLen || 5)) {
-    nextStage();
+    if (lead) stageEvent('next');
   } else if (S.phase === 'ending') {
     updateEnding();
     if (S.phaseT > ENDING_LEN) gameOver(true);
   } else if (S.phase === 'bonus' && S.phaseT > BONUS_LEN) {
-    S.phase = 'bonusEnd';
-    S.phaseT = 0;
-    const pylon = world.bonusKind === 'pylon';
-    const pts = pylon ? S.bonusPts : S.bonusCount * BONUS_TREE; // 12 面 (街灯) は連続ボーナスの合計
-    combat.score += pts;
-    world.mode = 'normal';
-    showMsg(`BONUS ${pts}`, (pylon ? `なぎ倒した街灯 ${S.bonusCount} 本 (最大 ${S.bonusBest} 連続)` : `なぎ倒した木 ${S.bonusCount} 本 × ${BONUS_TREE}`) + recordStage(), 3.5);
-    sfx.clear();
-    S.clearLen = chapterBreak(S.stage, 1.0) ? 7.6 : 3.5; // 12 面のあとは章の区切り
+    if (lead) stageEvent('bonusEnd');
   } else if (S.phase === 'bonusEnd' && S.phaseT > (S.clearLen || 3.5)) {
-    endBonus();
-    nextStage();
+    if (lead) stageEvent('next');
+  }
+  if (combat.net?.role === 'host' && coopAllDown()) stageEvent('over');
+  coopNotices();
+  // ゲスト: ホストが抜けた (サーバーが別の人をホストにした・6 秒なにも届かない)。敵を動かす人がいないので終わる
+  if (combat.net?.role === 'guest' && S.mode === 'play' && (coop.session?.host !== S.coopHost || performance.now() - S.hostSeen > 6000)) {
+    toTitle();
+    document.getElementById('coopStatus').textContent = 'ホストが抜けたので、終わりました。続けるなら、新しいホスト (👑) が出撃してください';
+    return;
+  }
+  // ホスト: 2 秒ごとに今の面を配る (遅れて出撃した仲間を、同じ面に合わせる)
+  if (combat.net?.role === 'host' && (S.coopSyncT -= dt) <= 0) {
+    S.coopSyncT = 2;
+    coop.send({ t: 'stage', ev: 'sync', stage: S.stage, ri: S.rushIndex });
   }
   // プロローグの終わり: 4 行を出しきったら (または飛ばしたら) 出撃する
   if (S.phase === 'prologue' && S.phaseT > 0.6 + STORY.prologue.length * 3.4) endPrologue();
@@ -911,6 +937,157 @@ function updateStage(dt) {
       girlVoiceOr('extend', { queue: true });
     }
   }
+}
+
+// ---- 協力プレイの残機: 尽きた人は観戦して、次の面の始まりに復活する。全員が尽きたらゲームオーバー
+function coopDown() {
+  S.coopOut = true;
+  S.invuln = Infinity;
+  if (!onFoot(settings.player)) {
+    avatar.destroyed = true;
+    playerExplosion(true);
+  }
+  showMsg('DOWN', '仲間を応援しよう。次の面で復活します', 4);
+}
+function coopRevive() {
+  S.coopOut = false;
+  S.lives = LIVES;
+  S.life = LIFE_MAX;
+  S.invuln = 3;
+  avatar.destroyed = false;
+  avatar.fallT = -1;
+  showMsg('REVIVE!', `残機 ${LIVES} で復活`, 2);
+  sfx.heal();
+}
+// ホスト: 全員が尽きたか (仲間の状態が 5 秒届いていない人は、抜けたものとして数えない)
+function coopAllDown() {
+  if (!S.coopOut) return false;
+  const now = performance.now();
+  return coop.others().every((o) => o.out || !o.recv || now - o.recv > 5000);
+}
+// 仲間がやられた・復活した・抜けたを、通信の欄に出す
+const coopSeen = new Map(); // id → { name, out }
+function coopNotices() {
+  if (!coop?.playing) { coopSeen.clear(); return; }
+  const now = new Set();
+  for (const o of coop.others()) {
+    now.add(o.id);
+    const was = coopSeen.get(o.id);
+    const out = !!o.out;
+    if (was && was.out !== out) queueComm(out ? `${o.name || '仲間'} がやられた… 次の面で復活する` : `${o.name || '仲間'} が復活した！`, 0, 3);
+    coopSeen.set(o.id, { name: o.name, out });
+  }
+  for (const [id, was] of coopSeen) {
+    if (now.has(id)) continue;
+    queueComm(`${was.name || '仲間'} が抜けた`, 0, 3);
+    coopSeen.delete(id);
+  }
+}
+// 一人ずつの点数 (ゲームオーバーとエンディングで出す)
+function coopScoreLines() {
+  if (!coop?.playing) return '';
+  const list = coop.scores(combat.score, combat.kills).sort((a, b) => b.score - a.score);
+  const total = list.reduce((sum, p) => sum + p.score, 0);
+  return `\nTEAM ${total}\n` + list.map((p) => `${p.me ? '▶ ' : ''}${p.name}  ${p.score}  (${p.kills} 機)`).join('\n');
+}
+
+// ---- 面の切り替わり: 警告・ボス・ボスの終わり・ボーナスの終わり・次の面。
+// 1 人とホストは自分で決め、ホストは全員に配る。協力プレイのゲストは、ホストから届いたときだけ切り替える
+const stageLead = () => combat.net?.role !== 'guest';
+function stageEvent(ev, extra = {}) {
+  if (combat.net?.role === 'host') coop.send({ t: 'stage', ev, stage: S.stage, ri: S.rushIndex, ...extra }); // ri: ボスラッシュの何体目か
+  STAGE_EVENTS[ev](extra);
+}
+// ゲスト: ホストから届いた切り替わり
+function onStageEvent(m) {
+  if (!coopLive() || S.phase === 'ending') return;
+  const stage = Math.round(+m.stage) || 1;
+  // 遅れて出撃した・ずれた: ホストの面に合わせる
+  if (stage !== S.stage && stage >= 1 && stage <= STAGE_COUNT) {
+    if (m.ev === 'next') S.stage = stage; // 次の面へ進む合図 (S.stage + 1 へ進む)
+    else { applyStage(stage); startBGM(); }
+  }
+  if (Number.isInteger(m.ri) && m.ev !== 'next') S.rushIndex = m.ri;
+  if (m.ev !== 'sync') STAGE_EVENTS[m.ev]?.(m);
+}
+const STAGE_EVENTS = {
+  warning: toWarning,
+  boss: toBoss,
+  bossEnd: (m) => toBossEnd(!!m.escaped, m.bonus),
+  bonusEnd: toBonusEnd,
+  over: () => { if (S.mode === 'play') gameOver(); }, // 全員の残機が尽きた
+  next: () => {
+    if (S.phase === 'bonus' || S.phase === 'bonusEnd') endBonus();
+    nextStage();
+  },
+};
+
+function toWarning() {
+  const st = stageAt(S.stage);
+  S.phase = 'warning';
+  S.phaseT = 0;
+  showMsg('WARNING!!', warningText(st.kind === 'rush' ? st.rush[S.rushIndex] : st.boss), 3.5);
+  sfx.warning();
+  girlVoiceOr('warning', { queue: true });
+}
+
+function toBoss() {
+  const st = stageAt(S.stage);
+  S.phase = 'boss';
+  S.phaseT = 0;
+  const def = st.kind === 'rush' ? st.rush[S.rushIndex] : st.boss;
+  combat.level = (def.diff ?? st.diff) + (combat.hard ? 2 : 0);
+  if (stageLead()) combat.spawnBoss(def); // ゲストのボスは、ホストが配る出現で出る
+  setBGMMode(def.type === 'sun' ? 'finale' : 'boss'); // 最終ボスは専用の曲
+}
+
+// bonus: ボスの撃破ボーナス (ゲストはホストの値を出す)
+function toBossEnd(escaped, bonus) {
+  const st = stageAt(S.stage);
+  if (Number.isFinite(bonus)) combat.lastBossBonus = bonus;
+  combat.bossDefeated = combat.bossEscaped = false;
+  combat.clearHostiles(); // 残った敵の弾や破片を消す
+  S.phaseT = 0;
+  if (st.kind === 'rush' && S.rushIndex < st.rush.length - 1) {
+    // ボスラッシュ: 次のボスへ
+    S.rushIndex++;
+    S.phase = 'warning';
+    S.phaseT = -1.5; // WARNING の 3.5 秒と合わせて、ボスの間は 5 秒
+    const next = st.rush[S.rushIndex];
+    showMsg(`BOSS ${S.rushIndex + 1} / ${st.rush.length}`, next.type === 'sun' ? warningText(next) : '回復アイテムを取って、次のボスへ', 3);
+    if (next.type === 'sun') saveSunCheckpoint(); // 最終ボスの前まで来たら、CONTINUE で太陽の前から始められる
+    combat.spawnItem(new THREE.Vector3(P.x, Math.max(3, P.y), -60));
+    sfx.warning();
+    girlVoiceOr('bossDown', { queue: true });
+  } else {
+    S.phase = 'clear';
+    showMsg('STAGE CLEAR!', (escaped ? '敵は逃げ去った' : `BOSS BONUS ${combat.lastBossBonus}`) + recordStage(), 4.5);
+    // ボスを倒したときの 1 行 (逃げられたときの文があれば、それ)。6 面のあとは章の区切りも
+    const bl = STORY.boss[(st.kind === 'rush' ? st.rush[S.rushIndex] : st.boss)?.type];
+    if (bl) queueComm(escaped ? bl[1] || '' : bl[0], 0.4, 3.0);
+    S.clearLen = chapterBreak(S.stage, 3.5) ? 10 : 5;
+    sfx.clear();
+    girlVoiceOr(escaped ? 'escaped' : 'bossDown', { queue: true }); // 女の子は録音の声
+    // もとの面には戻さない: 曲は止め、障害物は出さず、景色は次の面の色へ移していく
+    stopBGM();
+    if (S.stage < STAGE_COUNT) {
+      const nx = stageAt(S.stage + 1);
+      world.fadeTheme(nx.palette, 3);
+      world.setCeiling(nx.ceiling);
+    }
+  }
+}
+
+function toBonusEnd() {
+  S.phase = 'bonusEnd';
+  S.phaseT = 0;
+  const pylon = world.bonusKind === 'pylon';
+  const pts = pylon ? S.bonusPts : S.bonusCount * BONUS_TREE; // 12 面 (街灯) は連続ボーナスの合計
+  combat.score += pts;
+  world.mode = 'normal';
+  showMsg(`BONUS ${pts}`, (pylon ? `なぎ倒した街灯 ${S.bonusCount} 本 (最大 ${S.bonusBest} 連続)` : `なぎ倒した木 ${S.bonusCount} 本 × ${BONUS_TREE}`) + recordStage(), 3.5);
+  sfx.clear();
+  S.clearLen = chapterBreak(S.stage, 1.0) ? 7.6 : 3.5; // 12 面のあとは章の区切り
 }
 
 // 機体の爆発: 一人称のときは目の前で見えるよう、少し前方で爆発させる
@@ -996,7 +1173,7 @@ function gameOver(cleared = false) {
   }
   // どの面まで行ったかも出す (全面クリアは ALL CLEAR)
   const reached = cleared ? 'ALL CLEAR' : `STAGE ${S.stage}/${STAGE_COUNT} ${stageAt(S.stage).name}`;
-  showMsg(cleared ? 'CONGRATULATIONS!' : 'GAME OVER', `${reached}\nSCORE ${combat.score}   ${combat.hard ? 'HARD HI' : 'HI'} ${hiNow()}`, Infinity);
+  showMsg(cleared ? 'CONGRATULATIONS!' : 'GAME OVER', `${reached}\nSCORE ${combat.score}   ${combat.hard ? 'HARD HI' : 'HI'} ${hiNow()}` + coopScoreLines(), Infinity);
   if (!cleared) {
     say('Game over');
     girlVoiceOr('over', { delay: 1.5, queue: true }); // やられた「きゃー」と重ならないように
@@ -1136,7 +1313,8 @@ function onHit(damage) {
     flash.material.opacity = 0.8;
     sfx.damage();
     input.rumble(1.0, 500);
-    gameOver();
+    if (coop?.playing) coopDown(); // 協力プレイ: 観戦して、次の面で復活する (全員が尽きたらゲームオーバー)
+    else gameOver();
     return;
   }
   S.life = LIFE_MAX;
@@ -1157,7 +1335,7 @@ function slowDown(to, time) {
 }
 
 function onPickup(type) {
-  if (type !== 'heal') return;
+  if (type !== 'heal' || S.coopOut) return; // 協力プレイで観戦中は取らない
   if (S.life >= LIFE_MAX) {
     combat.score += 2000;
     showMsg('LIFE FULL', 'BONUS 2000', 1.2);
@@ -1242,7 +1420,7 @@ function updateCombat(dt, speed, a) {
   // 機関砲: 人間の一人称 VR は手のコントローラーから、それ以外は機体の銃口から
   // 自動で撃つ (設定): プレイ中は撃ちっぱなし (ボーナスステージ・ポーズ中は撃たない)
   const auto = settings.autoFire && S.mode === 'play' && !S.paused && !['bonus', 'bonusEnd', 'ending'].includes(S.phase);
-  let guns = [], firing = a.fire || auto;
+  let guns = [], firing = (a.fire || auto) && !S.coopOut; // 協力プレイで観戦中は撃たない
   if (humanVR) {
     a.handFire.forEach((h, i) => { if (h.fire) guns.push(controllerRay(h.controller, handAims[i % 2])); });
     firing = firing || guns.length > 0;
@@ -1258,11 +1436,12 @@ function updateCombat(dt, speed, a) {
 
   combat.update({
     dt, scroll: side ? speed * SIDE_SCROLL : speed, world, side, planeX: side ? 0 : null,
-    spawn: S.mode === 'play' && S.ready >= 1 && S.phase === 'normal' && !S.rest, // 障害物の区間は、群れを出さない
+    spawn: S.mode === 'play' && S.ready >= 1 && S.phase === 'normal' && !S.rest && !coopGuest(), // 障害物の区間は、群れを出さない。協力プレイのゲストはホストが配る
+    itemSpawn: S.mode === 'play' && S.ready >= 1 && S.phase === 'normal' && !S.rest, // 回復アイテムは各自で出す
     active: S.mode === 'play' && S.ready >= 1 && !['clear', 'bonus', 'bonusEnd', 'ending'].includes(S.phase),
     player: P, playerR: avatar.radius, eye: eyeW,
     aimOrigin, aimDir, guns, firing,
-    missile: a.missile, missileOrigin: avatar.center(kind, missileOrigin),
+    missile: a.missile && !S.coopOut, missileOrigin: avatar.center(kind, missileOrigin),
     showAim: !humanVR, halfHeight,
     gunStyle: onFoot(kind) ? 'fireball' : 'beam',
     onPlayerHit: (damage) => onHit(damage),
@@ -1295,7 +1474,7 @@ function update(dt) {
     if (S.overT > 2 && S.entry?.state === 'input') updateEntry(dt, a);
     else if (S.overT > 2 && S.entry?.state !== 'sending') {
       if (a.back) toTitle();
-      else if (a.confirm || (a.fire && a.source === 'touch')) startPlay(); // タッチは射撃ボタンでもう一度
+      else if (a.confirm || (a.fire && a.source === 'touch')) retry(); // タッチは射撃ボタンでもう一度
     }
   } else {
     // エンディングを飛ばすのはポーズのボタンだけ (決定は機関砲と同じボタンなので、撃ち続けていた人がうっかり飛ばさないように)
@@ -1306,8 +1485,10 @@ function update(dt) {
     else if (S.paused && a.confirm) togglePause(false);
 
     if (S.paused) {
-      speed = 0;
-      running = false;
+      if (!coop?.playing) { // 協力プレイでは止めない (仲間のゲームを止めないため。メニューだけ出す)
+        speed = 0;
+        running = false;
+      }
       updatePauseMenu(a, dt);
     } else {
       if (a.view && isSide()) {
@@ -1356,11 +1537,13 @@ function update(dt) {
     kind: settings.player, view: side ? 'side' : inGame ? settings.view : '3rd',
     vx: S.vx, vy: S.vy, thrust: inGame ? speed / SPEED.base : 0.3, presenting: renderer.xr.isPresenting, sidePos,
     talking: settings.player === 'girl' && (girlVoice.talking || voicePlaying()),
+    missiles: combat.missileStock, locks: combat.locks.length, // コックピットの計器に出す
   });
+  coop.frame(dt, { inGame, show: !avatar.destroyed && !avatar.hidden, selfZ: avatar.hitPoint.z, extra: { sc: combat.score, kl: combat.kills, out: S.coopOut ? 1 : 0 } });
   P.copy(avatar.hitPoint);
   world.side = side;
   // ボス戦 (WARNING から撃破まで) は障害物を出さない
-  world.update(dt, side ? speed * SIDE_SCROLL : speed, P, running && !(play && ['warning', 'boss', 'clear', 'ending'].includes(S.phase))); // エンディングは障害物を出さない
+  world.update(dt, side ? speed * SIDE_SCROLL : speed, P, running && !(play && ['warning', 'boss', 'clear', 'ending', 'coopWait'].includes(S.phase))); // エンディングと、協力プレイで待っている間は障害物を出さない
 
   if (play && running) updateRide(dt);
   world.reach = yMax() + 1.6; // 今飛べる高さ (これより低い柱は飛び越えられる高さで出す)
@@ -1457,21 +1640,22 @@ function update(dt) {
     hud.mesh.scale.setScalar(renderer.xr.isPresenting ? 1 : Math.min(1.7, (visW / 1.6) * 0.98));
   }
   // スマートフォン: プレイ中だけタッチ操作のボタンを出す
-  touch.show(isTouchDevice() && inGame && !renderer.xr.isPresenting);
+  touch.show(isTouchDevice() && inGame && !renderer.xr.isPresenting, settings.autoFire);
   hud.draw({
     play,
     dist: Math.floor(S.dist),
     hits: S.hits,
     kmh: Math.round(speed * 3.6),
-    view: `${settings.player.toUpperCase()} ${isSide() ? 'SIDE' : settings.view.toUpperCase()}`,
-    score: combat.score,
+    view: `${settings.player === 'human' ? 'ROBOT' : settings.player.toUpperCase()} ${isSide() ? 'SIDE' : settings.view.toUpperCase()}`,
+    score: coop?.playing ? coop.teamScore(combat.score) : combat.score, // 協力プレイはチームの合計
     missiles: combat.missileStock,
     missileMax: MISSILE_MAX,
     locks: combat.locks.length,
+    cockpit: avatar.cockpitShown, // 宇宙船のコックピットの計器に、ミサイルとロックが出ている
     msg: S.paused ? 'PAUSE' : S.msg,
     comm: !S.paused && commNow ? commNow.text : '',
     sub: S.paused ? pauseMenuText() + '\n' + (a.source === 'pad' ? 'START: 再開   B: タイトルへ' : a.source === 'xr' ? 'X/トリガー: 再開   A: タイトルへ' : a.source === 'wheel' ? 'ポーズ / 機関砲のボタン: 再開   タイトルへのボタン: タイトルへ' : 'Esc/クリック: 再開   Backspace: タイトルへ') : S.sub,
-    hint: S.paused ? buildInfo : S.mode === 'over' && S.overT > 2 ? (S.entry?.state === 'input' ? ENTRY_HINT[a.source] || ENTRY_HINT.kb : S.entry?.state === 'sending' ? '' : RETRY_HINT[a.source]) : '', // プレイ中は操作方法を出さない
+    hint: S.paused ? buildInfo : S.mode === 'over' && S.overT > 2 ? (S.entry?.state === 'input' ? ENTRY_HINT[a.source] || ENTRY_HINT.kb : S.entry?.state === 'sending' ? '' : coop?.active && !coop.isHost ? 'ホストの「もう一度」を待っています' : RETRY_HINT[a.source]) : '', // プレイ中は操作方法を出さない
     lives: S.lives,
     life: Math.max(0, Math.round(S.life)),
     lifeMax: LIFE_MAX,
@@ -1523,7 +1707,16 @@ window.__debugClear = () => allClear(); // 開発用: すぐ全面クリアに�
 window.__enemies = () => combat.enemies.map((e) => [e.kind, ...e.mesh.position.toArray().map((v) => Math.round(v * 10) / 10)]); // 開発用: 敵の位置
 // 開発用: 自動テストから状態を読む
 window.__enemyState = () => combat.enemies.map((e) => [e.kind, Math.round(e.mesh.position.z), e.state ?? e.G?.state ?? e.pair?.state ?? '', e.flips ?? '', e.sand == null ? '' : +e.sand.toFixed(2)]); // 開発用: 敵の動きの段階
-window.__debugGod = () => { S.invuln = 1e9; }; // 開発用: 当たらない (長い面の確認)
+window.__coop = () => coop.debug(); // 開発用: 協力プレイの状態
+window.__net = () => ({ // 開発用: 協力プレイでそろえる敵 (番号・種類・位置)
+  role: combat.net?.role || 'solo', phase: S.phase, stage: S.stage, score: combat.score, kills: combat.kills,
+  boss: combat.boss ? Math.round(combat.boss.hp) : null, bossRatio: combat.bossRatio,
+  list: combat.enemies.filter((e) => e.net && !e.dead).map((e) => [e.id, e.kind, +e.mesh.position.x.toFixed(1), +e.mesh.position.y.toFixed(1), +e.mesh.position.z.toFixed(1)]),
+  local: combat.enemies.filter((e) => !e.net && !e.dead).length,
+});
+window.__debugGod = () => { S.invuln = 1e9; };
+window.__debugHit = (d = 100) => { S.invuln = 0; onHit(d); }; // 開発用: わざと当たる
+window.__retry = () => retry(); // 開発用: もう一度 // 開発用: 当たらない (長い面の確認)
 window.__debugSub = () => `${S.sub}  ${JSON.stringify(S.entry)}`; // 開発用: ゲームオーバーの 2 行目とランキングの入力
 window.__debugState = () => ({
   gameMode: settings.mode, msg: S.msg, bonusCount: S.bonusCount, destroyed: avatar.destroyed, shipVisible: avatar.models.ship?.obj.visible, overT: S.overT, frame: renderer.info.render.frame, mode: S.mode, py: S.py, version: document.getElementById('version').textContent, phase: S.phase, stage: S.stage, lives: S.lives, boss: combat.bossRatio, ready: S.ready, score: combat.score, kills: combat.kills, enemies: combat.enemies.length,
@@ -1551,7 +1744,36 @@ const btnStart = document.getElementById('btnStart');
 const startNote = () => {
   document.getElementById('startNote').textContent = chkVR.checked ? 'VR ヘッドセット' : isTouchDevice() ? 'タッチ / パッド' : 'マウス / パッド';
 };
-const launch = (stageNo) => (chkVR.checked ? enterVR(stageNo) : startPlay(stageNo));
+const launchNow = (stageNo) => (chkVR.checked ? enterVR(stageNo) : startPlay(stageNo));
+// 協力プレイ: ホストは全員に出撃を配ってから出撃する。ゲストは、ホストがもう出撃していればその面から、
+// まだなら「出撃」を押した状態 (準備 OK) で、ホストの出撃を待つ
+function launch(stageNo) {
+  if (coop?.active && coop.isHost) {
+    coopStart = { stage: stageNo, hard: cleared && settings.hard };
+    coop.hostStart(coopStart);
+  } else if (coop?.active) {
+    coopWaiting = true;
+    coop.setReady(true);
+    if (coopStart) stageNo = coopStart.stage;
+  }
+  launchNow(stageNo);
+}
+// ゲスト: ホストが出撃した
+function onCoopStart(msg) {
+  coopStart = { stage: msg.stage, hard: !!msg.hard };
+  if ((S.mode === 'play' && S.phase === 'coopWait') || S.mode === 'over') startPlay(msg.stage); // 待っていた・ゲームオーバーの画面なら、そのまま始める (VR のままでよい)
+  else if (S.mode === 'title' && !chkVR.checked) startPlay(msg.stage); // デスクトップは自動で始める
+  // VR はボタンを押さないと入れないので、タイトルで「出撃」を押してもらう (ロビーの案内に出る)
+}
+// ルームに入った・抜けた: 協力プレイは 3D だけ
+function onCoopChanged() {
+  const side = modeInputs.find((el) => el.value === 'side');
+  side.disabled = !!coop?.active;
+  side.closest('label').classList.toggle('locked', !!coop?.active);
+  modeInputs.forEach((el) => { el.checked = el.value === (coop?.active ? '3d' : settings.mode); });
+  if (!coop?.active) { coopStart = null; coopWaiting = false; }
+  world.clear();
+}
 const selScale = document.getElementById('scale');
 const status = document.getElementById('status');
 const padStatus = document.getElementById('pads');
@@ -1563,6 +1785,7 @@ function setPlayer(kind) {
   settings.player = kind;
   saveSettings();
   playerInputs.forEach((el) => { el.checked = el.value === kind; });
+  coop?.setKind(kind);
   if (kind === 'girl') {
     avatar.loadGirl()
       .then((g) => { if (g.credit) document.getElementById('credit').textContent = `女の子のモデル: ${g.credit}`; }) // VRM のライセンスで作者の表示が要る
