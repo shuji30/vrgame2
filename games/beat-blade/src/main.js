@@ -11,6 +11,16 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
 renderer.xr.setFoveation?.(1);
+// Chrome 156 の WebXR Layers (投影レイヤー) は、Pimax の OpenXR と組み合わさると、VR に入ったあと画面の順番が回ってこない
+// (どの WebXR のページも止まる。2026-10-31 に確かめた。Chrome を --disable-features=WebXRLayers で起動すると直る)。
+// three.js は renderState.layers があると投影レイヤーを使うので、無いことにして、昔からの XRWebGLLayer で描かせる
+{
+  const setSession = renderer.xr.setSession.bind(renderer.xr);
+  renderer.xr.setSession = (session) => {
+    try { Object.defineProperty(session.renderState, 'layers', { value: undefined, configurable: true }); } catch { /* 書きかえられないブラウザはそのまま */ }
+    return setSession(session);
+  };
+}
 document.getElementById('app').appendChild(renderer.domElement);
 
 const audio = new AudioEngine();
