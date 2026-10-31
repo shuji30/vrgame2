@@ -40,7 +40,9 @@ function runPose(sw) {
     rightFoot: [0, 0, 0],
   };
 }
-const ANKLE = 0.07; // 足首のボーンから靴の底までの高さ (m)
+// モデルは身長 1.4 m と小柄なので、人間 (ハリアー。飛ぶ姿勢で高さ約 2 m) と同じくらいの大きさにする
+const SCALE = 1.5;
+const ANKLE = 0.07 * SCALE; // 足首のボーンから靴の底までの高さ (m)
 
 // flameSrc: 炎のメッシュ (人間のモデルの HFlameL)。無ければ炎を出さない
 export async function loadGirl(url, flameSrc) {
@@ -63,7 +65,8 @@ export async function loadGirl(url, flameSrc) {
   obj.name = 'Girl';
   const body = new THREE.Group();
   body.rotation.y = Math.PI;
-  body.position.y = -(bones.hips?.position.y ?? 0.7);
+  body.scale.setScalar(SCALE);
+  body.position.y = -(bones.hips?.position.y ?? 0.7) * SCALE;
   body.add(vrm.scene);
   obj.add(body);
 
