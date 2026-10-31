@@ -11,6 +11,18 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { sfx, playAt } from './audio.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
+// 種付きの乱数 (mulberry32)。協力プレイで、ホストとゲストが同じ敵を出すときに Math.random と差しかえる
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const NET_DELAY = 110; // ゲスト: ホストから届いた敵の位置を、どれだけ遅らせて描くか (ms。間をなめらかにつなぐため)
+const NET_SNAP = 1 / 15; // ホスト: 敵の位置を配る間隔 (秒)
 const SPAWN_Z = -230;
 // 横スクロール: 画面に映るのは奥行き 40m ほどなので、敵は画面の右端のすぐ外に出し、前後の動きを遅くする
 const SIDE_SPAWN_SHIFT = 175; // 遠くに出る敵を、この分だけ手前 (画面の右端の外) へずらす
@@ -509,6 +521,16 @@ export class Combat {
     this.boss = null;
     this.bossDefeated = false;
     this.announce = '';      // 画面に出したい知らせ (main.js が読んで消す)
+    // 協力プレイ (docs/coop-plan.md)。net: null (1 人) / { role: 'host' | 'guest', spawn, snap, hit, kill, credit } (main.js が渡す)
+    this.net = null;
+    this.nextId = 1;         // 敵の番号 (ホストと 1 人)。ゲストが自分で出したもの (ボスのドローンなど) は負の番号
+    this.localId = -1;
+    this.netTag = 0;         // 1: ホストが配る出現の最中、2: ゲストがホストの出現を再現している最中
+    this.replayId = 0;
+    this.netPos = new Map(); // ゲスト: 番号 → ホストから届いた位置 { buf: [{ at, x, y, z }], last }
+    this.netSnapT = 0;
+    this.creditTo = null;    // ホスト: いま処理しているダメージを与えた仲間 (点数はその人へ)
+    this.netApplying = false; // ゲスト: ホストから届いた「倒れた」を反映している最中 (点数は入れない)
     this.items = [];         // 回復アイテム
     this.itemT = 15;
     this.stageT = 0;
@@ -549,6 +571,9 @@ export class Combat {
     this.score = 0;
     this.kills = 0;
     this.level = 1;
+    this.nextId = 1;
+    this.localId = -1;
+    this.netPos.clear();
     this.boss = null;
     this.bossGroup = null;
     this.bossDefeated = false;
@@ -768,9 +793,14 @@ export class Combat {
     // 群れの代わりではなく、群れに足して出す (代わりにすると、ほかの敵の群れが少なくなる)
     if (!this.forceWave && table.some(([k]) => k === 'mammoth') && this.mammothN < MAMMOTH.max && this.stageT >= MAMMOTH.first + this.mammothN * MAMMOTH.every) {
       this.mammothN++;
-      EXTRA.mammoth.spawn(this, px, py);
+      this.netSpawn('k', ['mammoth', px, py]);
       if (kind === 'mammoth') kind = table.find(([k]) => k !== 'mammoth' && !isHeavy(k))?.[0] || 'fighter';
     } else if (kind === 'mammoth') this.mammothN++;
+    this.netSpawn('k', [kind, px, py]);
+  }
+
+  // 種類を決めた群れを出す (協力プレイのゲストは、ホストが出したものを同じ乱数の種で出す)
+  spawnKind(kind, px, py) {
     if (EXTRA[kind]) return EXTRA[kind].spawn(this, px, py); // 追加の敵 (enemies.js)
     ({
       fighter: () => this.spawnFighterWave(px, py),
@@ -1188,7 +1218,7 @@ export class Combat {
   }
 
   updateItems(dt, scroll, ctx) {
-    if (ctx.spawn) {
+    if (ctx.itemSpawn ?? ctx.spawn) { // 回復アイテムは協力プレイでも各自で出す (ゲストは群れを出さないが、アイテムは出す)
       this.itemT -= dt;
       if (this.itemT <= 0) {
         this.itemT = rand(18, 26);
@@ -1221,6 +1251,11 @@ export class Combat {
       if (typeof e.z === 'number') e.z += SIDE_SPAWN_SHIFT;
       if (e.spine) e.spine.z += SIDE_SPAWN_SHIFT;
     }
+    // 番号: ホストが配った出現 (群れ・ボス) で出た敵は、ホストとゲストで同じ番号 (net)。
+    // ゲストが自分で出したもの (ボスのドローンや破片など。各自のブラウザで動かす) は負の番号
+    if (this.netTag === 2) { e.id = this.replayId++; e.net = true; }
+    else if (this.net?.role === 'guest') e.id = this.localId--;
+    else { e.id = this.nextId++; if (this.netTag === 1) e.net = true; }
     e.shadow = new THREE.Mesh(GEO.shadow, MAT.shadow);
     e.shadow.scale.setScalar(shadowR);
     this.scene.add(e.mesh, e.shadow);
@@ -1233,6 +1268,140 @@ export class Combat {
   spawnBoss(def = { type: 'serpent', hp: 400 }) {
     this.bossDefeated = false;
     this.bossEscaped = false;
+    return this.netSpawn('boss', [def]);
+  }
+
+  // ---- 協力プレイ (docs/coop-plan.md)
+  // 出現: ホストは種を決めて出し、「種類・引数・種・最初の番号」を配る。1 人のときは、そのまま出す
+  netSpawn(type, args) {
+    const run = () => (type === 'boss' ? this.spawnBossNow(args[0]) : this.spawnKind(...args));
+    if (this.net?.role !== 'host') return run();
+    const rec = { k: type, a: args, s: (Math.random() * 4294967296) >>> 0, i: this.nextId };
+    this.withSeed(rec.s, () => {
+      this.netTag = 1;
+      try { run(); } finally { this.netTag = 0; }
+    });
+    this.net.spawn(rec);
+  }
+
+  // ゲスト: ホストが出したものを、同じ乱数の種で出す (見た目と番号がそろう)
+  applySpawn(rec) {
+    this.replayId = rec.i;
+    if (rec.k === 'boss') this.bossDefeated = this.bossEscaped = false;
+    this.withSeed(rec.s, () => {
+      this.netTag = 2;
+      try {
+        if (rec.k === 'boss') this.spawnBossNow(rec.a[0]);
+        else this.spawnKind(...rec.a);
+      } finally { this.netTag = 0; }
+    });
+  }
+
+  withSeed(seed, fn) {
+    const r = Math.random;
+    Math.random = seeded(seed);
+    try { return fn(); } finally { Math.random = r; }
+  }
+
+  byId(id) { return this.enemies.find((e) => e.id === id && !e.dead); }
+
+  // 点数: ホストが仲間のダメージを処理している間は、その人へ送る。ゲストがホストの「倒れた」を反映している間は入れない
+  addScore(pts, kills = 0) {
+    if (this.netApplying) return;
+    if (this.creditTo) { this.net.credit(this.creditTo, pts, kills); return; }
+    this.score += pts;
+    this.kills += kills;
+  }
+
+  // ホスト: 仲間の弾が当たった
+  netHit(from, id, amount) {
+    const e = this.byId(id);
+    if (!e) return;
+    this.creditTo = from;
+    try { this.damage(e, amount); } finally { this.creditTo = null; }
+  }
+
+  // ゲスト: ホストで倒れた
+  netKill(id) {
+    const e = this.byId(id);
+    if (!e) return;
+    this.netApplying = true;
+    try { this.kill(e); } finally { this.netApplying = false; }
+  }
+
+  // ホスト: 位置と体力を配る
+  sendSnap(dt) {
+    if ((this.netSnapT -= dt) > 0) return;
+    this.netSnapT = NET_SNAP;
+    const r = (v) => Math.round(v * 100) / 100;
+    const l = [];
+    for (const e of this.enemies) {
+      if (!e.net || e.dead) continue;
+      const p = e.mesh.position;
+      l.push(e.id, r(p.x), r(p.y), r(p.z), Number.isFinite(e.hp) ? r(e.hp) : -1);
+    }
+    const b = this.boss ? { hp: r(this.boss.hp), h: this.boss.heads?.map((H) => r(H.hp)) } : null;
+    this.net.snap({ l, b });
+  }
+
+  // ゲスト: 届いた位置と体力
+  applySnap(m) {
+    const now = performance.now();
+    const l = m.l || [];
+    for (let i = 0; i + 4 < l.length; i += 5) {
+      const id = l[i];
+      let s = this.netPos.get(id);
+      if (!s) this.netPos.set(id, (s = { buf: [] }));
+      s.buf.push({ at: now, x: l[i + 1], y: l[i + 2], z: l[i + 3] });
+      if (s.buf.length > 4) s.buf.shift();
+      s.last = now;
+      const e = this.byId(id);
+      if (e && l[i + 4] >= 0 && Number.isFinite(e.hp)) e.hp = l[i + 4];
+    }
+    const b = this.boss;
+    if (b && m.b) {
+      // 二首: 首の体力がなくなったら、その首を壊す (ホストと同じ順に並んでいる)
+      if (b.twin && m.b.h) {
+        this.netApplying = true;
+        try {
+          m.b.h.forEach((hp, i) => {
+            const H = b.heads[i];
+            if (!H) return;
+            if (H.hp > 0 && hp <= 0 && b.heads.length > 1) this.breakBossHead(b, H);
+            H.hp = hp;
+          });
+        } finally { this.netApplying = false; }
+      }
+      b.hp = m.b.hp;
+      if (b.hp <= 0 && b.dying < 0) { b.dying = 0; sfx.explode(true); }
+    }
+    // 古くなった記録は消す
+    if (this.netPos.size > 400) for (const [id, s] of this.netPos) if (now - s.last > 5000) this.netPos.delete(id);
+  }
+
+  // ゲスト: ホストにそろえる敵の位置を、届いた位置にする (動き方の計算は各自でもしているので、羽ばたきなどの部品はそのまま動く)
+  followNet() {
+    const now = performance.now();
+    const t = now - NET_DELAY;
+    for (const e of this.enemies) {
+      if (!e.net || e.dead) continue;
+      const s = this.netPos.get(e.id);
+      // ホストから届かない (ホストでは消えた) 敵は消す
+      if (!s) { if (e.t > 2) e.dead = true; continue; }
+      if (now - s.last > 1500) { e.dead = true; continue; }
+      const b = s.buf;
+      let i = b.length - 1;
+      while (i > 0 && b[i - 1].at > t) i--;
+      const a = b[Math.max(0, i - 1)], c = b[i];
+      const jump = Math.abs(c.x - a.x) + Math.abs(c.y - a.y) + Math.abs(c.z - a.z) > 20; // 地中から飛び出すなど、大きく跳んだときはつながない
+      const k = jump ? 1 : c.at > a.at ? THREE.MathUtils.clamp((t - a.at) / (c.at - a.at), 0, 1.3) : 1;
+      const p = e.mesh.position;
+      p.set(a.x + (c.x - a.x) * k, a.y + (c.y - a.y) * k, a.z + (c.z - a.z) * k);
+      e.shadow.position.set(p.x, 0.05, p.z);
+    }
+  }
+
+  spawnBossNow(def) {
     if (def.type === 'squad' || def.type === 'swarm') return this.spawnBossGroup(def);
     if (BOSSES[def.type]) return BOSSES[def.type].spawn(this, def); // 新しいボス (src/bosses/)
     const lv = this.level;
@@ -1402,7 +1571,7 @@ export class Combat {
       if (g.kills >= g.total || g.endure) { // endure: 耐えきれば撃破扱い (壊せない母艦)
         this.bossDefeated = true;
         this.lastBossBonus = Math.round((g.bonus ?? 5000) * this.bonusLevel * this.mult);
-        this.score += this.lastBossBonus;
+        if (this.net?.role !== 'guest') this.addScore(this.lastBossBonus); // 協力プレイでは、ホストに入れる (ゲストは数えない)
       } else {
         this.bossEscaped = true;
       }
@@ -1757,15 +1926,19 @@ export class Combat {
     for (const part of [H.head, ...H.neck]) part.noLock = part.noHit = true;
     b.rushT = Math.min(b.rushT, 4);
     const bonus = Math.round(3000 * this.bonusLevel * this.mult);
-    this.score += bonus;
+    this.addScore(bonus, 1);
     this.announce = `HEAD BREAK!  +${bonus}`; // 首を 1 本壊したことを、はっきり見せる
-    this.kills++;
     sfx.explode(true);
     sfx.roar();
   }
 
   damage(e, amount) {
     e.flash = 0.08;
+    if (this.net?.role === 'guest' && e.net) { // ゲスト: 当たったことをホストへ送るだけ (倒れたかはホストが決めて配る)
+      sfx.hit();
+      this.net.hit(e.id, amount);
+      return;
+    }
     if (e.kind === 'boss') {
       const b = e.boss;
       if (b.dying >= 0) return;
@@ -1784,8 +1957,7 @@ export class Combat {
       if (b.hp <= 0) {
         b.dying = 0;
         this.lastBossBonus = Math.round(10000 * this.bonusLevel * this.mult);
-        this.score += this.lastBossBonus;
-        this.kills++;
+        this.addScore(this.lastBossBonus, 1);
         sfx.explode(true);
       }
       return;
@@ -1795,10 +1967,15 @@ export class Combat {
       sfx.hit();
       return;
     }
+    this.kill(e);
+  }
+
+  // 倒れた: 点数・爆発・割れる・アイテム。協力プレイのホストは「倒れた」を配る
+  kill(e) {
     e.dead = true;
     if (e.bossGroup) e.bossGroup.kills++;
-    this.score += Math.round(e.score * this.mult);
-    this.kills++;
+    this.addScore(Math.round(e.score * this.mult), 1);
+    if (this.net?.role === 'host' && e.net) this.net.kill(e.id);
     const big = ['gunship', 'mech', 'moai', 'ptero'].includes(e.kind) || EXTRA[e.kind]?.heavy || EXTRA[e.kind]?.big;
     this.explode(e.mesh.position, !!big);
     if (e.kind === 'pill') this.splitPill(e);
@@ -1998,6 +2175,8 @@ export class Combat {
         }
       }
     }
+
+    if (this.net?.role === 'guest') this.followNet(); // ゲスト: ホストにそろえる敵は、届いた位置へ
 
     // 敵弾
     const flat = ctx.planeX !== undefined && ctx.planeX !== null;
@@ -2216,6 +2395,7 @@ export class Combat {
       }
     }
     this.drawPools();
+    if (this.net?.role === 'host') this.sendSnap(dt); // ホスト: 敵の位置と体力を配る
 
     // 照準とロックの印 (距離に比例して大きくし、見た目の大きさを一定にする)
     this.aim.visible = !!ctx.showAim;

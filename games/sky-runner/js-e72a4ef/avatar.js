@@ -119,6 +119,7 @@ export class Avatar {
       if (kind === 'ship') {
         // コックピットの計器 (ボタンいっぱい) と、深くした座る所 (シート・ペダル)
         const panel = new CockpitPanel();
+        panel.mesh.userData.cockpitPanel = true; // 協力プレイで仲間の機体を描くときは出さない
         (obj.getObjectByName('Ship') || obj).add(panel.mesh);
         openCockpit(obj);
         Object.assign(this.models[kind], { panel, arch: obj.getObjectByName('CanopyArch') });
