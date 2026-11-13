@@ -24,7 +24,7 @@ const DEFAULT_SETTINGS = {
   difficulty: 'normal', vehicle: 'medium', scheme: 'tracks', manualPitch: false, mouseSens: 1,
   vignette: 0.6, snapTurn: false, horizon: false, comfortTurn: 1, shadows: true,
   master: 0.8, sfx: 0.9, music: 0.35, speech: false,
-  vrScale: 0.8, simhub: true, paint: 0, ffb: true, ffbInvert: true, ffbGain: 0.8, ffbSpring: 0.45, xrMode: 'sticks', turretHead: true, wheelOffset: { x: 0, y: 0, z: 0 }, name: 'PLAYER',
+  vrScale: 0.8, sortieVR: false, simhub: true, paint: 0, ffb: true, ffbInvert: true, ffbGain: 0.8, ffbSpring: 0.45, xrMode: 'sticks', turretHead: true, wheelOffset: { x: 0, y: 0, z: 0 }, name: 'PLAYER',
 };
 const settings = { ...DEFAULT_SETTINGS, ...load(SETTINGS_KEY, {}) };
 const progress = { cleared: -1, best: {}, ...load(PROGRESS_KEY, {}) };
@@ -214,7 +214,16 @@ $('#btn-versus-next').addEventListener('click', () => { pending = { mode: 'versu
 let playing = false;
 let lastStart = null;
 
+// 「VRで出撃」:出撃のボタン(ユーザーの操作)の中で VR に入ってから始める
+let xrSupported = false;
 function begin(cfg) {
+  if (settings.sortieVR && xrSupported && !renderer.xr.isPresenting) {
+    enterVR().then(() => beginNow(cfg));
+    return;
+  }
+  beginNow(cfg);
+}
+function beginNow(cfg) {
   audio.unlock();
   lastStart = cfg;
   for (const s of document.querySelectorAll('.screen')) s.hidden = true;
@@ -540,7 +549,8 @@ function menuNav(a) {
   const isValue = cur && cur.tagName !== 'BUTTON';
   if (a.down || (!isValue && a.rightUi)) { focusIndex = (focusIndex + 1) % list.length; audio.play('ui'); updateFocus(); list[focusIndex].scrollIntoView({ block: 'nearest' }); }
   if (a.up || (!isValue && a.leftUi)) { focusIndex = (focusIndex - 1 + list.length) % list.length; audio.play('ui'); updateFocus(); list[focusIndex].scrollIntoView({ block: 'nearest' }); }
-  if (isValue && (a.leftUi || a.rightUi)) nudge(cur, a.rightUi ? 1 : -1);
+  // スティックの左右で変えるのはスライダーと選択肢だけ。チェックは決定ボタンでだけ切り替える(移動のつもりで誤って変えないように)
+  if (isValue && cur.type !== 'checkbox' && (a.leftUi || a.rightUi)) nudge(cur, a.rightUi ? 1 : -1);
   if (a.ok && cur) {
     audio.unlock();
     if (cur.type === 'checkbox') nudge(cur, 1);
@@ -593,7 +603,7 @@ const vrMenu = {
         g.textAlign = 'right';
         g.fillStyle = el.tagName === 'BUTTON' ? 'rgba(244,234,216,0.6)' : '#ffc24a';
         g.font = el.tagName === 'BUTTON' ? '24px system-ui, sans-serif' : 'bold 32px system-ui, sans-serif';
-        const txt = el.tagName === 'BUTTON' ? val.slice(0, 18) : `◀ ${val.slice(0, 16)} ▶`;
+        const txt = el.tagName === 'BUTTON' ? val.slice(0, 18) : el.type === 'checkbox' ? `[ ${val} ]` : `◀ ${val.slice(0, 16)} ▶`;
         g.fillText(txt, W - 48, y + 32);
         g.textAlign = 'left';
       }
@@ -605,7 +615,7 @@ const vrMenu = {
     }
     g.fillStyle = 'rgba(244,234,216,0.65)';
     g.font = '26px system-ui, sans-serif';
-    g.fillText('スティック上下:選ぶ 左右:値を変える トリガー:決定 B:戻る', 40, H - 34);
+    g.fillText('上下:選ぶ 左右:値 トリガー:決定/オン・オフ B:戻る', 40, H - 34);
     this.tex.needsUpdate = true;
     this.dirty = false;
   },
@@ -617,7 +627,9 @@ const vrBtn = $('#vrBtn');
 if (navigator.xr) {
   navigator.xr.isSessionSupported('immersive-vr').then((ok) => {
     if (!ok) return;
+    xrSupported = true;
     vrBtn.hidden = false;
+    for (const el of document.querySelectorAll('.vr-sortie')) el.hidden = false;
     vrBtn.addEventListener('click', enterVR);
   }).catch(() => {});
 }
@@ -746,6 +758,15 @@ addEventListener('resize', () => {
 // ------------------------------------------------------------ オンライン
 const online = new Online({ app, game, settings, begin, quit, show, esc, campaignStage, arenaStage, STAGE_INFO, ARENA_LIST, VEHICLES });
 app.online = online;
+
+for (const cb of document.querySelectorAll('[data-vrsortie]')) {
+  cb.checked = !!settings.sortieVR;
+  cb.addEventListener('change', () => {
+    settings.sortieVR = cb.checked;
+    for (const o of document.querySelectorAll('[data-vrsortie]')) o.checked = cb.checked;
+    applySettings();
+  });
+}
 
 // ------------------------------------------------------------ 起動
 setMenuVehicle(settings.vehicle);

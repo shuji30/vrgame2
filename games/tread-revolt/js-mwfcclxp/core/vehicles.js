@@ -54,7 +54,7 @@ export const UNITS = {
   bigTurret: { hp: 150, turret: 30 * DEG, reload: 3.2, dmg: 18, shellSpeed: 75, radius: 3.6, height: 4.5, wake: 75, range: 95, score: 1000, body: 'static', kind: 'bigTurret', objective: true },
   launcher: { hp: 110, reload: 7, dmg: 18, shellSpeed: 24, radius: 4.0, height: 3.0, wake: 90, range: 120, score: 1200, body: 'static', kind: 'launcher', objective: true, lobOnly: true, missiles: true },
   mine: { hp: 1, dmg: 26, radius: 0.9, height: 0.6, wake: 9, range: 6, score: 50, body: 'static', kind: 'mine' },
-  skyFortress: { hp: 160, reload: 3.4, dmg: 22, radius: 9, height: 4, wake: 110, range: 120, score: 3000, body: 'air', kind: 'skyFortress', airOnly: true, bonus: true },
+  skyFortress: { hp: 160, reload: 6, dmg: 16, radius: 9, height: 4, wake: 110, range: 120, score: 3000, body: 'air', kind: 'skyFortress', airOnly: true, bonus: true },
   target: { hp: 20, radius: 1.6, height: 3, wake: 0, range: 0, score: 10, body: 'static', kind: 'target', harmless: true },
 };
 

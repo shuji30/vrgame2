@@ -20,6 +20,53 @@ export class Cockpit {
       this.group.add(m);
       return m;
     };
+    // 車内を囲う壁(左右・後ろ・天井・床)。外は前の覗き窓と、左右の細い視察窓からだけ見える
+    const wallTex = (() => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const g = c.getContext('2d');
+      g.fillStyle = '#5a5240';
+      g.fillRect(0, 0, 128, 128);
+      g.strokeStyle = 'rgba(0,0,0,0.35)';
+      g.lineWidth = 3;
+      g.strokeRect(2, 2, 124, 124);
+      g.fillStyle = 'rgba(30,25,15,0.7)';
+      for (const x of [10, 64, 118]) for (const y of [10, 64, 118]) { g.beginPath(); g.arc(x, y, 3.5, 0, 7); g.fill(); }
+      for (let i = 0; i < 160; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? 0 : 255},${Math.random() < 0.5 ? 0 : 200},0,0.04)`; g.fillRect(Math.random() * 128, Math.random() * 128, 4, 4); }
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.repeat.set(3, 2);
+      return t;
+    })();
+    const wall = new THREE.MeshStandardMaterial({ color: 0x9a8e74, map: wallTex, roughness: 0.9, metalness: 0.2, side: THREE.DoubleSide });
+    this.mats.wall = wall;
+    const walls = [];
+    const W2 = (geo, x, y, z) => { const m = add(geo, wall, x, y, z); walls.push(m); return m; };
+    W2(new THREE.BoxGeometry(2.12, 0.04, 1.36), 0, 0.6, 0.02); // 天井
+    W2(new THREE.BoxGeometry(2.12, 0.04, 1.36), 0, -0.9, 0.02); // 床
+    W2(new THREE.BoxGeometry(2.12, 1.54, 0.04), 0, -0.15, -0.64); // 後ろ
+    for (const sx of [1, -1]) {
+      W2(new THREE.BoxGeometry(0.04, 0.9, 1.36), sx * 1.04, -0.45, 0.02); // 視察窓より下
+      W2(new THREE.BoxGeometry(0.04, 0.52, 1.36), sx * 1.04, 0.34, 0.02); // 視察窓より上
+      W2(new THREE.BoxGeometry(0.04, 0.08, 0.9), sx * 1.04, 0.04, -0.21); // 視察窓の後ろ半分はふさぐ
+    }
+    W2(new THREE.BoxGeometry(2.2, 0.56, 0.06), 0, -0.43, 0.74); // 覗き窓より下の前壁
+    // 天井の小さな室内灯
+    const lamp = add(new THREE.BoxGeometry(0.12, 0.03, 0.06), new THREE.MeshBasicMaterial({ color: 0xffd9a0 }), 0, 0.575, -0.2);
+    walls.push(lamp);
+    this.walls = walls;
+    // 車内灯(暗くなりすぎないように、手元だけを照らす)
+    const lampLight = new THREE.PointLight(0xffd9a0, 2.2, 2.6, 1.5);
+    lampLight.position.set(0, 0.45, 0);
+    this.group.add(lampLight);
+    // シート(座面と背もたれ)。目の高さから 0.75m 下が座面
+    const seatMat = new THREE.MeshStandardMaterial({ color: 0x5a3a24, roughness: 0.95 });
+    add(new THREE.BoxGeometry(0.5, 0.1, 0.48), seatMat, 0, -0.8, -0.12);
+    add(new THREE.BoxGeometry(0.5, 0.62, 0.1), seatMat, 0, -0.45, -0.4, -0.12);
+    add(new THREE.BoxGeometry(0.07, 0.07, 0.4), metal, 0.29, -0.66, -0.12); // ひじ掛け
+    add(new THREE.BoxGeometry(0.07, 0.07, 0.4), metal, -0.29, -0.66, -0.12);
+    add(new THREE.BoxGeometry(0.1, 0.12, 0.1), metal, 0, -0.87, -0.12); // 脚
     // 覗き窓の枠(上の梁・下の計器盤・左右の柱)
     add(new THREE.BoxGeometry(2.2, 0.32, 0.12), metal, 0, 0.44, 0.62);
     add(new THREE.BoxGeometry(2.2, 0.06, 0.2), warm, 0, 0.27, 0.6); // 窓の上縁
@@ -46,8 +93,9 @@ export class Cockpit {
     this.rctx = this.radar.getContext('2d');
     this.rtex = new THREE.CanvasTexture(this.radar);
     this.rtex.colorSpace = THREE.SRGBColorSpace;
-    add(new THREE.BoxGeometry(0.28, 0.28, 0.04), dark, -0.62, -0.3, 0.6, -dashTilt * 0.6, Math.PI + 0.35);
-    const mon = add(new THREE.PlaneGeometry(0.24, 0.24), new THREE.MeshBasicMaterial({ map: this.rtex, toneMapped: false }), -0.612, -0.295, 0.576, -dashTilt * 0.6, Math.PI + 0.35);
+    // 運転手の目の方へ向ける(モニターは右手側。コックピットの -X が右)
+    add(new THREE.BoxGeometry(0.28, 0.28, 0.04), dark, -0.62, -0.3, 0.6, -dashTilt * 0.6, Math.PI - 0.75);
+    const mon = add(new THREE.PlaneGeometry(0.24, 0.24), new THREE.MeshBasicMaterial({ map: this.rtex, toneMapped: false }), -0.603, -0.292, 0.583, -dashTilt * 0.6, Math.PI - 0.75);
     this.monitor = mon;
     // 揺れる小物(お守り)
     this.charmPivot = new THREE.Group();
@@ -85,17 +133,53 @@ export class Cockpit {
     this.wheelSpin.rotation.x = -0.35;
     this.wheelRig.add(this.wheelSpin);
     this.pedals = [];
+    // ペダル:左からクラッチ・ブレーキ・アクセル(コックピットの +X が左)。床から立てて、踏むと奥へ倒れる
+    const pedalMat = new THREE.MeshStandardMaterial({ color: 0x9a9a9a, roughness: 0.4, metalness: 0.7 });
     for (let i = 0; i < 3; i++) {
-      const p = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.14, 0.02), metal);
-      p.position.set(-0.12 + i * 0.12, -0.62, 0.25);
-      this.wheelRig.add(p);
-      this.pedals.push(p);
+      const pivot = new THREE.Group();
+      pivot.position.set(0.14 - i * 0.14, -0.5, 0.14);
+      const pad = new THREE.Mesh(new THREE.BoxGeometry(i === 2 ? 0.06 : 0.08, 0.16, 0.02), pedalMat);
+      pad.position.y = 0.08;
+      pad.rotation.x = -0.35;
+      pivot.add(pad);
+      this.wheelRig.add(pivot);
+      this.pedals.push(pivot);
     }
+    // ハンドルの軸
+    const column = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.3, 8), metal);
+    column.rotation.x = Math.PI / 2 - 0.35;
+    column.position.set(0, -0.05, 0.14);
+    this.wheelRig.add(column);
+    // Hシフターとハンドブレーキ(右手側。コックピットの -X が右)
+    this.shifter = new THREE.Group();
+    this.shifter.position.set(-0.32, -0.62, 0.05);
+    const sRod = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.2, 6), metal);
+    sRod.position.y = 0.1;
+    const sKnob = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 8), new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.3 }));
+    sKnob.position.y = 0.21;
+    this.shifter.add(sRod, sKnob);
+    this.wheelRig.add(this.shifter);
+    this.handbrake = new THREE.Group();
+    this.handbrake.position.set(-0.42, -0.6, -0.08);
+    const hRod = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.26, 0.03), metal);
+    hRod.position.y = 0.13;
+    this.handbrake.add(hRod);
+    this.wheelRig.add(this.handbrake);
     this.wheelRig.position.set(0, -0.36, 0.45);
     this.wheelRig.visible = false;
     this.group.add(this.wheelRig);
     this.t = 0;
     this.lastDraw = 0;
+    // 計器は自車の車体より手前に必ず描く(VR ではのぞき窓の位置が車体の甲板に近いため)。奥の部品から順に描く
+    this.group.traverse((o) => {
+      if (!o.isMesh) return;
+      let z = 0;
+      for (let p = o; p && p !== this.group; p = p.parent) z += p.position.z;
+      // 壁は先に(外側)、計器や小物はその上に描く
+      o.renderOrder = this.walls.includes(o) ? 400 : 500 + Math.round((1 - z) * 100);
+      o.material.depthTest = false;
+      o.material.depthWrite = false;
+    });
   }
 
   setWheelOffset(o) {
@@ -125,9 +209,14 @@ export class Cockpit {
   }
 
   // angle: 実物のハンドルの回転角(rad、右が正)。奥向きの Z 軸まわりの正の回転は、座った人から見て右回り
-  setWheel(angle, pedals) {
+  setWheel(angle, pedals, gear = 2, handbrake = 0) {
     this.wheelSpin.rotation.z = angle;
-    pedals.forEach((v, i) => { this.pedals[i].rotation.x = v * 0.5; });
+    pedals.forEach((v, i) => { this.pedals[i].rotation.x = v * 0.45; });
+    // Hシフター:1・R は奥、3 は手前。左右は 1/2 が左、3/R が右(見た目の目安)
+    const gx = { 1: 0.035, 2: 0.035, 3: -0.035, R: -0.035 }[gear] ?? 0;
+    const gz = { 1: 0.4, 2: -0.4, 3: 0.4, R: -0.4 }[gear] ?? 0;
+    this.shifter.rotation.set(gz * 0.6, 0, gx * 6);
+    this.handbrake.rotation.x = -handbrake * 0.7;
   }
 
   // 計器を描く(10Hz 程度)

@@ -24,6 +24,8 @@ export class XrControls {
       return m;
     });
     this.grips.forEach((g, i) => g.add(this.handMeshes[i]));
+    // 手はコックピットの計器より手前に描く
+    for (const m of this.handMeshes) { m.renderOrder = 800; m.material.depthTest = false; }
     this.tmp = new THREE.Vector3();
   }
 

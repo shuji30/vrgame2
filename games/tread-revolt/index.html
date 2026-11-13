@@ -52,7 +52,9 @@
     .score-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
     .meter { height: 10px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; min-width: 120px; }
     .meter i { display: block; height: 100%; width: 0; background: var(--ok); }
-    #vrBtn { position: fixed; right: 16px; bottom: 16px; z-index: 20; }
+    #vrBtn { position: fixed; right: 16px; bottom: 16px; z-index: 20; padding: 18px 26px; font-size: 20px; }
+    .vr-sortie { display: flex; align-items: center; gap: 12px; margin: 18px 0 4px; font-size: 18px; font-weight: 700; color: var(--accent2); cursor: pointer; }
+    .vr-sortie input { width: 28px; height: 28px; accent-color: var(--accent); }
     .status { font-size: 13px; }
     .status .ok { color: var(--ok); } .status .bad { color: var(--bad); }
 
@@ -111,6 +113,7 @@
         <button data-go="settings">設定・ハンコン<small>操作方式、酔い対策、音、FFB、割り当てとキャリブレーション</small></button>
         <button data-go="help">操作方法</button>
       </div>
+      <label class="vr-sortie" hidden><input type="checkbox" data-vrsortie> VRで出撃(試験場・ステージを始めると同時に VR に入る)</label>
       <p class="note" id="title-note" style="margin-top:16px"></p>
     </div>
   </section>
@@ -134,6 +137,7 @@
       <div class="grid" id="paint-list"></div>
       <h2>難易度</h2>
       <div class="grid" id="diff-list"></div>
+      <label class="vr-sortie" hidden><input type="checkbox" data-vrsortie> VRで出撃(出撃と同時に VR に入る)</label>
       <div class="row"><button class="primary" id="btn-sortie">出撃 ▶</button><button data-go="back">◀ 戻る</button></div>
     </div>
   </section>
@@ -207,6 +211,6 @@
 
   <button id="vrBtn" hidden>ENTER VR</button>
 
-  <script type="module" src="./js-mwfc89az/main.js"></script>
+  <script type="module" src="./js-mwfcclxp/main.js"></script>
 </body>
 </html>

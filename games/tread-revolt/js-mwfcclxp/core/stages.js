@@ -99,7 +99,7 @@ function stage1_1() {
   obs.push(box('bunker', -55, 175, 14, 8, 4), box('bunker', 55, 175, 14, 8, 4), box('wall', 0, 205, 120, 2, 5));
   obs.push(box('crate', 22, 120, 5, 5, 3), box('crate', -25, 105, 5, 5, 3), box('container', 40, 95, 12, 2.6, 2.8, 0.4), box('container', -45, 130, 12, 2.6, 2.8, -0.2));
   return {
-    id: '1-1', area: 1, name: '前線突破', time: 240, size: [220, 420], seed: 11, hills: 1.4,
+    id: '1-1', area: 1, name: '前線突破', time: 280, size: [220, 420], seed: 11, hills: 1.4,
     bumps: [{ x: -80, z: -40, r: 40, h: 9 }, { x: 85, z: -120, r: 35, h: 8 }, { x: 80, z: 40, r: 30, h: 6 }, { x: -70, z: 90, r: 26, h: 5 }],
     flats: [{ x: 0, z: -195, r: 14 }, { x: -40, z: 175, r: 14 }, { x: 40, z: 175, r: 14 }, { x: 60, z: -20, r: 8 }],
     roads: [{ pts: road, w: 12 }],
@@ -111,7 +111,7 @@ function stage1_1() {
       U('lightTank', -30, -150, { yaw: Math.PI }), U('lightTank', -55, -90, { yaw: Math.PI }),
       U('turret8', -10, -80), U('lightTank', 45, -40, { yaw: Math.PI }), U('lightTank', 15, 10, { yaw: Math.PI }),
       U('turret8', 50, 20), U('lightTank', -20, 50, { yaw: Math.PI }),
-      ...[[-40, 100], [-15, 115], [10, 100], [35, 115], [-55, 140], [55, 140], [-20, 150], [20, 150]].map(([x, z]) => U('lightTank', x, z, { yaw: Math.PI, group: 'plain' })),
+      ...[[-40, 105], [10, 100], [35, 120], [-25, 150], [25, 150]].map(([x, z]) => U('lightTank', x, z, { yaw: Math.PI, group: 'plain' })),
       U('bigTurret', -40, 175, { yaw: Math.PI }), U('bigTurret', 40, 175, { yaw: Math.PI }),
     ],
     briefing: [
@@ -314,7 +314,7 @@ function stage3_b() {
   scatter(rng, obs, 18, [-145, 145, -150, 150], tree, [[0, 0, 50], [-80, -120, 20]]);
   scatter(rng, obs, 14, [-145, 145, -150, 150], rock, [[0, 0, 50], [-80, -120, 20]]);
   return {
-    id: '3-B', area: 3, name: '浚渫要塞', time: 320, size: [300, 300], seed: 33, hills: 0.8, boss: true,
+    id: '3-B', area: 3, name: '浚渫要塞', time: 360, size: [300, 300], seed: 33, hills: 0.8, boss: true,
     water, fields: [{ x: -90, z: 60, w: 50, d: 60 }, { x: 95, z: -60, w: 50, d: 60 }],
     flats: [{ x: -80, z: -120, r: 14 }, { x: -60, z: 40, r: 8 }, { x: 60, z: -30, r: 8 }],
     obstacles: obs,
@@ -383,9 +383,9 @@ function stage4_1() {
     U('bigTurret', last.x - 14, last.z - 6, { yaw: Math.PI, group: 'r9' }), U('bigTurret', last.x + 14, last.z - 6, { yaw: Math.PI, group: 'r9' }),
   );
   return {
-    id: '4-1', area: 4, name: '区画制圧', time: 330, size: [S * 3, S * 3], seed: 41, indoor: true, hills: 0,
+    id: '4-1', area: 4, name: '区画制圧', time: 420, size: [S * 3, S * 3], seed: 41, indoor: true, hills: 0,
     obstacles: obs,
-    spawn: { x: -S - 18, z: -S - 18, yaw: 0.8 },
+    spawn: { x: -S, z: -S - 22, yaw: 0 },
     exit: { x: S, z: S + 18 },
     units,
     briefing: [
@@ -418,7 +418,7 @@ function stage4_2() {
   for (const x of [-80, 80]) for (let z = -100; z <= 100; z += 40) obs.push(cyl('pillar', x, z, 2.2, 8));
   scatter(rng, obs, 14, [-110, 110, -130, 40], (x, z, r) => box(r.chance(0.5) ? 'machine' : 'container', x, z, r.range(6, 12), r.range(4, 8), r.range(3, 5), r.range(0, 1.5)), [[0, -135, 20], [0, -40, 12], [0, 20, 30]]);
   const rows = [];
-  for (const z of [-60, -10, 30]) for (const x of [-60, -30, 30, 60]) rows.push(U('turret8', x, z, { group: 'rows' }));
+  for (const z of [-50, 15]) for (const x of [-60, -25, 25, 60]) rows.push(U('turret8', x, z, { group: 'rows' }));
   return {
     id: '4-2', area: 4, name: '中央突破', time: 330, size: [240, 300], seed: 42, indoor: true, hills: 0,
     obstacles: obs,
