@@ -1,6 +1,7 @@
 // コースの見た目: 起伏のある地形・路面（ターマック / 荒れたターマック / ダート）・縁石・バリア・木・山
 // theme: 'party'（明るいトゥーン、顔のある木・風船・信号機マスコット・コイン）
 //        'real'（写実的: PBR の路面、ガードレール、グランドスタンド、太陽の影）
+//        'arcade'（ローポリ: 面ごとに 1 色の地形・角ばった木と岩・チェックポイントのゲート）
 import * as THREE from 'three';
 import { pointAt, locate, wrapS, curvatureAt, wallAt } from '../core/track.js';
 import { roadHeight, surfaceType } from '../core/surface.js';
@@ -8,6 +9,7 @@ import { mulberry32 } from '../core/rng.js';
 import { coinLayout } from '../core/coins.js';
 import { skyDome, clouds } from './style.js';
 import { mat, addOutline } from './theme.js';
+import { checkpointOffsets } from '../core/arcadetimer.js';
 
 function canvasTexture(w, h, draw, repeat = true) {
   const c = document.createElement('canvas');
@@ -190,8 +192,11 @@ const isStraight = (track, s0) => {
 
 export function buildWorld(scene, track, { theme = 'party' } = {}) {
   const real = theme === 'real';
-  const party = !real;
+  const arcade = theme === 'arcade';
+  const party = theme === 'party';
   const M = (params, kind) => mat(theme, params, kind);
+  // 路面などの模様: ローポリは細かい粒を描かず、ベタ塗りにする
+  const spk = arcade ? (ctx, w, h, base) => { ctx.fillStyle = base; ctx.fillRect(0, 0, w, h); } : speckle;
   const group = new THREE.Group();
   scene.add(group);
   const updaters = [];
@@ -207,13 +212,19 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
     scene.fog = new THREE.Fog(0xc4d0db, 250, 1300);
     group.add(sky = skyDome(1300, { top: 0x2f63a8, horizon: 0xd3dde6, bottom: 0xa9b5bf }));
     group.add(new THREE.HemisphereLight(0xdbe7ff, 0x48553a, 0.7));
+  } else if (arcade) {
+    // 夕方前の明るい空（地平線は暖かい色）。面の向きで明暗がはっきり出るよう、太陽を強めに
+    scene.background = new THREE.Color(0x7fb6ff);
+    scene.fog = new THREE.Fog(0xffd9b0, 280, 1250);
+    group.add(sky = skyDome(1300, { top: 0x2c5fe0, horizon: 0xffd2a6, bottom: 0xffc48f }));
+    group.add(new THREE.HemisphereLight(0xdfe9ff, 0x6a8a4a, 1.25));
   } else {
     scene.background = new THREE.Color(0x9fd9ff);
     scene.fog = new THREE.Fog(0xc8efff, 260, 1100);
     group.add(sky = skyDome(1300));
     group.add(new THREE.HemisphereLight(0xffffff, 0x6fbf3a, 1.6));
   }
-  const sun = new THREE.DirectionalLight(real ? 0xfff1dc : 0xfff4dc, real ? 3.2 : 2.4);
+  const sun = new THREE.DirectionalLight(real ? 0xfff1dc : arcade ? 0xffe6c4 : 0xfff4dc, real ? 3.2 : arcade ? 2.8 : 2.4);
   sun.position.set(80, 140, 40);
   group.add(sun, sun.target);
   if (real) {
@@ -253,6 +264,9 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
   const tp = tg.attributes.position;
   for (let i = 0; i < tp.count; i++) tp.setY(i, terrainHeight(track, tp.getX(i), tp.getZ(i)));
   tg.computeVertexNormals();
+  // ローポリ: コースから離れた所の地面を少しでこぼこにして（下げる向きだけ。木が浮かないように）、
+  // 三角形ごとに少しずつ違う緑で塗る
+  const lowTerrain = arcade ? lowpolyTerrain(track, tg, wall) : null;
   // 芝（パーティーは芝刈りの縞模様のある明るい芝、本格は落ち着いた色）
   const grassTex = canvasTexture(256, 256, (ctx, w, h) => {
     speckle(ctx, w, h, real ? '#4f7431' : '#5ccf3c', real ? 55 : 40, real ? 14000 : 5000);
@@ -260,11 +274,13 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
     ctx.fillRect(0, 0, w / 2, h);
   });
   grassTex.repeat.set(nx / 3, nz / 3);
-  const terrain = new THREE.Mesh(tg, M({ map: grassTex }, 'cloth'));
+  const terrain = lowTerrain
+    ? new THREE.Mesh(lowTerrain, M({ vertexColors: true }, 'cloth'))
+    : new THREE.Mesh(tg, M({ map: grassTex }, 'cloth'));
   terrain.receiveShadow = real;
   group.add(terrain);
   // 地平線まで続く平地
-  const far = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000), M({ color: real ? 0x4c6a33 : 0x5ccf3c }, 'cloth'));
+  const far = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000), M({ color: real ? 0x4c6a33 : arcade ? 0x67b845 : 0x5ccf3c }, 'cloth'));
   far.rotation.x = -Math.PI / 2;
   far.position.set(x0 + (nx * CELL) / 2, BASE - 3, z0 + (nz * CELL) / 2);
   group.add(far);
@@ -286,7 +302,7 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
       ctx.fillRect(w - 11, 0, 5, h);
       return;
     }
-    speckle(ctx, w, h, '#50535e', 40, 9000);
+    spk(ctx, w, h, arcade ? '#5b5f72' : '#50535e', 40, 9000);
     ctx.fillStyle = 'rgba(255,255,255,0.95)';
     ctx.fillRect(8, 0, 6, h);
     ctx.fillRect(w - 14, 0, 6, h);
@@ -294,15 +310,15 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
     ctx.fillRect(w / 2 - 3, 0, 6, h * 0.45);
   });
   const roughTex = canvasTexture(256, 512, (ctx, w, h) => {
-    speckle(ctx, w, h, real ? '#45464b' : '#585a63', 60, 12000);
-    // 補修跡とひび
-    for (let i = 0; i < 14; i++) {
+    spk(ctx, w, h, real ? '#45464b' : '#585a63', 60, 12000);
+    // 補修跡とひび（ローポリは大きな継ぎはぎだけ）
+    for (let i = 0; i < (arcade ? 6 : 14); i++) {
       ctx.fillStyle = `rgba(20,20,24,${0.25 + Math.random() * 0.3})`;
       ctx.fillRect(Math.random() * w, Math.random() * h, 30 + Math.random() * 70, 20 + Math.random() * 50);
     }
     ctx.strokeStyle = 'rgba(15,15,15,0.7)';
     ctx.lineWidth = 2;
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < (arcade ? 0 : 20); i++) {
       ctx.beginPath();
       let x = Math.random() * w, y = Math.random() * h;
       ctx.moveTo(x, y);
@@ -314,7 +330,7 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
     ctx.fillRect(w - 14, 0, 6, h);
   });
   const dirtTex = canvasTexture(256, 512, (ctx, w, h) => {
-    speckle(ctx, w, h, real ? '#8f6f4c' : '#c08a4e', 70, 16000, 3);
+    spk(ctx, w, h, real ? '#8f6f4c' : '#c08a4e', 70, 16000, 3);
     // わだち
     for (const x of [w * 0.3, w * 0.7]) {
       const g = ctx.createLinearGradient(x - 26, 0, x + 26, 0);
@@ -338,9 +354,9 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
     ctx.fillRect(0, h / 2, w, h / 2);
   });
   const curbMat = M({ map: curbTex }, 'plastic');
-  const runTex = canvasTexture(64, 64, (ctx, w, h) => speckle(ctx, w, h, real ? '#56793a' : '#66d846', 30, 300));
+  const runTex = canvasTexture(64, 64, (ctx, w, h) => spk(ctx, w, h, real ? '#56793a' : arcade ? '#74c24e' : '#66d846', 30, 300));
   const runMat = M({ map: runTex }, 'cloth');
-  const gravelMat = M({ map: canvasTexture(64, 64, (ctx, w, h) => speckle(ctx, w, h, real ? '#b7a68a' : '#e0b77a', 60, 700, 2)) }, 'cloth');
+  const gravelMat = M({ map: canvasTexture(64, 64, (ctx, w, h) => spk(ctx, w, h, real ? '#b7a68a' : '#e0b77a', 60, 700, 2)) }, 'cloth');
   const lineMat = M({ color: 0xf0f0f0 }, 'paint'); // 峠の道の端の白い線
 
   const addRibbon = (geo, material) => {
@@ -367,7 +383,7 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
   }
 
   // 高架（立体交差の上の道など）の橋脚
-  const pillarGeo = new THREE.CylinderGeometry(0.6, 0.8, 1, 10);
+  const pillarGeo = new THREE.CylinderGeometry(0.6, 0.8, 1, arcade ? 6 : 10);
   const pillarMat = M({ color: 0xc9c2b8 }, 'plastic');
   for (let s0 = 0; s0 < track.length; s0 += 9) {
     for (const lat of [-hw + 1.5, hw - 1.5]) {
@@ -399,35 +415,42 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
   }
   addRibbon(lineGeo, M({ map: checker }));
 
-  // スタートゲート
-  const start = pointAt(track, s0, 0);
-  const gate = new THREE.Group();
+  // スタートゲート（アーケードはチェックポイントにも同じ形のゲートを立てる）
   const postMat = M({ color: real ? 0x3a3d44 : 0x2a2a33 }, 'metal');
-  for (const side of [-1, 1]) {
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.6, 7, 0.6), postMat);
-    post.position.set(0, 3.5, side * (hw + 1.5));
-    gate.add(post);
-  }
-  const banner = new THREE.Mesh(
-    new THREE.BoxGeometry(0.4, 1.4, hw * 2 + 3.6),
-    M({
-      map: canvasTexture(512, 64, (ctx, w, h) => {
-        ctx.fillStyle = real ? '#15171c' : '#ff3b3b';
-        ctx.fillRect(0, 0, w, h);
-        ctx.fillStyle = '#fff';
-        ctx.font = `${real ? '600 34px' : 'bold 40px'} system-ui, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`${track.def.name.toUpperCase()}  ·  START / FINISH`, w / 2, h / 2 + 2);
-      }, false),
-    }),
-  );
-  banner.position.y = 6.8;
-  gate.add(banner);
+  const makeGate = (s, text, bg) => {
+    const p = pointAt(track, s, 0);
+    const gate = new THREE.Group();
+    for (const side of [-1, 1]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.6, 7, 0.6), postMat);
+      post.position.set(0, 3.5, side * (hw + 1.5));
+      gate.add(post);
+    }
+    const banner = new THREE.Mesh(
+      new THREE.BoxGeometry(0.4, 1.4, hw * 2 + 3.6),
+      M({
+        map: canvasTexture(512, 64, (ctx, w, h) => {
+          ctx.fillStyle = bg;
+          ctx.fillRect(0, 0, w, h);
+          ctx.fillStyle = '#fff';
+          ctx.font = `${real ? '600 34px' : arcade ? 'italic 900 40px' : 'bold 40px'} system-ui, sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(text, w / 2, h / 2 + 2);
+        }, false),
+      }),
+    );
+    banner.position.y = 6.8;
+    gate.add(banner);
+    gate.position.set(p.x, roadHeight(track, s, 0), p.z);
+    gate.rotation.y = -p.heading;
+    group.add(gate);
+    return gate;
+  };
+  const gate = makeGate(s0, `${track.def.name.toUpperCase()}  ·  START / FINISH`, real ? '#15171c' : arcade ? '#2b2f8f' : '#ff3b3b');
   if (party) gate.add(signalMascot(updaters, hw));
-  gate.position.set(start.x, roadHeight(track, s0, 0), start.z);
-  gate.rotation.y = -start.heading;
-  group.add(gate);
+  if (arcade) {
+    for (const d of checkpointOffsets(track.length)) makeGate(wrapS(track, s0 + d), '◆  CHECKPOINT  ◆', '#ff7a1f');
+  }
 
   // 加速パネル（路面に沿う短い帯）
   const padTex = canvasTexture(128, 64, (ctx, w, h) => {
@@ -472,7 +495,7 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
     // タイヤバリア（赤白交互）
     const spacing = 1.1;
     const per = Math.floor(track.length / spacing);
-    const tires = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.45, 0.45, 0.9, 10), M({ color: 0xffffff }), per * 2);
+    const tires = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.45, 0.45, 0.9, arcade ? 6 : 10), M({ color: 0xffffff }), per * 2);
     let n = 0;
     for (const side of [-1, 1]) {
       for (let i = 0; i < per; i++) {
@@ -481,7 +504,7 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
         const p = pointAt(track, s, side * (w + 0.45));
         m4.makeTranslation(p.x, roadHeight(track, s, side * w) + 0.45, p.z);
         tires.setMatrixAt(n, m4);
-        tires.setColorAt(n, col.set(Math.floor(i / 3) % 2 ? 0xe8262c : 0xf2f2f2));
+        tires.setColorAt(n, col.set(Math.floor(i / 3) % 2 ? (arcade ? 0x2f6bff : 0xe8262c) : 0xf2f2f2));
         n++;
       }
     }
@@ -491,10 +514,10 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
   // 木（コースから離れた場所だけ）。丸い木と円錐の木を混ぜる
   const rng = mulberry32(42);
   const treeCount = 320;
-  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.3, 0.4, 2.4, 7), M({ color: real ? 0x5a4330 : 0x8a5a2b }, 'cloth'), treeCount);
-  // 写実モードは葉の塊をでこぼこにして、作り物っぽさを減らす
-  const ballGeo = real ? lumpy(new THREE.IcosahedronGeometry(2.6, 3), 0.55, 1.3) : new THREE.IcosahedronGeometry(2.6, 1);
-  const coneGeo = real ? lumpy(new THREE.CylinderGeometry(0.01, 2.3, 6, 14, 6), 0.35, 2.1) : new THREE.ConeGeometry(2.3, 6, 8);
+  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.3, 0.4, 2.4, arcade ? 5 : 7), M({ color: real ? 0x5a4330 : 0x8a5a2b }, 'cloth'), treeCount);
+  // 写実モードは葉の塊をでこぼこにして、作り物っぽさを減らす。ローポリは一番粗い多面体
+  const ballGeo = real ? lumpy(new THREE.IcosahedronGeometry(2.6, 3), 0.55, 1.3) : new THREE.IcosahedronGeometry(2.6, arcade ? 0 : 1);
+  const coneGeo = real ? lumpy(new THREE.CylinderGeometry(0.01, 2.3, 6, 14, 6), 0.35, 2.1) : new THREE.ConeGeometry(2.3, 6, arcade ? 5 : 8);
   const balls = new THREE.InstancedMesh(ballGeo, M({ color: 0xffffff }, 'cloth'), treeCount);
   const cones = new THREE.InstancedMesh(coneGeo, M({ color: 0xffffff }, 'cloth'), treeCount);
   const faces = []; // パーティー: 顔を付ける木（位置・大きさ・コースの方向）
@@ -511,7 +534,8 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
     trunks.setMatrixAt(t, m4.compose(v.set(x, y + 1.2 * sc, z), q, sc3));
     if (rng() < 0.65) {
       balls.setMatrixAt(nb, m4.compose(v.set(x, y + 4.2 * sc, z), q, sc3));
-      balls.setColorAt(nb++, real ? col.setHSL(0.22 + rng() * 0.06, 0.45, 0.22 + rng() * 0.08) : col.setHSL(0.25 + rng() * 0.08, 0.75, 0.42 + rng() * 0.1));
+      balls.setColorAt(nb++, real ? col.setHSL(0.22 + rng() * 0.06, 0.45, 0.22 + rng() * 0.08)
+        : arcade ? treeColor(rng, col) : col.setHSL(0.25 + rng() * 0.08, 0.75, 0.42 + rng() * 0.1));
       // コースに近い木の一部に顔を付ける（コースの方を向く）
       if (party && Math.abs(l.lateral) < wall + 40 && rng() < 0.45) {
         const p = pointAt(track, l.s, 0);
@@ -529,7 +553,8 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
   for (const o of [trunks, balls, cones]) o.castShadow = real;
   group.add(trunks, balls, cones);
   if (party && faces.length) group.add(treeFaces(faces));
-  if (track.def.forest) group.add(roadsideForest(track, wall, real, M));
+  if (track.def.forest) group.add(roadsideForest(track, wall, real, M, arcade));
+  if (arcade) group.add(lowpolyRocks(track, wall, M, { x0, z0, w: nx * CELL, d: nz * CELL }));
 
   if (party) {
     // 花畑（コース脇の芝に色とりどりの花）
@@ -554,7 +579,7 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
   // ストレート沿いの看板（パーティーはカラフル、本格は架空のスポンサー）
   const boardMats = real
     ? SPONSORS.map((sp) => M({ map: canvasTexture(512, 128, (ctx, w, h) => sponsorBoard(ctx, w, h, sp), false), side: THREE.DoubleSide }, 'plastic'))
-    : [M({ map: canvasTexture(512, 128, partyBoard, false), side: THREE.DoubleSide })];
+    : [M({ map: canvasTexture(512, 128, arcade ? arcadeBoard : partyBoard, false), side: THREE.DoubleSide })];
   const boardGeo = new THREE.PlaneGeometry(6, 1.5);
   const balloonSpots = [];
   let boards = 0;
@@ -576,8 +601,8 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
   }
   if (party && balloonSpots.length) group.add(balloons(balloonSpots, updaters));
 
-  // 旗（バンクの外側に並べる。パーティーのみ）
-  if (party) {
+  // 旗（バンクの外側に並べる。パーティーとアーケード）
+  if (party || arcade) {
     const flagGeo = new THREE.PlaneGeometry(1.4, 0.9);
     const poleGeo = new THREE.CylinderGeometry(0.05, 0.05, 4.5, 6);
     const poleMat = M({ color: 0xeeeeee });
@@ -598,7 +623,7 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
   }
 
   // 遠景の山
-  const mountMat = real ? new THREE.MeshLambertMaterial({ color: 0x75838f }) : M({ color: 0x7fb8e8, fog: false });
+  const mountMat = real ? new THREE.MeshLambertMaterial({ color: 0x75838f }) : M({ color: arcade ? 0x8a86d8 : 0x7fb8e8, fog: false });
   const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
   for (let i = 0; i < 18; i++) {
     const a = (i / 18) * Math.PI * 2;
@@ -615,13 +640,100 @@ export function buildWorld(scene, track, { theme = 'party' } = {}) {
     group.add(m);
   }
 
-  const cloudMat = real ? new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x9aa6b2, roughness: 1, transparent: true, opacity: 0.8, fog: false }) : null;
+  const cloudMat = real ? new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x9aa6b2, roughness: 1, transparent: true, opacity: 0.8, fog: false })
+    : arcade ? M({ color: 0xffffff, emissive: 0xb8a8b0, fog: false }) : null;
   // 雲（上から見下ろす視点では消すので覚えておく）
-  group.userData.clouds = clouds(rng, { x: cx, z: cz }, real ? 16 : 26, cloudMat);
+  group.userData.clouds = clouds(rng, { x: cx, z: cz }, real ? 16 : 26, cloudMat, arcade);
   group.add(group.userData.clouds);
 
   if (party) group.add(coinMeshes(track, updaters));
   return group;
+}
+
+// ---- アーケード（ローポリ）の飾り ----
+
+// 地面: 頂点を三角形ごとに分けて（面ごとに 1 色）、コースから離れた所を少し下げてでこぼこにする
+function lowpolyTerrain(track, tg, wall) {
+  const g = tg.toNonIndexed();
+  const pos = g.attributes.position;
+  const rng = mulberry32(11);
+  // 同じ地点の頂点は同じだけ下げる（すき間ができないよう、位置だけから決まる値にする）
+  const dip = (x, z) => {
+    const h = Math.sin(x * 0.11 + Math.cos(z * 0.07) * 2) * Math.cos(z * 0.09 - x * 0.03) + Math.sin(x * 0.031 + z * 0.027) * 1.5;
+    return Math.max(0, h + 1.2) * 0.35;
+  };
+  const depth = new Map();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i);
+    const key = `${x.toFixed(2)},${z.toFixed(2)}`;
+    let d = depth.get(key);
+    if (d === undefined) {
+      const l = Math.abs(locate(track, x, z).lateral);
+      // 壁の 12m 外から少しずつ効かせる
+      d = l < wall + 12 ? 0 : dip(x, z) * Math.min(1, (l - wall - 12) / 20);
+      depth.set(key, d);
+    }
+    pos.setY(i, pos.getY(i) - d);
+  }
+  g.computeVertexNormals();
+  const colors = new Float32Array(pos.count * 3);
+  const col = new THREE.Color();
+  for (let i = 0; i < pos.count; i += 3) {
+    col.setHSL(0.26 + rng() * 0.05, 0.5 + rng() * 0.12, 0.4 + rng() * 0.07);
+    for (let k = 0; k < 3; k++) col.toArray(colors, (i + k) * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return g;
+}
+
+// ローポリの木の葉の色: ほとんどは緑、ところどころ黄色やオレンジ
+function treeColor(rng, col) {
+  const r = rng();
+  if (r < 0.12) return col.setHSL(0.09 + rng() * 0.03, 0.85, 0.52);
+  if (r < 0.22) return col.setHSL(0.14 + rng() * 0.02, 0.8, 0.5);
+  return col.setHSL(0.24 + rng() * 0.1, 0.6, 0.36 + rng() * 0.1);
+}
+
+// 岩（一番粗い 12 面体）をコースから離れた所に散らす
+function lowpolyRocks(track, wall, M, area) {
+  const rng = mulberry32(23);
+  const max = 160;
+  const rocks = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), M({ color: 0xffffff }, 'cloth'), max);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), sc = new THREE.Vector3(), col = new THREE.Color();
+  let n = 0;
+  for (let i = 0; i < 4000 && n < max; i++) {
+    const x = area.x0 + rng() * area.w, z = area.z0 + rng() * area.d;
+    if (Math.abs(locate(track, x, z).lateral) < wall + 5) continue;
+    const y = terrainHeight(track, x, z);
+    if (track.def.sea && y < SEA_LEVEL + 1.2) continue;
+    const s = 0.6 + rng() * rng() * 3.2;
+    sc.set(s * (0.8 + rng() * 0.6), s * (0.5 + rng() * 0.5), s * (0.8 + rng() * 0.6));
+    q.setFromEuler(e.set(rng() * 3, rng() * 3, rng() * 3));
+    rocks.setMatrixAt(n, m4.compose(v.set(x, y + sc.y * 0.3, z), q, sc));
+    rocks.setColorAt(n++, col.setHSL(0.07 + rng() * 0.04, 0.12 + rng() * 0.1, 0.45 + rng() * 0.15));
+  }
+  rocks.count = n;
+  return rocks;
+}
+
+function arcadeBoard(ctx, w, h) {
+  const g = ctx.createLinearGradient(0, 0, w, 0);
+  g.addColorStop(0, '#2b2f8f');
+  g.addColorStop(1, '#7a2fd0');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#ff7a1f';
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  ctx.lineTo(w * 0.22, 0);
+  ctx.lineTo(w * 0.3, 0);
+  ctx.lineTo(w * 0.08, h);
+  ctx.fill();
+  ctx.fillStyle = '#ffd23f';
+  ctx.font = 'italic 900 64px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('ARCADE RUSH', w * 0.6, h / 2 + 4);
 }
 
 // ---- パーティーモードの飾り ----
@@ -645,13 +757,13 @@ function partyBoard(ctx, w, h) {
 // 顔のある木（白目・黒目・口をまとめてインスタンス描画）
 // 山の中のコース（峠）: 道の両側に木が生い茂る。壁のすぐ外から奥へ、道に沿って何列も並べる
 // （VR でも重くならないよう形の簡単な木をまとめて描く。隣の道の上には生やさない）
-function roadsideForest(track, wall, real, M) {
+function roadsideForest(track, wall, real, M, low = false) {
   const rng = mulberry32(7);
   const max = 2600;
   const g = new THREE.Group();
-  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.25, 0.35, 2.4, 6), M({ color: real ? 0x4a3828 : 0x8a5a2b }, 'cloth'), max);
-  const cones = new THREE.InstancedMesh(new THREE.ConeGeometry(2.0, 7, 7), M({ color: 0xffffff }, 'cloth'), max);
-  const balls = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(2.4, 1), M({ color: 0xffffff }, 'cloth'), max);
+  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.25, 0.35, 2.4, low ? 4 : 6), M({ color: real ? 0x4a3828 : 0x8a5a2b }, 'cloth'), max);
+  const cones = new THREE.InstancedMesh(new THREE.ConeGeometry(2.0, 7, low ? 5 : 7), M({ color: 0xffffff }, 'cloth'), max);
+  const balls = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(2.4, low ? 0 : 1), M({ color: 0xffffff }, 'cloth'), max);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc3 = new THREE.Vector3(), col = new THREE.Color();
   let n = 0, nc = 0, nb = 0;
   for (let s = 0; s < track.length && n < max; s += 4.5) {

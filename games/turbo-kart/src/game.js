@@ -16,7 +16,8 @@ import { RearView } from './scene/mirrors.js';
 import { DriftScore } from './core/driftscore.js';
 import { Effects, driftTier } from './scene/fx.js';
 import { createDriver, driveAI } from './core/ai.js';
-import { applyRendererTheme } from './scene/theme.js';
+import { applyRendererTheme, THEMES } from './scene/theme.js';
+import { lowpolyize } from './scene/lowpoly.js';
 import { CHARACTERS } from './scene/characters.js';
 import { ItemView } from './scene/itemview.js';
 import { ScreenFx } from './scene/screenfx.js';
@@ -40,7 +41,7 @@ function nextTrackName(id) {
   return TRACKS[(i + 1) % TRACKS.length].name;
 }
 
-// ハンドリング: 'auto' はモードに合わせる（本格 = リアル、パーティー = アーケード）
+// ハンドリング: 'auto' はモードに合わせる（本格 = リアル、パーティー・アーケード = アーケード）
 export function isRealHandling(handling, theme) {
   return handling === 'real' || ((!handling || handling === 'auto') && theme === 'real');
 }
@@ -78,7 +79,8 @@ export class Game {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(75, 16 / 9, 0.05, 1500);
     this.hud = new Hud(ui.hud);
-    // 'party'（アイテム・コイン・コミカルな見た目）| 'real'（本格・写実的な見た目）。物理は同じ
+    // 'party'（アイテム・コイン・コミカルな見た目）| 'real'（本格・写実的な見た目）
+    // | 'arcade'（ローポリの見た目・チェックポイントの残り時間）。物理は同じ
     this.theme = 'party';
     this.character = 'bear';
     this.setTrack(TRACKS[0].id);
@@ -154,10 +156,10 @@ export class Game {
     this.race = null;
   }
 
-  // opts: { npcs, laps, level, manual, attract, vehicle, track, mode: 'party' | 'real', character,
+  // opts: { npcs, laps, level, manual, attract, vehicle, track, mode: 'party' | 'real' | 'arcade', character,
   //         online: { session, grid: [{ id, name, char }], seed, countdown } }
   startRace(opts) {
-    const theme = opts.mode === 'real' ? 'real' : opts.mode === 'party' ? 'party' : this.theme;
+    const theme = THEMES.includes(opts.mode) ? opts.mode : this.theme;
     this.setTrack(opts.track || this.trackId, theme);
     this.clearRace();
     this.opts = { ...opts, mode: theme };
@@ -197,6 +199,8 @@ export class Game {
       realistic: isRealHandling(opts.handling, theme),
       // アイテム（パーティーモード）。オンラインはホストが判定して状態を配る
       items: theme === 'party' && (on ? (on.session.isHost ? 'host' : 'client') : true),
+      // アーケード: チェックポイントの残り時間（ひとりで走るときだけ）
+      timer: theme === 'arcade' && !on && !opts.attract,
     });
     // オンラインはホストが決めたスタート時刻に合わせてカウントダウンを始める
     if (on) this.race.time = -Math.max(1, on.countdown);
@@ -205,6 +209,7 @@ export class Game {
       const mo = { isPlayer: e.type === 'player', number: i + 1, theme, character: e.char };
       const v = opts.vehicle || 'kart';
       const m = v === 'kart' ? new KartModel(e.color, e.name, mo) : new CarModel(v, e.color, e.name, mo);
+      if (theme === 'arcade') lowpolyize(m.group);
       this.scene.add(m.group);
       return m;
     });
@@ -218,6 +223,7 @@ export class Game {
     this.acc = 0;
     this.lastCount = null;
     this.finishedShown = false;
+    this.lastWarn = null;
     this.rankHtml = '';
     this.hud.courseRecord = null;
     this.hud.personalBest = null;
@@ -262,6 +268,11 @@ export class Game {
     this.hud.driftPanel.mesh.position.set(0, 0.68, -2.4);
     this.cockpit.add(this.hud.driftPanel.mesh);
     this.hud.driftPanel.mesh.visible = false;
+    // アーケードの残り時間（VR はドリフトの得点よりさらに上）
+    this.hud.timerPanel.mesh.position.set(0, 0.98, -2.5);
+    this.cockpit.add(this.hud.timerPanel.mesh);
+    this.hud.timerPanel.mesh.visible = false;
+    this.hud.timerDrawn = null;
     this.resultsDrawnAt = 0;
     this.rankText = '';
     this.rankBoard = null;
@@ -553,7 +564,7 @@ export class Game {
       pose.pitch += g.pitch;
       e.renderPose = pose;
       // 自分で運転しているときはハンコンの実際の回転角、それ以外（NPC・自動運転・ゴール後）は操作量
-      const manualDriving = e === this.me && !this.autodrive && !e.finished && this.state === 'race';
+      const manualDriving = e === this.me && !this.autodrive && !e.finished && !e.timeOver && this.state === 'race';
       const steer = manualDriving ? inp.wheel.value : e.input.steer || 0;
       // アイテムが当たったスピンと、カミナリでちぢむ効果（見た目だけ）。自分の車内視点・VR では酔わないよう回さない
       const inside = e === this.me && this.insideView;
@@ -607,6 +618,16 @@ export class Game {
         if (ev.type === 'rescue') me.msg = { text: '🛟 コースに戻します', t: 1.6 };
         if (ev.type === 'shieldBreak') { this.audio.thump(6); me.msg = { text: '🛡️ バリアが守った！', t: 1.4 }; }
         if (ev.type === 'ink') { this.screenFx.ink(); me.msg = { text: '💨 スミ雲をかけられた！', t: 1.4 }; }
+        // アーケード: チェックポイントで時間が延びた / タイムオーバー
+        if (ev.type === 'checkpoint') { this.audio.up(); me.cpFlash = { extend: ev.extend, t: 2 }; }
+        if (ev.type === 'timeOver') { this.audio.thump(8); this.audio.beep(false); }
+      }
+      if (me.cpFlash?.t > 0) me.cpFlash.t -= dt;
+      // 残り 5 秒からは 1 秒ごとに警告音
+      if (race.timer && race.state === 'racing' && !me.finished && !me.timeOver) {
+        const n = Math.ceil(me.timeLeft);
+        if (n <= 5 && n !== this.lastWarn) this.audio.beep(n <= 3);
+        this.lastWarn = n;
       }
       for (const ev of raceEvents) {
         if (ev.type === 'lightning') {
@@ -659,7 +680,7 @@ export class Game {
       if (this.state === 'race' && race.state === 'countdown') {
         // スタート前はハンドルを中央へ戻す（角度に比例して引き戻し、ダンパーで揺れを抑える）
         this.ffb.update(centeringForce(inp.wheel.value, this.ffb.settings.gain));
-      } else if (this.state === 'race' && !me.finished) {
+      } else if (this.state === 'race' && !me.finished && !me.timeOver) {
         const out = this.ffbModel.compute(me.kart, inp.wheel, events, this.ffb.settings, dt, me.ride, me.prevRide, STEP);
         // スピン中はハンドルが暴れないよう力を弱める
         if (me.spin > 0) out.constant *= 0.3;
@@ -668,13 +689,13 @@ export class Game {
         this.ffb.update({ constant: 0, damper: 0.2 * this.ffb.settings.gain, spring: 0.3 * this.ffb.settings.gain, rumble: 0, rumbleHz: 0 });
       }
       // SimHub 向けテレメトリ（モーション・振動・ダッシュボード）。走っている間だけ「レース中」にする
-      const driving = this.state === 'race' && race.state === 'racing' && !me.finished && !this.opts.attract;
+      const driving = this.state === 'race' && race.state === 'racing' && !me.finished && !me.timeOver && !this.opts.attract;
       this.ffb.telemetry(this.telemetry.compute(me, race, dt, driving));
       this.audio.update(me.kart, Math.abs(forwardSpeed(me.kart)), me.input.throttle || 0, this.state === 'race' || this.state === 'results', this.opts.vehicle || 'kart');
       this.updateDebug(inp);
       this.ui.ffbStatus?.(this.ffb.describe());
 
-      if (me.finished && !this.finishedShown) {
+      if ((me.finished || me.timeOver) && !this.finishedShown) {
         this.finishedShown = true;
         this.resultsAt = performance.now();
         this.resultSel = 0;
@@ -692,7 +713,7 @@ export class Game {
       if (showVR && (performance.now() - this.resultsDrawnAt > 500 || this.resultSel !== this.drawnSel)) {
         this.drawnSel = this.resultSel;
         this.resultsDrawnAt = performance.now();
-        this.hud.drawResults(race, me, { rankText: this.rankText, board: this.rankBoard, drift: this.driftOn ? this.drift : null, online: !!this.online, sel: this.resultSel, next: nextTrackName(this.trackId) });
+        this.hud.drawResults(race, me, { timeOver: !!me.timeOver, rankText: this.rankText, board: this.rankBoard, drift: this.driftOn ? this.drift : null, online: !!this.online, sel: this.resultSel, next: nextTrackName(this.trackId) });
       }
     }
   }
@@ -800,11 +821,14 @@ export class Game {
     const rows = race.standings().map((e) => {
       let t;
       if (e.finished) t = e === leader ? fmtTime(e.finishTime) : `+${(e.finishTime - leader.finishTime).toFixed(2)}`;
+      else if (e.timeOver) t = '<span style="color:#ff5a3c">TIME OVER</span>';
       else t = `<span class="muted">走行中 LAP ${Math.max(1, e.lap)}</span>`;
       const swatch = `<i style="background:#${new THREE.Color(e.color).getHexString()}"></i>`;
       return `<tr class="${e === this.me ? 'me' : ''}"><td>${e.position}</td><td>${swatch}${e.name}</td><td>${t}</td><td>${fmtTime(e.bestLap)}</td></tr>`;
     }).join('');
-    return `<h2>RESULT — ${this.me.position} 位</h2>
+    const head = this.me.timeOver ? `<h2 style="color:#ff5a3c">TIME OVER — LAP ${Math.max(1, this.me.lap)}/${race.laps}</h2>` : `<h2>RESULT — ${this.me.position} 位</h2>`;
+    const left = race.timer && this.me.finished ? `<p style="margin:6px 0;font-size:18px">⏱ 残り時間 <b style="color:#ffd23f;font-size:24px">${this.me.timeLeft.toFixed(2)}</b> 秒</p>` : '';
+    return `${head}${left}
       <table><thead><tr><th>#</th><th>DRIVER</th><th>TIME</th><th>BEST LAP</th></tr></thead><tbody>${rows}</tbody></table>
       ${this.driftOn ? `<p style="margin:10px 0;font-size:18px">💨 ドリフト得点 <b style="color:#ffd23f;font-size:24px">${this.drift.total.toLocaleString()}</b>　<span class="muted">1 回の最高 ${this.drift.best.toLocaleString()}</span></p>` : ''}
       ${this.rankHtml || ''}

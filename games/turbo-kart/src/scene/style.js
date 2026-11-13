@@ -41,13 +41,14 @@ export function skyDome(radius = 1200, colors = {}) {
 }
 
 // もこもこの雲（白い球をいくつか寄せ集めたもの）
-// material を渡すと写実モード用の雲になる（平たく、少し透ける）
-export function clouds(rng, center, count = 26, material = null) {
+// material を渡すと写実モード用の雲になる（平たく、少し透ける）。lowpoly: 角ばった雲（material と一緒に渡す）
+export function clouds(rng, center, count = 26, material = null, lowpoly = false) {
   const g = new THREE.Group();
-  const geo = new THREE.SphereGeometry(1, 12, 10);
+  const geo = lowpoly ? new THREE.IcosahedronGeometry(1, 0) : new THREE.SphereGeometry(1, 12, 10);
   // 地面の照り返しで緑がからないよう、自ら少し光らせる
   const mat = material || toon({ color: 0xffffff, emissive: 0xc8d4e0, fog: false });
-  const flat = material ? 0.45 : 1;
+  const real = !!material && !lowpoly;
+  const flat = real ? 0.45 : 1;
   for (let i = 0; i < count; i++) {
     const cloud = new THREE.Group();
     const n = 4 + Math.floor(rng() * 4);
@@ -59,7 +60,7 @@ export function clouds(rng, center, count = 26, material = null) {
       cloud.add(s);
     }
     const a = rng() * Math.PI * 2, d = 320 + rng() * 380;
-    cloud.position.set(center.x + Math.cos(a) * d, (material ? 170 : 90) + rng() * 90, center.z + Math.sin(a) * d);
+    cloud.position.set(center.x + Math.cos(a) * d, (real ? 170 : 90) + rng() * 90, center.z + Math.sin(a) * d);
     cloud.rotation.y = rng() * Math.PI;
     g.add(cloud);
   }

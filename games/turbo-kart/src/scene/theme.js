@@ -1,13 +1,14 @@
-// 見た目のテーマ: 'party'（コミカルなトゥーン）と 'real'（写実的な PBR）
+// 見た目のテーマ: 'party'（コミカルなトゥーン）、'real'（写実的な PBR）、'arcade'（ローポリ・フラットシェーディング）
 // 物理・操作感はテーマに関係なく同じ。見た目だけを切り替える
 import * as THREE from 'three';
 import { toon } from './style.js';
 
-export const THEMES = ['party', 'real'];
+export const THEMES = ['party', 'real', 'arcade'];
 
 // テーマに合わせた材質。real は MeshStandardMaterial（paint だけクリアコート付きの Physical）
 //   kind: 'paint' | 'metal' | 'rubber' | 'glass' | 'plastic' | 'carbon' | 'cloth'（省略時 plastic）
 export function mat(theme, params = {}, kind = 'plastic') {
+  if (theme === 'arcade') return flat(params, kind);
   if (theme !== 'real') return toon(params);
   const p = { ...params };
   switch (kind) {
@@ -26,6 +27,15 @@ export function mat(theme, params = {}, kind = 'plastic') {
     default:
       return new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.05, ...p });
   }
+}
+
+// ローポリ用: 面ごとに 1 色で塗る材質。塗装と金属だけ少しつやを出す（Phong）、ほかは Lambert（VR でも軽い）
+function flat(params, kind) {
+  const p = { flatShading: true, ...params };
+  if (kind === 'paint' || kind === 'metal' || kind === 'glass') {
+    return new THREE.MeshPhongMaterial({ shininess: kind === 'metal' ? 60 : 30, specular: 0x333333, ...p });
+  }
+  return new THREE.MeshLambertMaterial(p);
 }
 
 // 輪郭線（裏返した少し大きいメッシュ）。トゥーンの縁取りに使う

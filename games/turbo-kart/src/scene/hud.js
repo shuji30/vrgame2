@@ -134,6 +134,7 @@ export class Hud {
       itemHint: root.querySelector('[data-hud=itemhint]'),
       timing: root.querySelector('[data-hud=timing]'),
       drift: root.querySelector('[data-hud=drift]'),
+      timer: root.querySelector('[data-hud=timer]'),
     };
     this.rouletteT = 0;
     this.lastPos = null;
@@ -147,6 +148,9 @@ export class Hud {
     this.timing = new CanvasPlane(0.9, 0.8, 600, { onTop: true });
     // ドリフトの得点（VR）
     this.driftPanel = new CanvasPlane(1.0, 0.36, 512, { onTop: true });
+    // アーケードの残り時間（VR は前方の上）
+    this.timerPanel = new CanvasPlane(0.8, 0.3, 512, { onTop: true });
+    this.timerDrawn = null;
     this.driftAt = 0;
     this.timingAt = 0;
     this.lastDash = 0;
@@ -164,6 +168,7 @@ export class Hud {
       return n > 0 ? String(n) : 'GO!';
     }
     if (race.time < 1) return 'GO!';
+    if (me?.timeOver) return 'TIME OVER';
     if (me?.finished) return `FINISH!  ${me.position}位`;
     // ルーレット中は真ん中に大きく
     if (this.item?.spin) return `🎰 ${this.item.icon}`;
@@ -171,8 +176,10 @@ export class Hud {
     if (me?.msg?.t > 0 && !(me.itemFlash > 0)) return me.msg.text;
     // アイテムを取った直後は名前を大きく出す
     if (me?.itemFlash > 0 && me.item && ITEMS[me.item]) return `${ITEMS[me.item].emoji} ${ITEMS[me.item].name} ゲット！`;
-    if (me?.lapFlash > 0) return me.lap === race.laps ? 'FINAL LAP' : `LAP ${me.lap}`;
-    return '';
+    const lapText = me?.lapFlash > 0 ? (me.lap === race.laps ? 'FINAL LAP' : `LAP ${me.lap}`) : '';
+    // アーケード: チェックポイントを通ったら延びた秒数を出す（スタートラインでは周回と一緒に）
+    if (me?.cpFlash?.t > 0) return `${lapText || 'CHECKPOINT'}  +${me.cpFlash.extend.toFixed(1)}s`;
+    return lapText;
   }
 
   // 順位が変わったら「+1」「-1」を弾ませる（パーティーモード）
@@ -210,6 +217,7 @@ export class Hud {
 
   update(race, me, { vr = false, manual = false, dt = 0, party = false, timing = false, drift = null } = {}) {
     const k = me.kart;
+    this.updateTimer(race, me, vr);
     this.party = party;
     this.coinFlash = Math.max(0, (this.coinFlash || 0) - dt);
     this.el.coins.hidden = !party || vr;
@@ -251,6 +259,7 @@ export class Hud {
       this.el.rpm.classList.toggle('red', k.rpm > 0.92);
       this.el.center.textContent = center;
       this.el.center.classList.toggle('big', /^\d$|GO/.test(center));
+      this.el.center.classList.toggle('over', center === 'TIME OVER');
       this.el.center.classList.toggle('small', center.includes('ゲット') || !!(me.msg?.t > 0 && center === me.msg.text));
       this.el.center.classList.toggle('roul', center.startsWith('🎰'));
       const ctx = this.mapCtx;
@@ -347,6 +356,13 @@ export class Hud {
       ctx.fillStyle = flash ? '#ffe14a' : '#ffd23f';
       ctx.fillText(`🪙 ${me.coins || 0}  +${((me.coins || 0) * COIN_BONUS * 100).toFixed(1)}%`, 24, 30);
     }
+    // アーケード: 残り時間（コインと同じ場所）
+    if (this.timerLeft != null) {
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 26px system-ui, sans-serif';
+      ctx.fillStyle = this.timerLeft < 10 ? '#ff4a3a' : '#ffd23f';
+      ctx.fillText(`⏱ ${Math.max(0, this.timerLeft).toFixed(1)}`, 24, 30);
+    }
     // 下の帯: このレースの最速ラップ / コースレコード / 自己ベスト
     const f = fastestLap(race);
     const rec = this.courseRecord;
@@ -391,7 +407,12 @@ export class Hud {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffd23f';
     ctx.font = 'italic 900 64px system-ui, sans-serif';
-    ctx.fillText(`RESULT — ${me.position} 位`, 512, 70);
+    if (extra.timeOver) {
+      ctx.fillStyle = '#ff5a3c';
+      ctx.fillText(`TIME OVER — LAP ${Math.max(1, me.lap)}/${race.laps}`, 512, 70);
+    } else {
+      ctx.fillText(`RESULT — ${me.position} 位`, 512, 70);
+    }
     if (extra.drift) {
       ctx.font = 'bold 28px system-ui, sans-serif';
       ctx.fillStyle = '#ffd23f';
@@ -420,7 +441,7 @@ export class Hud {
       ctx.fillRect(130, y - rowH * 0.25, rowH * 0.5, rowH * 0.5);
       ctx.fillStyle = e === me ? '#ffd23f' : '#ffffff';
       ctx.fillText(e.name, 130 + rowH * 0.7, y);
-      const t = e.finished ? (e === leader ? fmtTime(e.finishTime) : `+${(e.finishTime - leader.finishTime).toFixed(2)}`) : `LAP ${Math.max(1, e.lap)}`;
+      const t = e.finished ? (e === leader ? fmtTime(e.finishTime) : `+${(e.finishTime - leader.finishTime).toFixed(2)}`) : e.timeOver ? 'TIME OVER' : `LAP ${Math.max(1, e.lap)}`;
       ctx.fillText(t, 560, y);
       ctx.fillText(fmtTime(e.bestLap), 780, y);
     });
@@ -453,6 +474,47 @@ export class Hud {
   }
 
   // VR: ドリフトの得点
+  // アーケードの残り時間。PC は画面の上中央、VR は前方のパネル（表示が変わったときだけ描き直す）
+  updateTimer(race, me, vr) {
+    const on = !!race.timer;
+    this.timerLeft = on ? me.timeLeft : null;
+    // ゴール・タイムオーバーの後は結果画面に場所を譲る（残り時間は結果に出す）
+    const show = on && !me.finished && !me.timeOver;
+    this.el.timer.hidden = !show || vr;
+    this.timerPanel.mesh.visible = show && vr;
+    if (!on) return;
+    const left = Math.max(0, me.timeLeft ?? 0);
+    // 10 秒を切ったら小数第 1 位まで、赤く点滅させる
+    const text = left < 10 ? left.toFixed(1) : String(Math.ceil(left));
+    const warn = left < 10 && !me.finished;
+    const flash = me.cpFlash?.t > 0;
+    if (!vr) {
+      this.el.timer.innerHTML = `<small>TIME</small>${text}`;
+      this.el.timer.classList.toggle('warn', warn);
+      this.el.timer.classList.toggle('ext', flash);
+      return;
+    }
+    const key = `${text}|${warn}|${flash}`;
+    if (key === this.timerDrawn) return;
+    this.timerDrawn = key;
+    const { ctx, canvas } = this.timerPanel;
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+    ctx.font = 'italic 900 40px system-ui, sans-serif';
+    ctx.strokeText('TIME', W / 2, 34);
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillText('TIME', W / 2, 34);
+    ctx.font = 'italic 900 120px system-ui, sans-serif';
+    ctx.strokeText(text, W / 2, 125);
+    ctx.fillStyle = warn ? '#ff4a3a' : flash ? '#7cff6a' : '#ffffff';
+    ctx.fillText(text, W / 2, 125);
+    this.timerPanel.commit();
+  }
+
   drawDrift(d) {
     const { ctx, canvas } = this.driftPanel;
     const W = canvas.width, H = canvas.height;
@@ -613,6 +675,8 @@ export class Hud {
     this.el.board.hidden = true;
     this.timing.mesh.visible = false;
     this.driftPanel.mesh.visible = false;
+    this.timerPanel.mesh.visible = false;
+    this.el.timer.hidden = true;
   }
 }
 

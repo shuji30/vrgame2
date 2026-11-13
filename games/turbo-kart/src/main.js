@@ -99,12 +99,13 @@ game.resize(window.innerWidth, window.innerHeight);
 const npcSel = $('opt-npcs');
 for (let i = 0; i <= 10; i++) npcSel.add(new Option(`${i} 台`, i, i === 10, i === 10));
 const STORE = 'turbokart:menu';
-// モード（パーティー / 本格）とキャラクター
+// モード（パーティー / 本格 / アーケード）とキャラクター
 const charSel = $('opt-char');
 for (const c of CHARACTERS) charSel.add(new Option(`${c.emoji} ${c.name}`, c.id));
 let mode = 'party';
+const MODE_NAMES = { party: 'パーティー', real: '本格', arcade: 'アーケード' };
 const setMode = (m, rebuild = true) => {
-  mode = m === 'real' ? 'real' : 'party';
+  mode = m === 'real' || m === 'arcade' ? m : 'party';
   for (const b of document.querySelectorAll('#opt-mode button')) b.classList.toggle('on', b.dataset.mode === mode);
   $('char-field').hidden = mode !== 'party';
   if (rebuild && game.theme !== mode) {
@@ -271,11 +272,14 @@ window.__kart = {
     for (let i = 0; i < Math.round(sec * fps); i++) game.update(1 / fps);
     renderer.render(game.scene, game.camera);
     const me = game.me;
-    return me && { state: game.state, time: game.race.time, lap: me.lap, pos: me.position, s: me.loc.s, lat: me.loc.lateral, surface: me.kart.surface, kmh: Math.round(Math.abs(me.kart.vx * Math.cos(me.kart.heading) + me.kart.vz * Math.sin(me.kart.heading)) * 3.6) };
+    return me && { state: game.state, time: game.race.time, timeLeft: me.timeLeft, lap: me.lap, pos: me.position, s: me.loc.s, lat: me.loc.lateral, surface: me.kart.surface, kmh: Math.round(Math.abs(me.kart.vx * Math.cos(me.kart.heading) + me.kart.vz * Math.sin(me.kart.heading)) * 3.6) };
   },
 };
 const q = new URLSearchParams(location.search);
 if (q.get('autodrive') === '1') game.autodrive = true;
+// 確認用: ?mode=party|real|arcade でモード、?vehicle=kart|gt3|formula|drift で車種を選ぶ
+if (MODE_NAMES[q.get('mode')]) setMode(q.get('mode'));
+if (['kart', 'gt3', 'formula', 'drift'].includes(q.get('vehicle'))) $('opt-vehicle').value = q.get('vehicle');
 if (q.get('autostart') === '1') game.startRace(raceOptions());
 if (q.get('cam') === 'cockpit') game.setCameraMode('cockpit');
 
@@ -289,7 +293,7 @@ async function refreshRanking() {
   const handling = $('opt-handling').value;
   const key = { track: trackSel.value, vehicle: $('opt-vehicle').value, mode: lapMode(mode, handling) };
   const hName = key.mode.endsWith('-real') ? '・リアル' : key.mode.endsWith('-arcade') ? '・アーケード' : '';
-  $('ranking-title').textContent = `🏆 ベストラップ ランキング（${game.track.def.name}・${VEHICLE_NAMES[key.vehicle]}・${mode === 'real' ? '本格' : 'パーティー'}${hName}）`;
+  $('ranking-title').textContent = `🏆 ベストラップ ランキング（${game.track.def.name}・${VEHICLE_NAMES[key.vehicle]}・${MODE_NAMES[mode]}${hName}）`;
   const id = ++rankReq;
   let top = null;
   try { top = await fetchLaps(key); } catch { /* つながらない */ }

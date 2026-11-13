@@ -7,6 +7,7 @@ import { mulberry32 } from './rng.js';
 import { rideState, surfaceParams } from './surface.js';
 import { coinLayout, collectCoins } from './coins.js';
 import { ItemSystem } from './items.js';
+import { createArcadeTimer, stepArcadeTimer } from './arcadetimer.js';
 
 const G = 9.8;
 
@@ -62,7 +63,8 @@ export class Race {
   // entries: [{ name, color, type: 'player' | 'npc' | 'remote', id }]
   // coins: パーティーモードのコイン（拾うと最高速が少し上がる）
   // items: パーティーモードのアイテム（アイテムボックス・投げ物・スター・カミナリなど）
-  constructor(track, entries, { laps = 3, seed = 1, level = 'normal', manual = [], vehicle = 'kart', coins = false, items = false, realistic = false } = {}) {
+  // timer: アーケードモードの残り時間（チェックポイントで延長、0 でタイムオーバー。プレイヤーだけ）
+  constructor(track, entries, { laps = 3, seed = 1, level = 'normal', manual = [], vehicle = 'kart', coins = false, items = false, realistic = false, timer = false } = {}) {
     // realistic: 本格モード（実車寄りの諸元）
     this.spec = realistic ? realSpec(VEHICLES[vehicle] || KART) : VEHICLES[vehicle] || KART;
     this.coins = coins ? coinLayout(track).map((c) => ({ ...c, respawnAt: -Infinity })) : [];
@@ -107,6 +109,13 @@ export class Race {
     // items: true（オフライン）または 'host' / 'client'（オンライン）
     this.items = items ? new ItemSystem(this, typeof items === 'string' ? items : 'local') : null;
     this.updateProgress();
+    // 残り時間は、グリッドの位置（スタートラインまでの距離）も含めて決める
+    this.timer = null;
+    const p = this.player;
+    if (timer && p) {
+      this.timer = createArcadeTimer(track, this.spec, { laps, level, progress0: p.progress });
+      p.timeLeft = this.timer.left;
+    }
   }
 
   get player() {
@@ -152,6 +161,11 @@ export class Race {
         // ゴール後はゆっくり流す
         // スミ雲で前が見えにくいときは少し慎重に走る
         input = driveAI(e.driver, e.kart, e.loc, this.track, others, (e.finished ? 0.6 : pace) * (e.ink > 0 ? 0.95 : 1), dt);
+      } else if (e.type === 'player' && e.timeOver) {
+        // タイムオーバー: アクセルを離して止まる（ハンドルだけ AI が切ってコースに沿わせる）
+        if (!e.driver) e.driver = createDriver(this.rng, 'easy');
+        const ai = driveAI(e.driver, e.kart, e.loc, this.track, this.karts.filter((o) => o !== e), 0.6, dt);
+        input = { ...ai, throttle: 0, brake: 0.35, handbrake: 0 };
       } else if (e.type === 'player' && e.finished) {
         // ゴール後は自動でクールダウン走行
         if (!e.driver) e.driver = createDriver(this.rng, 'easy');
@@ -164,7 +178,7 @@ export class Race {
         if (input.useItemBack) this.items.use(e, true);
         input = this.items.overrideInput(e, input);
       }
-      if (e.type === 'player' && !e.finished) this.checkStuck(e, dt);
+      if (e.type === 'player' && !e.finished && !e.timeOver) this.checkStuck(e, dt);
       e.input = input;
       this.applyTerrain(e);
       const r = stepKart(e.kart, input, dt, { manual: e.manual });
@@ -180,6 +194,19 @@ export class Race {
     if (racing && this.coins.length) collectCoins(this);
     if (racing && this.items) this.items.step(dt);
     this.updateProgress();
+    if (this.timer && player) this.stepTimer(player, dt, racing);
+  }
+
+  // アーケードモードの残り時間
+  stepTimer(p, dt, racing) {
+    for (const ev of stepArcadeTimer(this.timer, p.progress, dt, { racing, finished: p.finished })) {
+      p.events.push(ev);
+      if (ev.type === 'timeOver') {
+        p.timeOver = true;
+        if (this.state === 'racing') this.state = 'finished';
+      }
+    }
+    p.timeLeft = this.timer.left;
   }
 
   // e.net: { x, z, h, vx, vz, yaw, sa, st, g, b, dr, age(受信からの秒), lap, sd, f, ft, bl }
