@@ -248,6 +248,12 @@ export class Sim {
   // ハンドブレーキがないとき:曲射の距離は自動
   autoLobRange(e) {
     const ty = e.yaw + e.turret;
+    // 照準が捉えている目標(砲塔を向けている相手)を最優先
+    const lock = e.aim?.lock && this.byId.get(e.aim.lock);
+    if (lock && lock.alive) {
+      const d = dist(e.x, e.z, lock.x, lock.z);
+      if (d >= LOB_MIN && d <= LOB_MAX) return d;
+    }
     let best = null, bd = 1e9;
     for (const t of this.ents) {
       if (!t.alive || t.team === e.team || t.hidden) continue;
@@ -255,7 +261,8 @@ export class Sim {
       if (d < LOB_MIN || d > LOB_MAX) continue;
       const da = Math.abs(wrapAngle(yawTo(e.x, e.z, t.x, t.z) - ty));
       if (da > 22 * DEG) continue;
-      const score = d * (1 + da * 3) * (t.objective || t.type === 'skyFortress' ? 0.6 : 1);
+      // 向きのずれを重く見る(遠くても、まっすぐ前にいる相手を選ぶ)
+      const score = (da * 400 + d * 0.3) * (t.spec?.lobOnly ? 0.4 : t.objective || t.type === 'skyFortress' ? 0.7 : 1);
       if (score < bd) { bd = score; best = t; }
     }
     return best ? dist(e.x, e.z, best.x, best.z) : 90;

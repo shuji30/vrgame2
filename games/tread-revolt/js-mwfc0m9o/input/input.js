@@ -92,6 +92,7 @@ export class InputManager {
     a.quickDir = a.turret < 0 ? -1 : 1;
     a.weaponSwap = p('KeyG');
     a.pause = p('Escape') || p('KeyP');
+    a.recenter = p('KeyZ');
     a.up = p('ArrowUp') || p('KeyW');
     a.down = p('ArrowDown') || p('KeyS');
     a.leftUi = p('ArrowLeft') || p('KeyA');
@@ -135,6 +136,7 @@ export class InputManager {
       if (btn(10)) a.crouch = true;
       if (edge(11)) { a.quickTurn = true; a.quickDir = a.turret < 0 ? -1 : 1; }
       if (edge(9)) a.pause = true;
+      if (edge(8)) a.recenter = true; // BACK / SELECT
       // メニュー
       if (edge(12) || (ax[1] < -0.6 && !(prev.ay < -0.6))) a.up = true;
       if (edge(13) || (ax[1] > 0.6 && !(prev.ay > 0.6))) a.down = true;
@@ -156,7 +158,7 @@ export class InputManager {
       const moving = Math.abs(wa.left) > 0.05 || Math.abs(wa.right) > 0.05 || Math.abs(w.steer) > 0.08 || wa.fire;
       if (moving) this.active = 'wheel';
       merge(a, 'left', wa.left); merge(a, 'right', wa.right); merge(a, 'turret', wa.turret);
-      for (const key of ['fire', 'sub', 'subPress', 'subSelect', 'view', 'pause', 'quickTurn', 'weaponSwap', 'crouch', 'up', 'down', 'ok', 'back']) a[key] = a[key] || wa[key];
+      for (const key of ['fire', 'sub', 'subPress', 'subSelect', 'view', 'pause', 'recenter', 'quickTurn', 'weaponSwap', 'crouch', 'up', 'down', 'ok', 'back']) a[key] = a[key] || wa[key];
       if (wa.fire) a.fireStrength = wa.fireStrength;
       a.pitchStep += wa.pitchStep;
       if (w.hasShifter) a.gear = wa.gear;
@@ -172,8 +174,9 @@ export class InputManager {
       const x = this.xr;
       if (x.activity) this.active = 'xr';
       merge(a, 'left', x.left); merge(a, 'right', x.right); merge(a, 'turret', x.turret);
-      if (x.turretYaw != null) a.turretYaw = x.turretYaw;
-      for (const key of ['fire', 'sub', 'subPress', 'subSelect', 'view', 'pause', 'quickTurn', 'weaponSwap', 'crouch', 'up', 'down', 'ok', 'back', 'leftUi', 'rightUi']) a[key] = a[key] || !!x[key];
+      // 頭の向きで砲塔を回すのは VR コントローラーのときだけ(ハンコンのときはハンドルで回す)
+      if (x.turretYaw != null && !this.wheel) a.turretYaw = x.turretYaw;
+      for (const key of ['fire', 'sub', 'subPress', 'subSelect', 'view', 'pause', 'recenter', 'quickTurn', 'weaponSwap', 'crouch', 'up', 'down', 'ok', 'back', 'leftUi', 'rightUi']) a[key] = a[key] || !!x[key];
       if (x.lob) { a.lob = true; a.lobAmount = x.lobAmount; a.lobAnalog = x.lobAnalog; }
       a.pitchStep += x.pitchStep || 0;
       a.pitchRate += x.pitchRate || 0;

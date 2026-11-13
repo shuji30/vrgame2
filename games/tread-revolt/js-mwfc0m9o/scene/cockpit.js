@@ -91,7 +91,7 @@ export class Cockpit {
       this.wheelRig.add(p);
       this.pedals.push(p);
     }
-    this.wheelRig.position.set(0, -0.32, 0.38);
+    this.wheelRig.position.set(0, -0.36, 0.45);
     this.wheelRig.visible = false;
     this.group.add(this.wheelRig);
     this.t = 0;
@@ -99,7 +99,8 @@ export class Cockpit {
   }
 
   setWheelOffset(o) {
-    this.wheelRig.position.set(o.x ?? 0, -0.32 + (o.y ?? 0), 0.38 + (o.z ?? 0));
+    // 左右は設定画面の向き(右が正)に合わせる。コックピットの +X は左
+    this.wheelRig.position.set(-(o.x ?? 0), -0.36 + (o.y ?? 0), 0.45 + (o.z ?? 0));
   }
 
   // 揺れる小物:車体の加速と旋回で振れる(減衰する振り子)
@@ -123,8 +124,9 @@ export class Cockpit {
     }
   }
 
-  setWheel(steer, pedals) {
-    this.wheelSpin.rotation.z = -steer * 2.2;
+  // angle: 実物のハンドルの回転角(rad、右が正)。奥向きの Z 軸まわりの正の回転は、座った人から見て右回り
+  setWheel(angle, pedals) {
+    this.wheelSpin.rotation.z = angle;
     pedals.forEach((v, i) => { this.pedals[i].rotation.x = v * 0.5; });
   }
 

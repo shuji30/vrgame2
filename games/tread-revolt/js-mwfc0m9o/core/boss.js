@@ -13,7 +13,7 @@ export const BOSSES = {
       P('t1', 4, 8, 7, 1.9, 60, { gun: true }), P('t2', -4, 8, 7, 1.9, 60, { gun: true }),
       P('t3', 4, 8, -5, 1.9, 60, { gun: true }), P('t4', -4, 8, -5, 1.9, 60, { gun: true }),
       P('mortar', 0, 8.6, 1, 2.1, 80, { mortar: true }),
-      P('core', 0, 4, -13.6, 2.6, 240, { weak: true, core: true }),
+      P('core', 0, 4, -13.6, 2.6, 340, { weak: true, core: true }),
     ],
   },
   walker: {
@@ -30,7 +30,7 @@ export const BOSSES = {
     name: '浚渫要塞 マッドリバー', hpScale: 1,
     body: { w: 14, d: 30, h: 6, y0: -1 }, radius: 15, swim: true,
     parts: () => [
-      P('v1', 7.4, 2.6, -4, 1.9, 90, { weak: true, vent: true }), P('v2', -7.4, 2.6, -4, 1.9, 90, { weak: true, vent: true }),
+      P('v1', 7.4, 2.6, -4, 2.4, 70, { weak: true, vent: true }), P('v2', -7.4, 2.6, -4, 2.4, 70, { weak: true, vent: true }),
       P('bucket', 0, 4, 15.5, 2.6, 110, { arm: true }),
       P('core', 0, 6.4, -2, 2.6, 220, { weak: true, core: true, shielded: true, topOnly: true }),
     ],
@@ -146,7 +146,7 @@ function fireFrom(e, sim, p, foe, opt = {}) {
   sim.spawnShot({
     kind: 'enemy', x: pp.x + Math.sin(yaw) * 2, y: pp.y, z: pp.z + Math.cos(yaw) * 2,
     vx: Math.sin(yaw) * cp * sp, vy: Math.sin(pitch) * sp, vz: Math.cos(yaw) * cp * sp,
-    team: e.team, owner: e.id, dmg: opt.dmg || 16, splash: opt.splash || 3, big: true,
+    team: e.team, owner: e.id, dmg: (opt.dmg || 16) * sim.diff.dmg, splash: opt.splash || 3, big: true,
   });
   sim.emit({ t: 'fire', id: e.id, x: pp.x, y: pp.y, z: pp.z, kind: 'bigCannon' });
 }
@@ -155,7 +155,7 @@ function fireFrom(e, sim, p, foe, opt = {}) {
 function mortar(e, sim, p, foe) {
   const pp = partPos(e, p);
   const tx = foe.x + (sim.rnd() - 0.5) * 8, tz = foe.z + (sim.rnd() - 0.5) * 8;
-  sim.lobAt(e, pp, tx, tz, { dmg: 22, splash: 6.5, warn: true });
+  sim.lobAt(e, pp, tx, tz, { dmg: 20 * sim.diff.dmg, splash: 6.5, warn: true });
 }
 
 function followPath(e, sim, dt, speed) {
@@ -222,9 +222,8 @@ export function updateBoss(e, sim, dt) {
   } else if (e.boss === 'dredger') {
     // 川を行き来しながら、浮上と潜行をくり返す
     const ventsLeft = e.parts.filter((p) => p.vent && p.alive).length;
-    const cycle = ventsLeft === 0 ? 1e9 : 20;
-    const ph = e.pt % cycle;
-    const wantSub = ph > 14 ? 1 : 0;
+    // 吸気口を壊したら、もう潜れない(浮いたまま上のハッチが開く)
+    const wantSub = ventsLeft > 0 && e.pt % 20 > 14 ? 1 : 0;
     e.sub = clamp(e.sub + (wantSub ? 1 : -1) * dt * 0.5, 0, 1);
     if (e.sub > 0.95 && e.wasUp) { e.wasUp = false; sim.emit({ t: 'splash', x: e.x, y: 0, z: e.z, big: true }); }
     if (e.sub < 0.05) e.wasUp = true;
@@ -235,13 +234,13 @@ export function updateBoss(e, sim, dt) {
     if (e.z < zMin) e.dir = 1;
     e.yaw = approachAngle(e.yaw, e.dir > 0 ? 0 : Math.PI, 0.4 * dt);
     if (Math.abs(wrapAngle((e.dir > 0 ? 0 : Math.PI) - e.yaw)) < 0.3) {
-      e.v = 4;
-      e.z += Math.cos(e.yaw) * 4 * dt;
+      e.v = 3;
+      e.z += Math.cos(e.yaw) * 3 * dt;
     }
     if (foe && e.sub < 0.3) {
       const d = dist(e.x, e.z, foe.x, foe.z);
       if (e.cd.mortar <= 0 && d < 130) {
-        e.cd.mortar = 4.2 * sim.diff.reload;
+        e.cd.mortar = 5.5 * sim.diff.reload;
         mortar(e, sim, e.parts.find((p) => p.name === 'core'), foe);
       }
       // バケットの腕で岸をなぎ払う
@@ -265,10 +264,10 @@ export function updateBoss(e, sim, dt) {
       e.yaw = approachAngle(e.yaw, want, 0.45 * dt);
       if (d > 40) { e.v = 2.5; e.x += Math.sin(e.yaw) * 2.5 * dt; e.z += Math.cos(e.yaw) * 2.5 * dt; }
       const guns = e.parts.filter((p) => p.gun && p.alive);
-      if (guns.length && e.cd.gun <= 0 && d < 100) { e.cd.gun = 3.6 * sim.diff.reload; fireFrom(e, sim, guns[Math.floor(sim.rnd() * guns.length)], foe, { dmg: 14 }); }
+      if (guns.length && e.cd.gun <= 0 && d < 100) { e.cd.gun = 4 * sim.diff.reload; fireFrom(e, sim, guns[Math.floor(sim.rnd() * guns.length)], foe, { dmg: 12 }); }
       if (e.cd.missile <= 0) {
-        e.cd.missile = 9 * sim.diff.reload;
-        for (let i = 0; i < 4; i++) sim.spawnMissile(e, { x: e.x + Math.sin(e.yaw + 3.14) * 6, y: e.y + 11, z: e.z + Math.cos(e.yaw + 3.14) * 6 }, foe, { delay: i * 0.25, dmg: 12 });
+        e.cd.missile = 11 * sim.diff.reload;
+        for (let i = 0; i < 4; i++) sim.spawnMissile(e, { x: e.x + Math.sin(e.yaw + 3.14) * 6, y: e.y + 11, z: e.z + Math.cos(e.yaw + 3.14) * 6 }, foe, { delay: i * 0.25, dmg: 9 * sim.diff.dmg });
       }
       if (e.pt > 9 && Math.abs(wrapAngle(want - e.yaw)) < 0.25 && d < 110) {
         e.phase = 'windup';
