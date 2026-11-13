@@ -78,7 +78,7 @@ export class Game {
     const S = this.settings;
     this.sim = new Sim(cfg.stage, {
       mode: cfg.mode, difficulty: S.difficulty, players: cfg.players, versus: cfg.versus, authority: cfg.authority ?? true,
-      comfortTurn: S.comfortTurn ?? 1, seed: cfg.seed,
+      comfortTurn: S.comfortTurn ?? 1, turretRange: S.turretRange ?? 90, seed: cfg.seed,
     });
     if (cfg.idPrefix) this.sim.idPrefix = cfg.idPrefix;
     this.me = this.sim.byId.get(cfg.localId || 'p1');
@@ -105,7 +105,9 @@ export class Game {
     this.app.audio.setInterior(true);
     this.bossShown = false;
     this.tutorial = cfg.tutorial || null;
-    this.pendingRecenter = 2; // 出撃直後に自動でリセット(頭の姿勢が届いてから)
+    // 出撃の 0.5 秒後と、作戦が始まったときに自動でリセット(頭の姿勢が届いてから)
+    this.recenterT = 0.5;
+    this.recenterAtPlay = true;
     this.processEvents();
   }
 
@@ -154,7 +156,10 @@ export class Game {
       this.processEvents();
     }
     if (steps === 4) this.acc = 0;
-    if (this.pendingRecenter > 0 && this.renderer.xr.isPresenting && --this.pendingRecenter === 0) this.recenter();
+    if (this.renderer.xr.isPresenting) {
+      if (this.recenterT > 0 && (this.recenterT -= dt) <= 0) this.recenter();
+      if (this.recenterAtPlay && this.sim.mission.state === 'play') { this.recenterAtPlay = false; this.recenter(); }
+    }
     this.tutorial?.update(this, dt);
     this.updateModels(dt);
     this.updateCamera(dt, inXR);
@@ -231,7 +236,7 @@ export class Game {
     const spec = me.spec;
     // 視点を砲塔の向きに合わせる(砲手席):デスクトップと、VR でハンコンを使っているとき(照準が常に正面に来る)
     // VR コントローラーのときは車体の向き(運転手ののぞき窓。砲塔は頭の向きで回す)
-    const gunner = !inXR || this.app.input.active === 'wheel' || !!this.app.input.wheel;
+    const gunner = !inXR; // VR は前後が分からなくならないよう、いつも車体の正面
     const followTurret = gunner;
     const targetYaw = followTurret ? me.yaw + me.turret : me.yaw;
     // VR のスナップ旋回:誤差が一定を超えたら一気に回す
@@ -252,8 +257,14 @@ export class Game {
     // 自車:デスクトップのコックピットでは隠す。VR では車体と履帯を見せ、砲手席のときは視界をふさぐ砲塔だけ隠す
     if (ownModel) {
       ownModel.root.visible = me.alive && (inXR || view !== 'cockpit');
+      // VR のコックピット:視点は砲塔の中なので、砲塔の外殻は隠して砲身だけ見せる(砲身の向きで砲塔の向きが分かる)
       const turretNode = ownModel.hatch?.parent;
-      if (turretNode && turretNode !== ownModel.root) turretNode.visible = !(inXR && gunner && view === 'cockpit');
+      if (turretNode && turretNode !== ownModel.root) {
+        const hideShell = inXR && view === 'cockpit';
+        let gunPart = ownModel.muzzle;
+        while (gunPart && gunPart.parent !== turretNode) gunPart = gunPart.parent;
+        for (const c of turretNode.children) c.visible = !hideShell || c === gunPart;
+      }
     }
 
     if (view === 'diorama') {
@@ -280,13 +291,16 @@ export class Game {
       let eye = spec.eye;
       if (spec.body === 'mech') eye -= me.crouch * 2.2;
       if (view === 'hatch') eye = spec.height + 1.25;
+      // VR のコックピット:砲塔の付け根より少し下(車内)。砲身が目線の上で回る
+      if (inXR && view === 'cockpit' && ownModel?.turretBase && spec.body === 'tank') eye = ownModel.turretBase - 0.2;
       // 高さはなめらかに(揺れを伝えない)
       const ty = me.y + eye;
       this.seatY = Math.abs(ty - this.seatY) > 8 ? ty : damp(this.seatY, ty, 5, dt);
-      const fwd = view === 'cockpit' ? 0.3 : -0.6;
+      // VR は車体の前寄りの中央(砲塔より前)。砲身は足元から前へ伸び、覗き窓の下に見える
+      const fwd = view === 'cockpit' ? (inXR ? spec.radius * 0.25 : 0.3) : -0.6;
       const yawPos = followTurret ? this.viewYaw : me.yaw;
       // コックピットは運転手ののぞき窓(車体の前)。前に車体の前端と履帯が見え、砲塔は後ろになる
-      const eyeNode = inXR && !gunner && view === 'cockpit' && ownModel?.eye;
+      const eyeNode = false; // VR も車体の中央(砲塔の位置)から見る。覗き窓から斜め下に左右の履帯の前端が見える
       if (eyeNode) {
         ownModel.root.updateMatrixWorld(true);
         const p = eyeNode.getWorldPosition(this._eye || (this._eye = new THREE.Vector3()));
@@ -347,6 +361,17 @@ export class Game {
       m = buildUnit(e.type);
     }
     if (this.settings.shadows) m.root.traverse((c) => { if (c.isMesh) c.castShadow = true; });
+    // 自車:車体(砲塔を除く)の上面の高さを測っておく(VR の視点を車体の中に入れないため)
+    if (e === this.me && m.hatch?.parent && m.hatch.parent !== m.root) {
+      const tn = m.hatch.parent;
+      tn.visible = false;
+      m.root.updateMatrixWorld(true);
+      const box = new THREE.Box3();
+      m.root.traverseVisible((c) => { if (c.isMesh) box.expandByObject(c); });
+      tn.visible = true;
+      m.hullTop = box.max.y - m.root.position.y;
+      m.turretBase = tn.getWorldPosition(new THREE.Vector3()).y - m.root.position.y;
+    }
     this.scene.add(m.root);
     this.models.set(e.id, m);
     return m;
@@ -365,7 +390,7 @@ export class Game {
       if (m.boss) { m.boss.update(e, dt, this.time); continue; }
       m.update({
         dt, tl: e.tl || 0, tr: e.tr || 0, turret: e.turret || 0, gunPitch: e.gunPitch || 0, pitch: e.pitch || 0, roll: e.roll || 0,
-        wheelie: e.wheelie || 0, crouch: e.crouch || 0, rise: e.rise ?? 1, popped: e.popped || 0, recoil: (e.fireT || 0) / 0.35,
+        wheelie: e.wheelie || 0, crouch: e.crouch || 0, rise: e.rise ?? 1, popped: e.popped || 0, recoil: (e.fireT || 0) / 0.35, recoils: e.recoilT,
         hp01: e.hp / (e.maxHp || 1), trackBrokenL: e.trackDmg?.[0] > 0, trackBrokenR: e.trackDmg?.[1] > 0, time: this.time, team: e.team,
       });
       // 走ったあとの土ぼこり
@@ -560,13 +585,13 @@ export class Game {
     const objText = sim.mode === 'versus' ? versusText(sim, me) : m.objectives ? `目標 ${m.objectives - m.objectivesLeft}/${m.objectives}` : '';
     const state = {
       tl: me.tl / me.spec.speed, tr: me.tr / me.spec.speed, brokenL: me.trackDmg[0] > 0, brokenR: me.trackDmg[1] > 0,
-      reload01: 1 - me.reload / ((me.weapon === 'rockets' ? 4.6 : me.spec.reload) || 1), hp01: me.hp / me.maxHp, gear: me.gear, speed: me.v,
+      reload01: me.spec.body === 'tank' ? (me.ammo > 0 ? me.ammo / 2 : 1 - me.reload / (me.spec.reload * 1.4)) : 1 - me.reload / ((me.weapon === 'rockets' ? 4.6 : me.spec.reload) || 1), hp01: me.hp / me.maxHp, gear: me.gear, speed: me.v,
       still: isStill(me.v, me.w), subLabel: me.spec.body === 'mech' ? (me.weapon === 'cannon' ? '腕の主砲' : '肩のロケット') + ' / ' + (me.sub === 'mg' ? '機銃' : `煙×${me.smokeAmmo}`) : me.sub === 'mg' ? '副:機銃' : `副:スモーク ×${me.smokeAmmo}`,
       timeLeft: m.timeLimit ? m.timeLeft : null, objText,
       livesText: sim.mode === 'versus' ? `撃破 ${me.kills} / 被撃破 ${me.deaths}` : sim.mode === 'training' ? '' : `残機 ${Math.max(0, m.lives)}`,
       scoreText: sim.mode === 'versus' ? '' : `SCORE ${m.score}`, turret: me.turret,
       elevText: sim.elevators.length ? `エレベーター ×${sim.elevUses}` : '',
-      extra: me.wheelie > 0.3 ? `曲射 ${Math.round(me.lobRangeNow || 0)}m` : me.trackDmg.some((t) => t > 0) ? '履帯 修理中…' : '',
+      extra: me.wheelie > 0.3 ? `曲射 ${Math.round(me.lobRangeNow || 0)}m` : me.trackDmg.some((t) => t > 0) ? '履帯 修理中…' : me.spec.body === 'tank' ? `砲弾 ${'●'.repeat(me.ammo)}${'○'.repeat(2 - me.ammo)}` : '',
     };
     if (this.instT <= 0) {
       this.instT = 0.1;

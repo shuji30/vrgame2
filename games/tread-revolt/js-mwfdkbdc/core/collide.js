@@ -73,7 +73,8 @@ export class Obstacles {
   // 2点間の見通し(高さ y の線を遮る遮蔽物があるか)
   blocked(ax, ay, az, bx, by, bz, ignore = null) {
     const len = Math.hypot(bx - ax, bz - az);
-    const steps = Math.max(1, Math.ceil(len / 2.5));
+    // 薄い壁(2m)や門(1.2m)をすり抜けないよう、0.9m おきに調べる
+    const steps = Math.max(1, Math.ceil(len / 0.9));
     for (let s = 1; s < steps; s++) {
       const t = s / steps;
       const x = ax + (bx - ax) * t, y = ay + (by - ay) * t, z = az + (bz - az) * t;

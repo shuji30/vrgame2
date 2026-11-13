@@ -170,7 +170,7 @@ export function buildBoss(id) {
         }
         const g = o.userData.glow;
         if (g) {
-          const shielded = p.shielded && !partOpen(e, p);
+          const shielded = (p.shielded && !partOpen(e, p)) || (p.stunOnly && !e.stunned);
           g.material = shielded ? m.dark : m.weak;
           g.scale.setScalar(1 + Math.sin(time * 6) * 0.08);
         }

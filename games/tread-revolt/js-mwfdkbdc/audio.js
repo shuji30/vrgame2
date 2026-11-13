@@ -396,16 +396,65 @@ export class GameAudio {
   }
 
   // ===================== BGM =====================
+  // BGM は書き出した WAV(assets/bgm/<id>.wav、つなぎ目なしの 1 周)をくり返す。
+  // 読み込むまでは合成で鳴らし、読み込めたら WAV に切りかえる(scripts/render-bgm.mjs で作る)
   playMusic(id) {
     if (!this.ctx) { this._pendingMusic = id; return; }
     if (this.musicId === id) return;
     this.musicId = id;
+    this._stopWav(1.5);
+    const buf = this._wavCache?.get(id);
+    if (buf && buf !== 'loading' && buf !== 'none') { this._playWav(id, buf, 1.5); return; }
     this.music.play(id, 1.5);
+    this._loadWav(id).then((b) => {
+      if (!b || this.musicId !== id) return;
+      this.music.stop(2);
+      this._playWav(id, b, 2);
+    });
+  }
+  _loadWav(id) {
+    this._wavCache ||= new Map();
+    const c = this._wavCache.get(id);
+    if (c && c !== 'loading') return Promise.resolve(c === 'none' ? null : c);
+    if (c === 'loading') return this._wavLoading.get(id);
+    this._wavCache.set(id, 'loading');
+    this._wavLoading ||= new Map();
+    const p = fetch(new URL(`../assets/bgm/${id}.wav`, import.meta.url))
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.arrayBuffer(); })
+      .then((a) => this.ctx.decodeAudioData(a))
+      .then((b) => { this._wavCache.set(id, b); return b; })
+      .catch(() => { this._wavCache.set(id, 'none'); return null; });
+    this._wavLoading.set(id, p);
+    return p;
+  }
+  _playWav(id, buf, fade) {
+    const ctx = this.ctx, t = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    const g = ctx.createGain();
+    // 書き出しで音割れしないよう下げてあるので、合成のときと同じくらいの大きさに戻す
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(2.4, t + fade);
+    src.connect(g).connect(this.music.out);
+    src.start(t);
+    this._wav = { id, src, g };
+  }
+  _stopWav(fade = 1) {
+    const w = this._wav;
+    if (!w) return;
+    this._wav = null;
+    const t = this.ctx.currentTime;
+    w.g.gain.cancelScheduledValues(t);
+    w.g.gain.setValueAtTime(Math.max(0.0001, w.g.gain.value), t);
+    w.g.gain.exponentialRampToValueAtTime(0.0001, t + Math.max(0.05, fade));
+    w.src.stop(t + fade + 0.1);
   }
   stopMusic(fade = 1) {
     this._pendingMusic = null;
     this.musicId = null;
     if (this.music) this.music.stop(fade);
+    if (this.ctx) this._stopWav(fade);
   }
   jingle(id) {
     if (this.music) this.music.jingle(id);
