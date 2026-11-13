@@ -907,8 +907,9 @@ export class Sim {
   damagePart(e, p, s) {
     if (!this.authority) return;
     // つながった部位(掘削機の排気口 → 動力炉)へダメージを回す
-    if (p.link) { const q = e.parts.find((x) => x.name === p.link); if (q && q.alive) p = q; }
     let dmg = s.dmg;
+    // 開いた排気口への命中は大きな好機なので 2.5 倍
+    if (p.link) { const q = e.parts.find((x) => x.name === p.link); if (q && q.alive) { p = q; dmg *= 2.5; } }
     if (e.stunned) dmg *= 1.5;
     p.hp -= dmg;
     this.emit({ t: 'hitPart', id: e.id, part: p.name, hp: p.hp / p.maxHp, x: s.x, y: s.y, z: s.z });

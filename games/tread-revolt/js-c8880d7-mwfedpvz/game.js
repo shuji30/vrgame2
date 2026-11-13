@@ -268,7 +268,7 @@ export class Game {
     }
 
     if (view === 'diorama') {
-      this.seat.scale.setScalar(inXR ? 40 : 1);
+      this.seat.scale.setScalar(1);
       // 盤面は回さない(北が奥)。自機が盤の手前に来るように置く
       const tx = me.x, tz = me.z;
       this.dioramaPos ??= { x: tx, z: tz };
@@ -276,9 +276,9 @@ export class Game {
       const dd = Math.hypot(tx - dp.x, tz - dp.z);
       if (dd > 12) { dp.x += (tx - dp.x) * dt * 1.5; dp.z += (tz - dp.z) * dt * 1.5; }
       if (inXR) {
-        // 盤面(地面)が手前 0.6m、高さ 0.8m の卓に見える
-        this.seat.position.set(dp.x, -0.8 * 40 + 0.0 + 40 * 0.9, dp.z - 0.6 * 40);
-        this.seat.position.y = this.sim.terrain.height(dp.x, dp.z) - 0.8 * 40 + 1.2 * 40 * 0.0;
+        // 自車の後ろ上方 30m から戦場を見下ろす(盤面は回さない。北が奥)
+        // (以前は床が原点の前提で縮尺 40 倍にしていて、座って遊ぶ設定では視点が地面の下に入り、何も見えなかった)
+        this.seat.position.set(dp.x, this.sim.terrain.height(dp.x, dp.z) + 30, dp.z - 28);
         this.seat.rotation.set(0, Math.PI, 0);
       } else {
         this.seat.position.set(dp.x, me.y + 62, dp.z - 52);
@@ -291,13 +291,13 @@ export class Game {
       let eye = spec.eye;
       if (spec.body === 'mech') eye -= me.crouch * 2.2;
       if (view === 'hatch') eye = spec.height + 1.25;
-      // VR のコックピット:車体の上面より少し上(車体の中に入ると、車体が内側から見えずに消える)
-      if (inXR && view === 'cockpit' && ownModel?.hullTop && spec.body === 'tank') eye = ownModel.hullTop + 0.2;
+      // VR のコックピット:砲塔の付け根より少し下(車内)。砲身が目線の上で回る
+      if (inXR && view === 'cockpit' && ownModel?.turretBase && spec.body === 'tank') eye = ownModel.turretBase - 0.2;
       // 高さはなめらかに(揺れを伝えない)
       const ty = me.y + eye;
       this.seatY = Math.abs(ty - this.seatY) > 8 ? ty : damp(this.seatY, ty, 5, dt);
       // VR は車体の前寄りの中央(砲塔より前)。砲身は足元から前へ伸び、覗き窓の下に見える
-      const fwd = view === 'cockpit' ? (inXR ? spec.radius * 0.62 : 0.3) : -0.6;
+      const fwd = view === 'cockpit' ? (inXR ? spec.radius * 0.25 : 0.3) : -0.6;
       const yawPos = followTurret ? this.viewYaw : me.yaw;
       // コックピットは運転手ののぞき窓(車体の前)。前に車体の前端と履帯が見え、砲塔は後ろになる
       const eyeNode = false; // VR も車体の中央(砲塔の位置)から見る。覗き窓から斜め下に左右の履帯の前端が見える
@@ -370,6 +370,7 @@ export class Game {
       m.root.traverseVisible((c) => { if (c.isMesh) box.expandByObject(c); });
       tn.visible = true;
       m.hullTop = box.max.y - m.root.position.y;
+      m.turretBase = tn.getWorldPosition(new THREE.Vector3()).y - m.root.position.y;
     }
     this.scene.add(m.root);
     this.models.set(e.id, m);
