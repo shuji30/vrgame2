@@ -30,6 +30,7 @@
     button:hover, button.focus { background: rgba(255, 160, 60, 0.22); border-color: var(--accent); }
     button.primary { background: linear-gradient(135deg, #c8571a, #ff8a2a); border-color: transparent; font-size: 18px; }
     button:disabled { opacity: 0.35; cursor: default; }
+    input.focus, select.focus { outline: 3px solid var(--accent2); outline-offset: 2px; }
     button small { display: block; font-weight: 500; font-size: 12px; color: var(--muted); margin-top: 2px; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
     .grid button.on { outline: 3px solid var(--accent2); background: rgba(255, 160, 60, 0.25); }
@@ -177,6 +178,7 @@
         <tr><th>視点</th><td>V(コックピット→ハッチ→ジオラマ)、H でハッチ</td><td>X</td><td>A</td><td>割り当てたボタン</td></tr>
         <tr><th>歩行メカ</th><td>C しゃがむ、X 急旋回、G 武器の持ち替え</td><td>L3 / R3 / Y</td><td>左スティック押し / 右スティック押し / B</td><td>Hシフター R / ハンドブレーキ / 1速⇔3速</td></tr>
         <tr><th>ポーズ</th><td>Esc / P</td><td>START</td><td>Y</td><td>割り当てたボタン</td></tr>
+        <tr><th>視点のリセット</th><td>Z</td><td>BACK</td><td>左スティック押し込み</td><td>割り当てたボタン</td></tr>
       </table>
       <p class="note">簡易操作モード(設定)では、W/S で前後、A/D で旋回になる。左右の踏み分けが難しいときに。</p>
       <div class="row"><button data-go="title">◀ 戻る</button></div>
@@ -203,6 +205,6 @@
 
   <button id="vrBtn" hidden>ENTER VR</button>
 
-  <script type="module" src="./js-mwfb7wws/main.js"></script>
+  <script type="module" src="./js-mwfbg6wg/main.js"></script>
 </body>
 </html>
