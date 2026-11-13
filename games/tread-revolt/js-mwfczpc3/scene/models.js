@@ -306,16 +306,20 @@ function buildTank(sp, o, f = {}) {
   // 砲
   const gun = grp(tur, 0, h2 * 0.5, gz);
   add(gun, C(h2 * 0.36, h2 * 0.42, 0.5, 8, 'z'), k.dark, 0, 0, 0.1);
-  const bar = grp(gun);
   const { bl, br } = sp;
-  const barX = f.twin ? [0.22, -0.22] : [0];
-  let muzzle;
+  const barX = f.twin ? [0.24, -0.24] : [0];
+  // 砲身ごとのグループ(撃った砲身だけが後ろへ下がり、先が少し沈む)
+  const bars = [];
+  const muzzles = [];
   for (const bx of barX) {
-    add(bar, C(br, br * 1.25, bl, 8, 'z'), k.metal, bx, 0, bl / 2 + 0.2);
-    add(bar, C(br * 1.6, br * 1.6, bl * 0.12, 8, 'z'), k.metal, bx, 0, bl * 0.55);
-    add(bar, C(br * 1.7, br * 1.7, 0.32, 6, 'z'), k.dark, bx, 0, bl + 0.12);
-    const m = grp(bar, bx, 0, bl + 0.32); if (!muzzle) muzzle = m;
+    const bar = grp(gun, bx, 0, 0);
+    add(bar, C(br, br * 1.25, bl, 8, 'z'), k.metal, 0, 0, bl / 2 + 0.2);
+    add(bar, C(br * 1.6, br * 1.6, bl * 0.12, 8, 'z'), k.metal, 0, 0, bl * 0.55);
+    add(bar, C(br * 1.7, br * 1.7, 0.32, 6, 'z'), k.dark, 0, 0, bl + 0.12);
+    muzzles.push(grp(bar, 0, 0, bl + 0.32));
+    bars.push(bar);
   }
+  const muzzle = muzzles[0];
   // ミサイルポッド(指揮戦車)
   let muzzle2;
   if (f.pods) {
@@ -330,13 +334,18 @@ function buildTank(sp, o, f = {}) {
 
   const dispose = () => own.forEach((x) => x.dispose());
   return {
-    root, muzzle, muzzle2, eye, hatch, weak, dispose,
+    root, muzzle, muzzle2, muzzles, eye, hatch, weak, dispose,
     update(s) {
       const dt = s.dt || 0;
       updTracks(sides, s, dt);
       tur.rotation.y = s.turret || 0;
       gun.rotation.x = -(s.gunPitch || 0);
-      bar.position.z = -(s.recoil || 0) * bl * 0.09;
+      // 反動:s.recoils = [左, 右](0..1)。なければ両方 s.recoil
+      bars.forEach((b, i) => {
+        const r = s.recoils ? s.recoils[i] || 0 : s.recoil || 0;
+        b.position.z = -r * bl * 0.11;
+        b.rotation.x = r * 0.07; // 先が少し下がる
+      });
       tilt.rotation.x = -(s.pitch || 0);
       tilt.rotation.z = s.roll || 0;
       piv.rotation.x = -(s.wheelie || 0) * 0.66;
@@ -446,7 +455,8 @@ function buildMech(o) {
 export function buildVehicle(kind, opts = {}) {
   if (kind === 'mech') return buildMech(opts);
   const sp = TANK[kind] || TANK.medium;
-  return buildTank(sp, opts, kind === 'heavy' ? { skirts: true } : {});
+  // 自軍の戦車は砲身2本(左右交互に1発ずつ撃つ)
+  return buildTank(sp, opts, kind === 'heavy' ? { skirts: true, twin: true } : { twin: true });
 }
 
 // ---------- 装輪車(偵察車・トラック) ----------

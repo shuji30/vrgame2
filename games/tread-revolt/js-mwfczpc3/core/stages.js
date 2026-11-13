@@ -191,7 +191,7 @@ function stage2_1() {
   for (let z = -170 + 34 + 9; z < 120; z += 52) roads.push({ pts: [[-130, z], [130, z]], w: 16 });
   const loop = [[-73, -84], [83, -84], [83, 72], [-73, 72]];
   return {
-    id: '2-1', area: 2, name: '市街潜入', time: 270, size: [260, 380], seed: 21, hills: 0, indoor: false, flatGround: true,
+    id: '2-1', area: 2, name: '市街潜入', time: 300, size: [260, 380], seed: 21, hills: 0, indoor: false, flatGround: true,
     roads, obstacles: obs,
     flats: [],
     spawn: { x: 0, z: -180, yaw: 0 },
@@ -286,7 +286,7 @@ function stage3_2() {
   scatter(rng, obs, 16, [-145, 145, -190, 190], rock, keep);
   for (const m of mud) obs.push(box('hedge', m.x, m.z - m.d / 2 - 2, m.w * 0.6, 1.2, 1.1, 0, { lowCover: true }));
   return {
-    id: '3-2', area: 3, name: '水田の道', time: 290, size: [300, 400], seed: 32, hills: 0.7,
+    id: '3-2', area: 3, name: '水田の道', time: 330, size: [300, 400], seed: 32, hills: 0.7,
     water, mud, roads: [{ pts: road, w: 11 }],
     flats: [{ x: 0, z: -185, r: 14 }, { x: -20, z: 175, r: 12 }, { x: 20, z: 180, r: 10 }, { x: 60, z: 175, r: 12 }],
     obstacles: obs,
@@ -363,12 +363,12 @@ function stage4_1() {
   const units = [];
   const fill = [
     [['lightTank', -8, 6], ['lightTank', 10, 12]],
-    [['heavyTank', 0, 10], ['turret8', -18, 18]],
+    [['lightTank', 0, 10], ['turret8', -18, 18]],
     [['lightTank', -10, 0], ['lightTank', 10, -10], ['commandTank', 0, 20]],
-    [['heavyTank', -10, 0], ['turret8', 15, 15]],
+    [['lightTank', -10, 0], ['turret8', 15, 15]],
     [['lightTank', 0, 0], ['lightTank', -15, 15], ['lightTank', 15, -15]],
     [['commandTank', 0, 10], ['heavyTank', 12, -10]],
-    [['heavyTank', -10, 10], ['heavyTank', 10, -10], ['turret8', 0, 0]],
+    [['heavyTank', -10, 10], ['lightTank', 10, -10], ['turret8', 0, 0]],
     [['lightTank', -12, 12], ['commandTank', 12, 12], ['lightTank', 0, -16]],
   ];
   for (let k = 0; k < fill.length; k++) {
@@ -383,7 +383,7 @@ function stage4_1() {
     U('bigTurret', last.x - 14, last.z - 6, { yaw: Math.PI, group: 'r9' }), U('bigTurret', last.x + 14, last.z - 6, { yaw: Math.PI, group: 'r9' }),
   );
   return {
-    id: '4-1', area: 4, name: '区画制圧', time: 420, size: [S * 3, S * 3], seed: 41, indoor: true, hills: 0,
+    id: '4-1', area: 4, name: '区画制圧', time: 480, size: [S * 3, S * 3], seed: 41, indoor: true, hills: 0,
     obstacles: obs,
     spawn: { x: -S, z: -S - 22, yaw: 0 },
     exit: { x: S, z: S + 18 },

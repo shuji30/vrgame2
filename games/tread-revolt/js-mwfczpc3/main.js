@@ -24,7 +24,7 @@ const DEFAULT_SETTINGS = {
   difficulty: 'normal', vehicle: 'medium', scheme: 'tracks', manualPitch: false, mouseSens: 1,
   vignette: 0.6, snapTurn: false, horizon: false, comfortTurn: 1, shadows: true,
   master: 0.8, sfx: 0.9, music: 0.35, speech: false,
-  vrScale: 0.8, sortieVR: false, simhub: true, paint: 0, ffb: true, ffbInvert: true, ffbGain: 0.8, ffbSpring: 0.45, xrMode: 'sticks', turretHead: true, wheelOffset: { x: 0, y: 0, z: 0 }, name: 'PLAYER',
+  vrScale: 0.8, turretRange: 90, sortieVR: false, simhub: true, paint: 0, ffb: true, ffbInvert: true, ffbGain: 0.8, ffbSpring: 0.45, xrMode: 'sticks', turretHead: true, wheelOffset: { x: 0, y: 0, z: 0 }, name: 'PLAYER',
 };
 const settings = { ...DEFAULT_SETTINGS, ...load(SETTINGS_KEY, {}) };
 const progress = { cleared: -1, best: {}, ...load(PROGRESS_KEY, {}) };
@@ -353,6 +353,7 @@ function renderSettings() {
     ${check('snapTurn', 'スナップ旋回(VR)')}
     ${check('horizon', '地平線の固定表示')}
     <h2>VR</h2>
+    ${sel('turretRange', '砲塔の旋回範囲(左右)', [['90', '90°(標準。前後が分かりやすい)'], ['135', '135°'], ['180', '全周']])}
     ${sel('xrMode', 'VR の操作', [['sticks', 'タンクコントロール(左右スティック)'], ['levers', '掴んで倒す仮想レバー']])}
     ${check('turretHead', '砲塔を頭の向きに追従(VR コントローラーのとき。ハンコンではハンドルで回す)')}
     ${sel('vrScale', 'VR の解像度', [['0.5', '0.5(軽い)'], ['0.65', '0.65'], ['0.8', '0.8(標準)'], ['1', '1.0(高精細)']])}
@@ -394,7 +395,7 @@ function renderSettings() {
       if (['lockDeg', 'wheelDeg', 'deadzone'].includes(key)) obj = W.steer;
       if (['x', 'y', 'z'].includes(key)) obj = S.wheelOffset;
       let v = el.type === 'checkbox' ? el.checked : el.type === 'range' ? Number(el.value) : el.value;
-      if (key === 'pedals' || key === 'vrScale') v = Number(v);
+      if (key === 'pedals' || key === 'vrScale' || key === 'turretRange') v = Number(v);
       obj[key] = v;
       const show = c.querySelector(`[data-show="${key}"]`);
       if (show) show.textContent = v;
@@ -623,19 +624,18 @@ const vrMenu = {
 vrMenu.init();
 
 // ------------------------------------------------------------ VR
-const vrBtn = $('#vrBtn');
+// VR は「VRで出撃」のチェックから入る(ENTER VR ボタンは置かない)
+const vrBtn = { textContent: '' };
 if (navigator.xr) {
   navigator.xr.isSessionSupported('immersive-vr').then((ok) => {
     if (!ok) return;
     xrSupported = true;
-    vrBtn.hidden = false;
     for (const el of document.querySelectorAll('.vr-sortie')) el.hidden = false;
-    vrBtn.addEventListener('click', enterVR);
   }).catch(() => {});
 }
 // VR の開始(vrgame4 の手順):解像度スケールは開始前に。段階を表示し、10 秒返事がなければランタイムを案内する
 const vrStatus = document.createElement('div');
-vrStatus.style.cssText = 'position:fixed;right:16px;bottom:64px;z-index:20;max-width:420px;background:rgba(0,0,0,.75);padding:8px 12px;font-size:13px;border-left:3px solid #ff8a2a';
+vrStatus.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:20;max-width:420px;background:rgba(0,0,0,.75);padding:8px 12px;font-size:13px;border-left:3px solid #ff8a2a';
 vrStatus.hidden = true;
 document.body.appendChild(vrStatus);
 function vrStep(t) {
@@ -654,6 +654,8 @@ async function enterVR() {
     vrStep('VR を始めています…(2/3 座席の位置を決めています)');
     // コックピットは座って遊ぶので、頭の位置を原点にする local を使う
     renderer.xr.setReferenceSpaceType('local');
+    // VR に入ったら、少し待って視点をリセット(ゲーム中なら)
+    game.recenterT = 0.6;
     session.addEventListener('end', () => { vrBtn.textContent = 'ENTER VR'; game.camera.position.set(0, 0, 0); game.camera.rotation.set(0, 0, 0); });
     vrStep('VR を始めています…(3/3 描く準備をしています)');
     // Chrome 156 の WebXR Layers(投影レイヤー)は Pimax の OpenXR と組み合わさると止まるので、昔からの XRWebGLLayer で描かせる

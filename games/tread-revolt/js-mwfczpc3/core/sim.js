@@ -23,6 +23,7 @@ export class Sim {
     this.authority = opts.authority ?? true;
     this.diff = DIFFICULTY[opts.difficulty || 'normal'];
     this.comfortTurn = opts.comfortTurn ?? 1;
+    this.turretRange = (opts.turretRange ?? 90) * DEG; // プレイヤーの砲塔の左右の旋回範囲(180 で全周)
     this.rng = makeRng(opts.seed ?? ((stage.seed || 1) * 31 + 7));
     this.rnd = this.rng.next;
     this.terrain = new Terrain(stage);
@@ -90,7 +91,7 @@ export class Sim {
     const e = {
       id: p.id, name: p.name || p.id, isPlayer: p.ctrl !== 'bot', ctrl: p.ctrl || 'local', team: p.team ?? 0,
       kind: spec.kind, color: p.color, alive: true, hp: spec.hp, maxHp: spec.hp, radius: spec.radius,
-      reload: 0, mgCd: 0, sub: 'mg', smokeAmmo: 3, weapon: 'cannon', turret: 0, gunPitch: 0, turretYaw: 0,
+      reload: 0, cycle: 0, ammo: 2, barrel: 0, recoilT: [0, 0], mgCd: 0, sub: 'mg', smokeAmmo: 3, weapon: 'cannon', turret: 0, gunPitch: 0, turretYaw: 0,
       kills: 0, deaths: 0, score: 0, respawnT: 0, invuln: 0, drop: 0, hatch: false, index, ai: {}, lobAmt: 0,
       aim: { x: 0, y: 0, z: 0, d: 100, lock: null }, lobAim: null, spread: 0, fireT: 0, hitT: 0,
     };
@@ -108,7 +109,8 @@ export class Sim {
       const off = [-9, 9, -18, 18][k];
       return { x: b.x + off, z: b.z, yaw: b.yaw };
     }
-    const s = this.stage.spawn;
+    // 中間地点(区画制圧で最後に開けた門の先)があればそこから
+    const s = this.checkpoint || this.stage.spawn;
     const k = e.index % 4;
     const off = [0, 8, -8, 16][k];
     return { x: s.x + Math.cos(s.yaw) * off, z: s.z - Math.sin(s.yaw) * off - (k ? 4 : 0) * Math.cos(s.yaw), yaw: s.yaw };
@@ -121,6 +123,8 @@ export class Sim {
     e.hp = e.maxHp;
     e.turret = 0;
     e.reload = 0;
+    e.cycle = 0;
+    e.ammo = 2;
     e.smokeAmmo = 3;
     e.drop = 1; // 空から投下されて始まる
     e.y = this.terrain.height(sp.x, sp.z) + 40;
@@ -387,11 +391,12 @@ export class Sim {
       e.turret = wrapAngle(e.turret + clamp(cmd.turret || 0, -1, 1) * tr * dt);
     }
     // 歩行メカは上半身のひねりに限界がある
+    // 砲塔の旋回範囲(前後が分からなくならないように、既定は左右 90°)。限界の手前から FFB で押し返す
     e.turretLimit = 0;
-    if (isMech) {
-      const lim = 115 * DEG;
-      if (Math.abs(e.turret) > lim) { e.turret = Math.sign(e.turret) * lim; }
-      e.turretLimit = clamp((Math.abs(e.turret) - 95 * DEG) / (20 * DEG), 0, 1) * Math.sign(e.turret);
+    const lim = isMech ? Math.min(115 * DEG, this.turretRange) : this.turretRange;
+    if (e.isPlayer && lim < Math.PI - 0.01) {
+      if (Math.abs(e.turret) > lim) e.turret = Math.sign(e.turret) * lim;
+      e.turretLimit = clamp((Math.abs(e.turret) - (lim - 20 * DEG)) / (20 * DEG), 0, 1) * Math.sign(e.turret);
     }
     e.turretRate = (cmd.turret || 0);
 
@@ -409,14 +414,18 @@ export class Sim {
     e.spread = spreadDeg(e.v, e.spec.speed, e.w, !!e.air);
 
     // 装填
+    // 装填:砲身2本。撃ち切ったら2本まとめて装填する。2発目までの間隔は cycle
     if (e.reload > 0) {
       e.reload -= dt;
-      if (e.reload <= 0) { e.reload = 0; this.emit({ t: 'reload', id: e.id }); }
+      if (e.reload <= 0) { e.reload = 0; e.ammo = 2; this.emit({ t: 'reload', id: e.id }); }
     }
+    e.cycle = Math.max(0, (e.cycle || 0) - dt);
+    if (e.recoilT) for (let k = 0; k < 2; k++) e.recoilT[k] = Math.max(0, e.recoilT[k] - dt * 2.2);
     e.mgCd -= dt;
     e.fireT = Math.max(0, e.fireT - dt);
     // 主砲
-    const canFire = this.mission.state !== 'drop' && this.mission.state !== 'over' && e.reload <= 0;
+    const twin = !isMech;
+    const canFire = this.mission.state !== 'drop' && this.mission.state !== 'over' && e.cycle <= 0 && (twin ? e.ammo > 0 : e.reload <= 0);
     if (cmd.fire && canFire) {
       if (e.wheelie > 0.55 && !isMech) this.fireLob(e);
       else if (e.wheelie < 0.08) this.fireMain(e, cmd.fireStrength ?? 1);
@@ -460,8 +469,21 @@ export class Sim {
       const yaw = o.yaw + a * spreadR * 0.5;
       const pitch = e.gunPitch + b * spreadR * 0.5;
       const cp = Math.cos(pitch);
+      if (e.spec.body === 'tank') {
+        // 砲身2本を左右交互に。撃ち切ったら2本まとめて装填
+        const k = e.barrel || 0;
+        const side = k === 0 ? 0.24 : -0.24; // 0 = 左(+X)
+        o.x += Math.cos(o.yaw) * side;
+        o.z -= Math.sin(o.yaw) * side;
+        e.barrel = 1 - k;
+        e.recoilT[k] = 1;
+        e.ammo = Math.max(0, e.ammo - 1);
+        e.cycle = 0.2;
+        if (e.ammo === 0) e.reload = e.spec.reload * 1.4;
+      } else {
+        e.reload = e.spec.reload;
+      }
       this.spawnShot({ kind: 'shell', x: o.x, y: o.y, z: o.z, vx: Math.sin(yaw) * cp * sp, vy: Math.sin(pitch) * sp, vz: Math.cos(yaw) * cp * sp, team: e.team, owner: e.id, dmg: e.spec.dmg, splash: e.spec.splash, life: 4 });
-      e.reload = e.spec.reload;
     }
     this.mission.shots += e.isPlayer ? 1 : 0;
     e.fireT = 0.35;
@@ -476,7 +498,9 @@ export class Sim {
     const yaw = o.yaw + (this.rnd() - 0.5) * 0.02;
     const vv = v * (1 + (this.rnd() - 0.5) * 0.02);
     this.spawnShot({ kind: 'lob', x: e.x, y: e.y + 3, z: e.z, vx: Math.sin(yaw) * c * vv, vy: s * vv, vz: Math.cos(yaw) * c * vv, g: LOB_G / G, team: e.team, owner: e.id, dmg: e.spec.dmg * 1.1, splash: 6, lob: true, life: 10, prox: true });
-    e.reload = e.spec.reload * 1.2;
+    e.reload = e.spec.reload * 1.4;
+    e.ammo = 0;
+    e.recoilT = [1, 1];
     e.fireT = 0.35;
     this.emit({ t: 'fire', id: e.id, x: e.x, y: e.y + 3, z: e.z, kind: 'lob', strength: 1 });
   }
@@ -882,6 +906,8 @@ export class Sim {
 
   damagePart(e, p, s) {
     if (!this.authority) return;
+    // つながった部位(掘削機の排気口 → 動力炉)へダメージを回す
+    if (p.link) { const q = e.parts.find((x) => x.name === p.link); if (q && q.alive) p = q; }
     let dmg = s.dmg;
     if (e.stunned) dmg *= 1.5;
     p.hp -= dmg;
@@ -1012,6 +1038,15 @@ export class Sim {
         g.opening = true;
         g.alive = false;
         this.emit({ t: 'gate', id: g.id, x: g.x, z: g.z });
+        // 中間地点:門の、次の敵がいる側へ 10m
+        const nextGroup = `r${Number(String(g.gate).replace(/\D/g, '')) + 1}`;
+        const next = this.ents.find((u) => u.group === nextGroup && u.alive) || this.ents.find((u) => u.objective && u.alive);
+        if (next) {
+          const horiz = g.w > g.d;
+          const sx = horiz ? 0 : Math.sign(next.x - g.x) || 1, sz = horiz ? Math.sign(next.z - g.z) || 1 : 0;
+          // 門の手前(いま制圧した側)に置く。次の部屋へは門をくぐってすぐ
+          this.checkpoint = { x: g.x - sx * 10, z: g.z - sz * 10, yaw: Math.atan2(sx, sz) };
+        }
         this.radio('mech', '門が開いた!次の区画へ進め。');
       }
     }

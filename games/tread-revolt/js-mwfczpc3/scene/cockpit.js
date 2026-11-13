@@ -46,12 +46,9 @@ export class Cockpit {
     W2(new THREE.BoxGeometry(2.12, 0.04, 1.36), 0, 0.6, 0.02); // 天井
     W2(new THREE.BoxGeometry(2.12, 0.04, 1.36), 0, -0.9, 0.02); // 床
     W2(new THREE.BoxGeometry(2.12, 1.54, 0.04), 0, -0.15, -0.64); // 後ろ
-    for (const sx of [1, -1]) {
-      W2(new THREE.BoxGeometry(0.04, 0.9, 1.36), sx * 1.04, -0.45, 0.02); // 視察窓より下
-      W2(new THREE.BoxGeometry(0.04, 0.52, 1.36), sx * 1.04, 0.34, 0.02); // 視察窓より上
-      W2(new THREE.BoxGeometry(0.04, 0.08, 0.9), sx * 1.04, 0.04, -0.21); // 視察窓の後ろ半分はふさぐ
-    }
-    W2(new THREE.BoxGeometry(2.2, 0.56, 0.06), 0, -0.43, 0.74); // 覗き窓より下の前壁
+    for (const sx of [1, -1]) W2(new THREE.BoxGeometry(0.04, 1.54, 1.36), sx * 1.04, -0.15, 0.02); // 左右
+    // 覗き窓より下の前壁。中央(計器の裏)は高め、左右は低くして、斜め下に左右の履帯の前端が見える(壁に穴は開けない)
+    W2(new THREE.BoxGeometry(0.7, 0.56, 0.06), 0, -0.64, 0.74);
     // 天井の小さな室内灯
     const lamp = add(new THREE.BoxGeometry(0.12, 0.03, 0.06), new THREE.MeshBasicMaterial({ color: 0xffd9a0 }), 0, 0.575, -0.2);
     walls.push(lamp);
@@ -77,7 +74,6 @@ export class Cockpit {
     // 計器盤
     const dashTilt = -0.55;
     add(new THREE.BoxGeometry(2.2, 0.04, 0.06), dark, 0, -0.16, 0.72);
-    add(new THREE.BoxGeometry(2.2, 0.5, 0.1), metal, 0, -0.62, 0.7);
     // 計器(キャンバス)
     this.canvas = document.createElement('canvas');
     this.canvas.width = W;
@@ -85,7 +81,7 @@ export class Cockpit {
     this.ctx = this.canvas.getContext('2d');
     this.tex = new THREE.CanvasTexture(this.canvas);
     this.tex.colorSpace = THREE.SRGBColorSpace;
-    const panel = add(new THREE.PlaneGeometry(0.92, 0.92 * (H / W)), new THREE.MeshBasicMaterial({ map: this.tex, toneMapped: false }), 0.08, -0.3, 0.5, -dashTilt, Math.PI);
+    const panel = add(new THREE.PlaneGeometry(0.62, 0.62 * (H / W)), new THREE.MeshBasicMaterial({ map: this.tex, toneMapped: false }), 0.0, -0.52, 0.46, -dashTilt - 0.25, Math.PI);
     this.panel = panel;
     // 簡易モニター(レーダー)
     this.radar = document.createElement('canvas');
@@ -94,8 +90,8 @@ export class Cockpit {
     this.rtex = new THREE.CanvasTexture(this.radar);
     this.rtex.colorSpace = THREE.SRGBColorSpace;
     // 運転手の目の方へ向ける(モニターは右手側。コックピットの -X が右)
-    add(new THREE.BoxGeometry(0.28, 0.28, 0.04), dark, -0.62, -0.3, 0.6, -dashTilt * 0.6, Math.PI - 0.75);
-    const mon = add(new THREE.PlaneGeometry(0.24, 0.24), new THREE.MeshBasicMaterial({ map: this.rtex, toneMapped: false }), -0.603, -0.292, 0.583, -dashTilt * 0.6, Math.PI - 0.75);
+    add(new THREE.BoxGeometry(0.24, 0.24, 0.04), dark, -0.38, -0.52, 0.47, -dashTilt - 0.25, Math.PI - 0.2);
+    const mon = add(new THREE.PlaneGeometry(0.21, 0.21), new THREE.MeshBasicMaterial({ map: this.rtex, toneMapped: false }), -0.376, -0.515, 0.445, -dashTilt - 0.25, Math.PI - 0.2);
     this.monitor = mon;
     // 揺れる小物(お守り)
     this.charmPivot = new THREE.Group();
