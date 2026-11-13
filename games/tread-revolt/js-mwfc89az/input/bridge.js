@@ -100,6 +100,15 @@ export class FfbBridge {
     this.send({ t: 'select', device });
   }
 
+  // SimHub 向けのテレメトリ(ブリッジ側で有効なときだけ。間引きは 10ms)
+  telemetry(data) {
+    if (!this.status.telemetry) return;
+    const now = performance.now();
+    if (now - (this.lastTel || 0) < 10) return;
+    this.lastTel = now;
+    this.send({ t: 'telemetry', ...data });
+  }
+
   // 入力が最近届いているか
   get live() {
     return this.connected && performance.now() - this.inputAt < 1500;

@@ -24,7 +24,7 @@ const DEFAULT_SETTINGS = {
   difficulty: 'normal', vehicle: 'medium', scheme: 'tracks', manualPitch: false, mouseSens: 1,
   vignette: 0.6, snapTurn: false, horizon: false, comfortTurn: 1, shadows: true,
   master: 0.8, sfx: 0.9, music: 0.35, speech: false,
-  vrScale: 0.8, ffb: true, ffbInvert: true, ffbGain: 0.8, ffbSpring: 0.45, xrMode: 'sticks', turretHead: true, wheelOffset: { x: 0, y: 0, z: 0 }, name: 'PLAYER',
+  vrScale: 0.8, simhub: true, paint: 0, ffb: true, ffbInvert: true, ffbGain: 0.8, ffbSpring: 0.45, xrMode: 'sticks', turretHead: true, wheelOffset: { x: 0, y: 0, z: 0 }, name: 'PLAYER',
 };
 const settings = { ...DEFAULT_SETTINGS, ...load(SETTINGS_KEY, {}) };
 const progress = { cleared: -1, best: {}, ...load(PROGRESS_KEY, {}) };
@@ -104,12 +104,11 @@ const menu = { scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(50,
 function setMenuVehicle(kind) {
   if (menu.kind === kind) return;
   if (menu.model) menu.turn.remove(menu.model.root);
-  menu.model = buildVehicle(kind, { faction: 'guard' });
+  menu.model = buildVehicle(kind, { faction: 'guard', color: paintColor() ?? undefined });
   menu.model.root.position.y = 0.3;
   menu.turn.add(menu.model.root);
   menu.kind = kind;
 }
-setMenuVehicle(settings.vehicle);
 
 // ------------------------------------------------------------ 画面の切り替え
 let current = 'title';
@@ -141,6 +140,18 @@ document.addEventListener('click', (e) => {
   else if (go === 'settings' && playing) { show('settings'); }
   else show(go);
 });
+
+// ------------------------------------------------------------ 車体色(成長要素:エリアをクリアするたびに解放。性能は変わらない)
+const PAINTS = [
+  { name: '砂の黄土(標準)', color: null, need: -1 },
+  { name: '前線のオリーブ', color: 0x6f7a3e, need: 2 },
+  { name: '市街の鉄灰', color: 0x6a6e72, need: 4 },
+  { name: '河岸の青緑', color: 0x3a7a72, need: 7 },
+  { name: '自警団の赤', color: 0xa8402a, need: 10 },
+  { name: '解放の金', color: 0xc8a040, need: 10, allBest: true },
+];
+const paintOk = (p) => progress.cleared >= p.need && (!p.allBest || Object.keys(progress.best).length >= STAGE_COUNT);
+const paintColor = () => (paintOk(PAINTS[settings.paint] || PAINTS[0]) ? PAINTS[settings.paint]?.color : null);
 
 // ------------------------------------------------------------ ステージ選択
 let pending = null; // 出撃の準備
@@ -175,6 +186,8 @@ function renderVehicles() {
   el.querySelectorAll('[data-veh]').forEach((b) => b.addEventListener('click', () => { settings.vehicle = b.dataset.veh; setMenuVehicle(settings.vehicle); applySettings(); renderVehicles(); }));
   $('#diff-list').innerHTML = Object.entries(DIFFICULTY).map(([k, d]) => `<button data-diff="${k}" class="${settings.difficulty === k ? 'on' : ''}">${d.label}</button>`).join('');
   $('#diff-list').querySelectorAll('[data-diff]').forEach((b) => b.addEventListener('click', () => { settings.difficulty = b.dataset.diff; applySettings(); renderVehicles(); }));
+  $('#paint-list').innerHTML = PAINTS.map((p, i) => `<button data-paint="${i}" class="${settings.paint === i ? 'on' : ''}" ${paintOk(p) ? '' : 'disabled'}>${p.name}<small>${paintOk(p) ? '' : p.allBest ? '全ステージをクリアすると解放' : `${STAGE_INFO[p.need]?.id} をクリアすると解放`}</small></button>`).join('');
+  $('#paint-list').querySelectorAll('[data-paint]').forEach((b) => b.addEventListener('click', () => { settings.paint = Number(b.dataset.paint); applySettings(); menu.kind = null; setMenuVehicle(settings.vehicle); renderVehicles(); }));
   $('#vehicle-title').textContent = pending?.mode === 'versus' ? '車両の選択(対戦)' : `車両の選択 ― ${pending ? STAGE_INFO[pending.stageIndex]?.id + ' ' + STAGE_INFO[pending.stageIndex]?.name : ''}`;
   setMenuVehicle(settings.vehicle);
 }
@@ -218,15 +231,15 @@ function begin(cfg) {
 
 function startCampaign(index) {
   const stage = campaignStage(index);
-  begin({ mode: 'campaign', stage, stageIndex: index, players: [{ id: 'p1', name: settings.name, vehicle: settings.vehicle, ctrl: params.has('bot') ? 'bot' : 'local' }] });
+  begin({ mode: 'campaign', stage, stageIndex: index, players: [{ id: 'p1', name: settings.name, vehicle: settings.vehicle, color: paintColor() ?? undefined, ctrl: params.has('bot') ? 'bot' : 'local' }] });
 }
 
 function startTraining() {
-  begin({ mode: 'training', stage: trainingStage(), players: [{ id: 'p1', name: settings.name, vehicle: settings.vehicle, ctrl: 'local' }], tutorial: new Tutorial() });
+  begin({ mode: 'training', stage: trainingStage(), players: [{ id: 'p1', name: settings.name, vehicle: settings.vehicle, color: paintColor() ?? undefined, ctrl: 'local' }], tutorial: new Tutorial() });
 }
 
 function startVersus() {
-  const players = [{ id: 'p1', name: settings.name, vehicle: settings.vehicle, ctrl: 'local', team: 0 }];
+  const players = [{ id: 'p1', name: settings.name, vehicle: settings.vehicle, color: paintColor() ?? undefined, ctrl: 'local', team: 0 }];
   const kinds = ['medium', 'light', 'heavy', 'mech'];
   for (let i = 1; i < vs.size; i++) players.push({ id: `b0${i}`, name: `僚機${i}`, vehicle: kinds[i % 4], ctrl: 'bot', team: 0 });
   for (let i = 0; i < vs.size; i++) players.push({ id: `b1${i}`, name: `敵機${i + 1}`, vehicle: kinds[(i + 1) % 4], ctrl: 'bot', team: 1 });
@@ -332,7 +345,7 @@ function renderSettings() {
     ${check('horizon', '地平線の固定表示')}
     <h2>VR</h2>
     ${sel('xrMode', 'VR の操作', [['sticks', 'タンクコントロール(左右スティック)'], ['levers', '掴んで倒す仮想レバー']])}
-    ${check('turretHead', '砲塔を頭の向きに追従')}
+    ${check('turretHead', '砲塔を頭の向きに追従(VR コントローラーのとき。ハンコンではハンドルで回す)')}
     ${sel('vrScale', 'VR の解像度', [['0.5', '0.5(軽い)'], ['0.65', '0.65'], ['0.8', '0.8(標準)'], ['1', '1.0(高精細)']])}
     <p class="note">Pimax:OpenXR ランタイムを Pimax Play か SteamVR に。映像がずれるときは Parallel Projections を ON に。視野が広いので酔いやすい人はビネットを強めに。</p>
     <h2>画面と音</h2>
@@ -357,6 +370,7 @@ function renderSettings() {
     ${check('ffbInvert', 'FFB の左右を反転(テストで逆に回るときに切り替える)')}
     ${slider('ffbGain', '強さ', 0, 1, 0.05)}
     ${slider('ffbSpring', 'センタースプリング', 0, 1, 0.05)}
+    ${check('simhub', 'SimHub へテレメトリを送る(ブリッジ側で有効なとき)')}
     <div class="row"><button data-ffbtest="left">テスト:左</button><button data-ffbtest="right">テスト:右</button><button data-ffbtest="rumble">テスト:振動</button></div>
     <h2>VR のハンドル位置合わせ</h2>
     ${slider('x', '左右(m)', -0.3, 0.3, 0.01, S.wheelOffset)}
@@ -526,7 +540,8 @@ function menuNav(a) {
   const isValue = cur && cur.tagName !== 'BUTTON';
   if (a.down || (!isValue && a.rightUi)) { focusIndex = (focusIndex + 1) % list.length; audio.play('ui'); updateFocus(); list[focusIndex].scrollIntoView({ block: 'nearest' }); }
   if (a.up || (!isValue && a.leftUi)) { focusIndex = (focusIndex - 1 + list.length) % list.length; audio.play('ui'); updateFocus(); list[focusIndex].scrollIntoView({ block: 'nearest' }); }
-  if (isValue && (a.leftUi || a.rightUi)) nudge(cur, a.rightUi ? 1 : -1);
+  // スティックの左右で変えるのはスライダーと選択肢だけ。チェックは決定ボタンでだけ切り替える(移動のつもりで誤って変えないように)
+  if (isValue && cur.type !== 'checkbox' && (a.leftUi || a.rightUi)) nudge(cur, a.rightUi ? 1 : -1);
   if (a.ok && cur) {
     audio.unlock();
     if (cur.type === 'checkbox') nudge(cur, 1);
@@ -579,7 +594,7 @@ const vrMenu = {
         g.textAlign = 'right';
         g.fillStyle = el.tagName === 'BUTTON' ? 'rgba(244,234,216,0.6)' : '#ffc24a';
         g.font = el.tagName === 'BUTTON' ? '24px system-ui, sans-serif' : 'bold 32px system-ui, sans-serif';
-        const txt = el.tagName === 'BUTTON' ? val.slice(0, 18) : `◀ ${val.slice(0, 16)} ▶`;
+        const txt = el.tagName === 'BUTTON' ? val.slice(0, 18) : el.type === 'checkbox' ? `[ ${val} ]` : `◀ ${val.slice(0, 16)} ▶`;
         g.fillText(txt, W - 48, y + 32);
         g.textAlign = 'left';
       }
@@ -591,7 +606,7 @@ const vrMenu = {
     }
     g.fillStyle = 'rgba(244,234,216,0.65)';
     g.font = '26px system-ui, sans-serif';
-    g.fillText('スティック上下:選ぶ 左右:値を変える トリガー:決定 B:戻る', 40, H - 34);
+    g.fillText('上下:選ぶ 左右:値 トリガー:決定/オン・オフ B:戻る', 40, H - 34);
     this.tex.needsUpdate = true;
     this.dirty = false;
   },
@@ -734,6 +749,7 @@ const online = new Online({ app, game, settings, begin, quit, show, esc, campaig
 app.online = online;
 
 // ------------------------------------------------------------ 起動
+setMenuVehicle(settings.vehicle);
 $('#loading').hidden = true;
 $('#title-note').innerHTML = '推奨:PC の Chrome / Edge。VR は PCVR(OpenXR)。ハンコンは vrgame2 の ffb-bridge を起動しておく。<br><span id="ver"></span>';
 loadBuildInfo().then((t) => { $('#ver').textContent = t; });

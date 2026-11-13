@@ -12,6 +12,7 @@ import { bossProgress } from './core/boss.js';
 import { isStill } from './core/ballistics.js';
 import { LIBERATION } from './core/stages.js';
 import { Vignette } from './scene/comfort.js';
+import { TankTelemetry } from './core/telemetry.js';
 
 const STEP = 1 / 60;
 const WHO = { leader: 'リーダー', mech: '整備士', boss: '公社司令官', town: '町の人', sys: '' };
@@ -41,6 +42,7 @@ export class Game {
     this.lastViewYaw = 0;
     this.yawRate = 0;
     this.ffbModel = new FfbModel();
+    this.telem = new TankTelemetry();
     this.shake = 0;
     this.buildVignette();
     this.buildHorizon();
@@ -187,7 +189,8 @@ export class Game {
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q);
     const local = Math.atan2(-fwd.x, -fwd.z); // seat のローカルで、-Z が前
     // seat は yaw+π 回してあるので、左が +
-    return wrapAngle(-local + (this.viewYaw - this.me.yaw));
+    // local は左を向くと正(砲塔の角度も左が正)
+    return wrapAngle(local + (this.viewYaw - this.me.yaw));
   }
 
   // 視点のリセット:いまの頭の位置と向きを、座席の原点・正面にする(VR)
@@ -226,7 +229,10 @@ export class Game {
     if (this.sim.mission.state === 'exit') view = 'diorama';
     this.activeView = view;
     const spec = me.spec;
-    const followTurret = !inXR; // デスクトップは砲塔の向きに視点を合わせる(VR は車体の向き)
+    // 視点を砲塔の向きに合わせる(砲手席):デスクトップと、VR でハンコンを使っているとき(照準が常に正面に来る)
+    // VR コントローラーのときは車体の向き(運転手ののぞき窓。砲塔は頭の向きで回す)
+    const gunner = !inXR || this.app.input.active === 'wheel' || !!this.app.input.wheel;
+    const followTurret = gunner;
     const targetYaw = followTurret ? me.yaw + me.turret : me.yaw;
     // VR のスナップ旋回:誤差が一定を超えたら一気に回す
     if (inXR && S.snapTurn && view !== 'diorama') {
@@ -242,7 +248,13 @@ export class Game {
     this.cockpit.group.visible = view === 'cockpit';
     this.hatchRing.visible = view === 'hatch';
     const ownModel = this.models.get(me.id);
-    if (ownModel) ownModel.root.visible = view !== 'cockpit' && me.alive;
+    // 自車はどの視点でも描く(コックピットからは砲身・車体の前・履帯が見える。視点が入る内側の面は描かれない)
+    // 自車:デスクトップのコックピットでは隠す。VR では車体と履帯を見せ、砲手席のときは視界をふさぐ砲塔だけ隠す
+    if (ownModel) {
+      ownModel.root.visible = me.alive && (inXR || view !== 'cockpit');
+      const turretNode = ownModel.hatch?.parent;
+      if (turretNode && turretNode !== ownModel.root) turretNode.visible = !(inXR && gunner && view === 'cockpit');
+    }
 
     if (view === 'diorama') {
       this.seat.scale.setScalar(inXR ? 40 : 1);
@@ -273,7 +285,17 @@ export class Game {
       this.seatY = Math.abs(ty - this.seatY) > 8 ? ty : damp(this.seatY, ty, 5, dt);
       const fwd = view === 'cockpit' ? 0.3 : -0.6;
       const yawPos = followTurret ? this.viewYaw : me.yaw;
-      this.seat.position.set(me.x + Math.sin(yawPos) * fwd, this.seatY, me.z + Math.cos(yawPos) * fwd);
+      // コックピットは運転手ののぞき窓(車体の前)。前に車体の前端と履帯が見え、砲塔は後ろになる
+      const eyeNode = inXR && !gunner && view === 'cockpit' && ownModel?.eye;
+      if (eyeNode) {
+        ownModel.root.updateMatrixWorld(true);
+        const p = eyeNode.getWorldPosition(this._eye || (this._eye = new THREE.Vector3()));
+        const ty2 = me.y + (p.y - me.y) * 0 + eye;
+        this.seatY = Math.abs(ty2 - this.seatY) > 8 ? ty2 : damp(this.seatY, ty2, 5, dt);
+        this.seat.position.set(p.x, this.seatY, p.z);
+      } else {
+        this.seat.position.set(me.x + Math.sin(yawPos) * fwd, this.seatY, me.z + Math.cos(yawPos) * fwd);
+      }
       this.seat.rotation.set(0, this.viewYaw + Math.PI, 0);
       if (!inXR) {
         // 砲身の仰角に少しだけ合わせる(見下ろしすぎない)
@@ -304,7 +326,7 @@ export class Game {
     this.cockpit.setLevers(me.tl / Math.max(spec.speed, 1), me.tr / Math.max(spec.speed, 1), me.wheelie);
     const w = this.app.input.wheel;
     this.cockpit.wheelRig.visible = this.app.input.active === 'wheel';
-    if (w) this.cockpit.setWheel(w.steer, [w.clutch || 0, w.brake || 0, w.throttle || 0]);
+    if (w) this.cockpit.setWheel(w.steer * ((this.app.input.wheelCfg.steer.lockDeg || 270) / 2) * DEG, [w.clutch || 0, w.brake || 0, w.throttle || 0]);
     void a;
   }
 
@@ -383,7 +405,7 @@ export class Game {
           if (ev.kind === 'cannon') {
             au.play(mine ? 'cannon' : 'cannonEnemy', { ...pos, strength: ev.strength ?? 1 });
             this.fx.muzzle(ev.x, ev.y, ev.z, ev.yaw ?? (e ? e.yaw + e.turret : 0), e?.spec?.dmg > 40 ? 1.3 : 1);
-            if (mine) { this.ffbModel.recoil(ev.strength ?? 1); this.cockpit.sway(0.05, -30, 0, 0.5); this.app.haptic?.(0.6, 80); }
+            if (mine) { this.telem.recoil(ev.strength ?? 1); this.ffbModel.recoil(ev.strength ?? 1); this.cockpit.sway(0.05, -30, 0, 0.5); this.app.haptic?.(0.6, 80); }
           } else if (ev.kind === 'cannonEnemy' || ev.kind === 'bigCannon') {
             au.play(ev.kind, pos);
             this.fx.muzzle(ev.x, ev.y, ev.z, e ? e.yaw + (e.turret || 0) : 0, ev.kind === 'bigCannon' ? 1.4 : 0.8);
@@ -407,6 +429,7 @@ export class Game {
             const rel = wrapAngle(yawTo(me.x, me.z, ev.fx, ev.fz) - me.yaw);
             au.play('hit', { x: ev.fx, y: me.y + 2, z: ev.fz, strength: clamp(ev.dmg / 30, 0.3, 1) });
             this.ffbModel.hit(rel > 0 ? -1 : 1, clamp(ev.dmg / 30, 0.3, 1));
+            this.telem.hit(rel > 0 ? 1 : -1, clamp(ev.dmg / 30, 0.3, 1));
             this.vig.hit(clamp(ev.dmg / 25, 0.3, 0.8));
             this.app.haptic?.(0.8, 120);
             this.app.hud.hitDir(wrapAngle(rel - (this.viewYaw - me.yaw)));
@@ -504,6 +527,7 @@ export class Game {
   updateFfb(dt) {
     const br = this.app.bridge;
     const me = this.me;
+    if (br?.connected && this.settings.simhub !== false && me.alive) br.telemetry(this.telem.compute(me, dt, this.time, this.sim.mission.state === 'play'));
     if (!br?.connected || !this.settings.ffb) return;
     if (me.bump > 0.2) this.ffbModel.bump(me.bump * 0.6);
     Object.assign(this.ffbModel.set, { gain: this.settings.ffbGain ?? 0.8, spring: this.settings.ffbSpring ?? 0.45 });

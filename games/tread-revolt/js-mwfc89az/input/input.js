@@ -174,7 +174,8 @@ export class InputManager {
       const x = this.xr;
       if (x.activity) this.active = 'xr';
       merge(a, 'left', x.left); merge(a, 'right', x.right); merge(a, 'turret', x.turret);
-      if (x.turretYaw != null) a.turretYaw = x.turretYaw;
+      // 頭の向きで砲塔を回すのは VR コントローラーのときだけ(ハンコンのときはハンドルで回す)
+      if (x.turretYaw != null && !this.wheel) a.turretYaw = x.turretYaw;
       for (const key of ['fire', 'sub', 'subPress', 'subSelect', 'view', 'pause', 'recenter', 'quickTurn', 'weaponSwap', 'crouch', 'up', 'down', 'ok', 'back', 'leftUi', 'rightUi']) a[key] = a[key] || !!x[key];
       if (x.lob) { a.lob = true; a.lobAmount = x.lobAmount; a.lobAnalog = x.lobAnalog; }
       a.pitchStep += x.pitchStep || 0;
