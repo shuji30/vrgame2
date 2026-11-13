@@ -9,7 +9,7 @@ export const THEMES = {
   1: { sky: [0x7fa8d0, 0xe8d6a8], fog: 0xcdbf98, fogNear: 120, fogFar: 520, ground: [0x9a8650, 0x7d8a44], road: 0x8c7a5a, field: [0x9db04a, 0x6f8a32], sun: 0xfff1d6, sunI: 2.4, hemi: [0xdfe8ff, 0x6a5a3a], hemiI: 1.1 },
   2: { sky: [0x6f8296, 0xc7cdd4], fog: 0xa9b0b8, fogNear: 90, fogFar: 420, ground: [0x6c6e70, 0x5e6266], road: 0x3d4045, field: [0x6a7a4a, 0x55663a], sun: 0xeef2ff, sunI: 2.0, hemi: [0xd6e2ff, 0x40444a], hemiI: 1.0 },
   3: { sky: [0x78b4dc, 0xdff0e8], fog: 0xbcd8d0, fogNear: 120, fogFar: 520, ground: [0x6f9446, 0x5a7d3a], road: 0x8a7350, field: [0xa7c24e, 0x7aa03a], sun: 0xfff6dc, sunI: 2.3, hemi: [0xe0f4ff, 0x4a5a32], hemiI: 1.15 },
-  4: { sky: [0x1a1c22, 0x3a2a26], fog: 0x2a2224, fogNear: 60, fogFar: 260, ground: [0x5a5c60, 0x4a4c50], road: 0x3c3e42, field: [0x555, 0x444], sun: 0xffd2b0, sunI: 1.4, hemi: [0xffc8a8, 0x2a2a30], hemiI: 0.9 },
+  4: { sky: [0x1a1c22, 0x3a2a26], fog: 0x2a2224, fogNear: 80, fogFar: 300, ground: [0x6a6c70, 0x585a5e], road: 0x3c3e42, field: [0x555, 0x444], sun: 0xffd2b0, sunI: 1.9, hemi: [0xffd0b0, 0x3a3a40], hemiI: 1.3 },
 };
 
 function canvasTex(w, h, draw, repeat = 1) {
@@ -105,12 +105,6 @@ export class World {
         const strip = new THREE.Mesh(new THREE.BoxGeometry(w * 0.98, 0.4, d + 0.2), red);
         strip.position.set(x, 8, z);
         this.root.add(strip);
-      }
-      const beamMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2e, roughness: 0.8, metalness: 0.5 });
-      for (let z = -hd; z <= hd; z += 30) {
-        const b = new THREE.Mesh(new THREE.BoxGeometry(hw * 2 + 12, 1.6, 1.2), beamMat);
-        b.position.set(0, 24, z);
-        this.root.add(b);
       }
     }
   }

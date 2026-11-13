@@ -248,6 +248,12 @@ export class Sim {
   // ハンドブレーキがないとき:曲射の距離は自動
   autoLobRange(e) {
     const ty = e.yaw + e.turret;
+    // 照準が捉えている目標(砲塔を向けている相手)を最優先
+    const lock = e.aim?.lock && this.byId.get(e.aim.lock);
+    if (lock && lock.alive) {
+      const d = dist(e.x, e.z, lock.x, lock.z);
+      if (d >= LOB_MIN && d <= LOB_MAX) return d;
+    }
     let best = null, bd = 1e9;
     for (const t of this.ents) {
       if (!t.alive || t.team === e.team || t.hidden) continue;
@@ -255,7 +261,8 @@ export class Sim {
       if (d < LOB_MIN || d > LOB_MAX) continue;
       const da = Math.abs(wrapAngle(yawTo(e.x, e.z, t.x, t.z) - ty));
       if (da > 22 * DEG) continue;
-      const score = d * (1 + da * 3) * (t.objective || t.type === 'skyFortress' ? 0.6 : 1);
+      // 向きのずれを重く見る(遠くても、まっすぐ前にいる相手を選ぶ)
+      const score = (da * 400 + d * 0.3) * (t.spec?.lobOnly ? 0.4 : t.objective || t.type === 'skyFortress' ? 0.7 : 1);
       if (score < bd) { bd = score; best = t; }
     }
     return best ? dist(e.x, e.z, best.x, best.z) : 90;
@@ -298,14 +305,26 @@ export class Sim {
     this.smokes = this.smokes.filter((s) => s.t > 0);
 
     if (this.authority) this.updateMission(dt);
+    else this.updateElevators(true);
   }
 
   // ------------------------------------------------------------ プレイヤーとボットの車両
   updateVehicle(e, cmd, env, dt) {
     cmd = cmd || {};
     if (e.ctrl === 'remote') {
-      // 位置はネットワークから。タイマーだけ進める
+      // 位置はネットワークから(補間してなめらかに)。タイマーだけ進める
       e.invuln = Math.max(0, e.invuln - dt);
+      if (e.net) {
+        const k = Math.min(1, dt * 12);
+        if (Math.hypot(e.net.x - e.x, e.net.z - e.z) > 15) { e.x = e.net.x; e.z = e.net.z; e.y = e.net.y; }
+        e.x += (e.net.x - e.x) * k;
+        e.z += (e.net.z - e.z) * k;
+        e.y += (e.net.y - e.y) * k;
+        e.yaw = approachAngle(e.yaw, e.net.yaw, Math.abs(wrapAngle(e.net.yaw - e.yaw)) * k);
+        e.turret = approachAngle(e.turret, e.net.turret, Math.abs(wrapAngle(e.net.turret - e.turret)) * k);
+        e.vx = e.net.vx || 0; e.vz = e.net.vz || 0;
+        if (e.drop > 0) e.drop = Math.max(0, e.drop - dt / DROP_T);
+      }
       return;
     }
     e.invuln = Math.max(0, e.invuln - dt);
@@ -944,11 +963,12 @@ export class Sim {
   }
 
   // ------------------------------------------------------------ 任務の進行
-  updateMission(dt) {
+  // エレベーター(クライアントは自分の車両だけ判定し、ホストへ知らせる)
+  updateElevators(onlyLocal = false) {
     const m = this.mission;
-    // エレベーター
     for (const e of this.ents) {
       if (!e.alive || !(e.isPlayer || e.ctrl === 'bot') || e.drop > 0) continue;
+      if (onlyLocal ? e.ctrl !== 'local' : e.ctrl === 'remote') continue;
       let on = null;
       for (const el of this.elevators) if (dist(e.x, e.z, el.x, el.z) < el.r) on = el;
       if (!on) { e.elevLock = false; continue; }
@@ -960,9 +980,18 @@ export class Sim {
         e.tl = e.tr = 0;
         this.emit({ t: 'elevator', id: e.id, left: this.elevUses });
         // 周囲の敵に気づかれる
-        for (const u of this.ents) if (u.team !== e.team && u.ai?.state === 'sleep' && u.type !== 'mine' && dist(u.x, u.z, e.x, e.z) < 85) u.ai.wakeT = 0.5 + this.rnd();
+        this.wakeAround(e);
       }
     }
+  }
+
+  wakeAround(e) {
+    for (const u of this.ents) if (u.team !== e.team && u.ai?.state === 'sleep' && u.type !== 'mine' && dist(u.x, u.z, e.x, e.z) < 85) u.ai.wakeT = 0.5 + this.rnd();
+  }
+
+  updateMission(dt) {
+    const m = this.mission;
+    this.updateElevators(false);
     // 門と発射台
     for (const g of this.gates) {
       if (!g.alive || g.opening) continue;

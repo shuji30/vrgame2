@@ -99,7 +99,8 @@ export class XrControls {
     out.weaponSwap = edge(R, pr, 5); // B
     out.quickTurn = edge(R, pr, 3);
     out.quickDir = rx < 0 ? 1 : -1;
-    out.crouch = btn(L, 3);
+    out.recenter = edge(L, pl, 3); // 左スティックの押し込み:視点のリセット
+    out.crouch = this.mode === 'sticks' ? btn(L, 1) : false; // 歩行メカのしゃがみ:左グリップ
     out.pitchRate = this.turretHead ? -ry * 0 : 0;
     // メニュー
     out.up = (ry < -0.6 && !(pr.ry < -0.6)) || (ly < -0.6 && !(pl.ry < -0.6));

@@ -11,7 +11,7 @@ export function emptyActions() {
     fire: false, fireStrength: 1, sub: false, subPress: false, subSelect: false,
     lob: false, lobAmount: 0, lobAnalog: false, gear: null,
     crouch: false, quickTurn: false, quickDir: 1, weaponSwap: false,
-    view: false, hatch: false, pause: false,
+    view: false, hatch: false, pause: false, recenter: false,
     // メニュー操作
     up: false, down: false, ok: false, back: false, leftUi: false, rightUi: false,
   };
@@ -40,6 +40,7 @@ export const WHEEL_ACTIONS = [
   { key: 'subSelect', label: '副武装の切り替え', kind: 'button', optional: true },
   { key: 'view', label: '視点の切り替え', kind: 'button', optional: true },
   { key: 'pause', label: 'ポーズ・メニュー', kind: 'button', optional: true },
+  { key: 'recenter', label: '視点のリセット(VR)', kind: 'button', optional: true },
   { key: 'gear1', label: 'Hシフター 1速', kind: 'button', optional: true },
   { key: 'gear2', label: 'Hシフター 2速', kind: 'button', optional: true },
   { key: 'gear3', label: 'Hシフター 3速', kind: 'button', optional: true },
@@ -117,6 +118,7 @@ export function wheelToActions(w, cfg, state, act = emptyActions()) {
   act.subSelect = edge('subSelect');
   act.view = edge('view');
   act.pause = edge('pause');
+  act.recenter = edge('recenter');
   // 変速:Hシフター(なければ常に2速)
   if (w.hasShifter) act.gear = w.gear1 ? 1 : w.gear3 ? 3 : w.gearR ? 'R' : 2;
   else act.gear = 2;
@@ -142,7 +144,7 @@ export function wheelToActions(w, cfg, state, act = emptyActions()) {
   act.ok = edge('menuOk') || edge('thumbR');
   act.back = edge('menuBack');
   // 状態を覚える
-  for (const k of ['thumbR', 'thumbL', 'subSelect', 'view', 'pause', 'seqUp', 'seqDown', 'lobButton', 'menuUp', 'menuDown', 'menuOk', 'menuBack']) state[k] = w[k];
+  for (const k of ['thumbR', 'thumbL', 'subSelect', 'view', 'pause', 'recenter', 'seqUp', 'seqDown', 'lobButton', 'menuUp', 'menuDown', 'menuOk', 'menuBack']) state[k] = w[k];
   state.hb = w.handbrake;
   state.gear = act.gear;
   return act;
