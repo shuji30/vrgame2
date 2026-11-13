@@ -196,7 +196,7 @@ export class Sim {
   spawnMissile(e, from, target, opt = {}) {
     this.spawnShot({
       kind: 'missile', x: from.x, y: from.y, z: from.z, vx: Math.sin(e.yaw) * 4, vy: 14, vz: Math.cos(e.yaw) * 4,
-      g: 0.15, team: e.team, owner: e.id, dmg: opt.dmg || 14, splash: 4, homing: target.id, life: 9, hp: 1, delay: opt.delay || 0, turn: 1.6, speed: 26,
+      g: 0.15, team: e.team, owner: e.id, dmg: opt.dmg || 14, splash: 4, homing: target.id, life: 9, hp: 1, delay: opt.delay || 0, turn: opt.turn || 1.4, speed: 26,
     });
     this.emit({ t: 'fire', id: e.id, x: from.x, y: from.y, z: from.z, kind: 'missile' });
   }
@@ -222,10 +222,23 @@ export class Sim {
       if (da < tolerance) { best = t; bd = d; }
     }
     let ax, ay, az, d;
-    if (best) {
+    if (best && best.type === 'boss') {
+      // ボス:砲塔を向けている先に一番近い部位(撃てる部位を優先)に合わせる
+      let bp = null, bs = 1e9;
+      for (const p of best.parts) {
+        if (!p.alive || p.armored) continue;
+        const pp = partPos(best, p);
+        const da = Math.abs(wrapAngle(yawTo(o.x, o.z, pp.x, pp.z) - o.yaw));
+        const score = da + (partVulnerable(best, p, { lob: false, vy: 0 }) ? 0 : 0.15);
+        if (score < bs) { bs = score; bp = pp; }
+      }
+      const tgt = bp || { x: best.x, y: best.y + 5, z: best.z };
+      ax = tgt.x; ay = tgt.y; az = tgt.z;
+      d = dist(o.x, o.z, ax, az);
+    } else if (best) {
       d = bd;
       ax = best.x; az = best.z;
-      ay = best.type === 'boss' ? best.y + 5 : best.y + (best.spec?.height || 2) * (best.air ? 0 : 0.5);
+      ay = best.y + (best.spec?.height || 2) * (best.air ? 0 : 0.5);
     } else {
       const od = this.obstacles.rayDist(o.x, o.y, o.z, Math.sin(o.yaw), Math.cos(o.yaw), 160);
       d = od ?? 120;

@@ -229,7 +229,10 @@ export class Game {
     if (this.sim.mission.state === 'exit') view = 'diorama';
     this.activeView = view;
     const spec = me.spec;
-    const followTurret = !inXR; // デスクトップは砲塔の向きに視点を合わせる(VR は車体の向き)
+    // 視点を砲塔の向きに合わせる(砲手席):デスクトップと、VR でハンコンを使っているとき(照準が常に正面に来る)
+    // VR コントローラーのときは車体の向き(運転手ののぞき窓。砲塔は頭の向きで回す)
+    const gunner = !inXR || this.app.input.active === 'wheel' || !!this.app.input.wheel;
+    const followTurret = gunner;
     const targetYaw = followTurret ? me.yaw + me.turret : me.yaw;
     // VR のスナップ旋回:誤差が一定を超えたら一気に回す
     if (inXR && S.snapTurn && view !== 'diorama') {
@@ -246,7 +249,12 @@ export class Game {
     this.hatchRing.visible = view === 'hatch';
     const ownModel = this.models.get(me.id);
     // 自車はどの視点でも描く(コックピットからは砲身・車体の前・履帯が見える。視点が入る内側の面は描かれない)
-    if (ownModel) ownModel.root.visible = me.alive;
+    // 自車:デスクトップのコックピットでは隠す。VR では車体と履帯を見せ、砲手席のときは視界をふさぐ砲塔だけ隠す
+    if (ownModel) {
+      ownModel.root.visible = me.alive && (inXR || view !== 'cockpit');
+      const turretNode = ownModel.hatch?.parent;
+      if (turretNode && turretNode !== ownModel.root) turretNode.visible = !(inXR && gunner && view === 'cockpit');
+    }
 
     if (view === 'diorama') {
       this.seat.scale.setScalar(inXR ? 40 : 1);
@@ -278,7 +286,7 @@ export class Game {
       const fwd = view === 'cockpit' ? 0.3 : -0.6;
       const yawPos = followTurret ? this.viewYaw : me.yaw;
       // コックピットは運転手ののぞき窓(車体の前)。前に車体の前端と履帯が見え、砲塔は後ろになる
-      const eyeNode = view === 'cockpit' && ownModel?.eye;
+      const eyeNode = inXR && !gunner && view === 'cockpit' && ownModel?.eye;
       if (eyeNode) {
         ownModel.root.updateMatrixWorld(true);
         const p = eyeNode.getWorldPosition(this._eye || (this._eye = new THREE.Vector3()));
@@ -317,8 +325,11 @@ export class Game {
     const a = this.actions || {};
     this.cockpit.setLevers(me.tl / Math.max(spec.speed, 1), me.tr / Math.max(spec.speed, 1), me.wheelie);
     const w = this.app.input.wheel;
-    this.cockpit.wheelRig.visible = this.app.input.active === 'wheel';
-    if (w) this.cockpit.setWheel(w.steer * ((this.app.input.wheelCfg.steer.lockDeg || 270) / 2) * DEG, [w.clutch || 0, w.brake || 0, w.throttle || 0]);
+    // ハンドル・ペダル・シフター:ハンコンを割り当てていれば常に描く(実物と同じ位置)。仮想レバーはそれ以外のとき
+    const wheelOn = this.app.input.active === 'wheel' || this.app.input.wheelBound;
+    this.cockpit.wheelRig.visible = wheelOn;
+    for (const L of this.cockpit.levers) L.pivot.visible = !wheelOn;
+    if (w) this.cockpit.setWheel(w.steer * ((this.app.input.wheelCfg.steer.lockDeg || 270) / 2) * DEG, [w.clutch || 0, w.brake || 0, w.throttle || 0], me.gear, w.handbrake || 0);
     void a;
   }
 

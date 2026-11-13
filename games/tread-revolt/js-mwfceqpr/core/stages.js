@@ -286,7 +286,7 @@ function stage3_2() {
   scatter(rng, obs, 16, [-145, 145, -190, 190], rock, keep);
   for (const m of mud) obs.push(box('hedge', m.x, m.z - m.d / 2 - 2, m.w * 0.6, 1.2, 1.1, 0, { lowCover: true }));
   return {
-    id: '3-2', area: 3, name: '水田の道', time: 290, size: [300, 400], seed: 32, hills: 0.7,
+    id: '3-2', area: 3, name: '水田の道', time: 330, size: [300, 400], seed: 32, hills: 0.7,
     water, mud, roads: [{ pts: road, w: 11 }],
     flats: [{ x: 0, z: -185, r: 14 }, { x: -20, z: 175, r: 12 }, { x: 20, z: 180, r: 10 }, { x: 60, z: 175, r: 12 }],
     obstacles: obs,
@@ -314,7 +314,7 @@ function stage3_b() {
   scatter(rng, obs, 18, [-145, 145, -150, 150], tree, [[0, 0, 50], [-80, -120, 20]]);
   scatter(rng, obs, 14, [-145, 145, -150, 150], rock, [[0, 0, 50], [-80, -120, 20]]);
   return {
-    id: '3-B', area: 3, name: '浚渫要塞', time: 320, size: [300, 300], seed: 33, hills: 0.8, boss: true,
+    id: '3-B', area: 3, name: '浚渫要塞', time: 360, size: [300, 300], seed: 33, hills: 0.8, boss: true,
     water, fields: [{ x: -90, z: 60, w: 50, d: 60 }, { x: 95, z: -60, w: 50, d: 60 }],
     flats: [{ x: -80, z: -120, r: 14 }, { x: -60, z: 40, r: 8 }, { x: 60, z: -30, r: 8 }],
     obstacles: obs,

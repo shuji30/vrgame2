@@ -24,7 +24,7 @@ const DEFAULT_SETTINGS = {
   difficulty: 'normal', vehicle: 'medium', scheme: 'tracks', manualPitch: false, mouseSens: 1,
   vignette: 0.6, snapTurn: false, horizon: false, comfortTurn: 1, shadows: true,
   master: 0.8, sfx: 0.9, music: 0.35, speech: false,
-  vrScale: 0.8, simhub: true, paint: 0, ffb: true, ffbInvert: true, ffbGain: 0.8, ffbSpring: 0.45, xrMode: 'sticks', turretHead: true, wheelOffset: { x: 0, y: 0, z: 0 }, name: 'PLAYER',
+  vrScale: 0.8, sortieVR: false, simhub: true, paint: 0, ffb: true, ffbInvert: true, ffbGain: 0.8, ffbSpring: 0.45, xrMode: 'sticks', turretHead: true, wheelOffset: { x: 0, y: 0, z: 0 }, name: 'PLAYER',
 };
 const settings = { ...DEFAULT_SETTINGS, ...load(SETTINGS_KEY, {}) };
 const progress = { cleared: -1, best: {}, ...load(PROGRESS_KEY, {}) };
@@ -214,7 +214,16 @@ $('#btn-versus-next').addEventListener('click', () => { pending = { mode: 'versu
 let playing = false;
 let lastStart = null;
 
+// 「VRで出撃」:出撃のボタン(ユーザーの操作)の中で VR に入ってから始める
+let xrSupported = false;
 function begin(cfg) {
+  if (settings.sortieVR && xrSupported && !renderer.xr.isPresenting) {
+    enterVR().then(() => beginNow(cfg));
+    return;
+  }
+  beginNow(cfg);
+}
+function beginNow(cfg) {
   audio.unlock();
   lastStart = cfg;
   for (const s of document.querySelectorAll('.screen')) s.hidden = true;
@@ -618,7 +627,9 @@ const vrBtn = $('#vrBtn');
 if (navigator.xr) {
   navigator.xr.isSessionSupported('immersive-vr').then((ok) => {
     if (!ok) return;
+    xrSupported = true;
     vrBtn.hidden = false;
+    for (const el of document.querySelectorAll('.vr-sortie')) el.hidden = false;
     vrBtn.addEventListener('click', enterVR);
   }).catch(() => {});
 }
@@ -747,6 +758,15 @@ addEventListener('resize', () => {
 // ------------------------------------------------------------ オンライン
 const online = new Online({ app, game, settings, begin, quit, show, esc, campaignStage, arenaStage, STAGE_INFO, ARENA_LIST, VEHICLES });
 app.online = online;
+
+for (const cb of document.querySelectorAll('[data-vrsortie]')) {
+  cb.checked = !!settings.sortieVR;
+  cb.addEventListener('change', () => {
+    settings.sortieVR = cb.checked;
+    for (const o of document.querySelectorAll('[data-vrsortie]')) o.checked = cb.checked;
+    applySettings();
+  });
+}
 
 // ------------------------------------------------------------ 起動
 setMenuVehicle(settings.vehicle);

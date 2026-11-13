@@ -41,7 +41,7 @@ export const BOSSES = {
     parts: () => [
       P('drill', 0, 5, 17, 3.5, 9999, { armored: true }),
       P('s1', 7.6, 9, 2, 1.9, 85, { gun: true }), P('s2', -7.6, 9, 2, 1.9, 85, { gun: true }),
-      P('core', 0, 6, -15.6, 3, 340, { weak: true, core: true }),
+      P('core', 0, 6, -15.6, 3, 300, { weak: true, core: true }),
     ],
   },
 };
@@ -140,8 +140,9 @@ function fireFrom(e, sim, p, foe, opt = {}) {
   const sp = opt.speed || 70;
   const t = d / sp;
   const tx = foe.x + (foe.vx || 0) * t * 0.7, tz = foe.z + (foe.vz || 0) * t * 0.7;
-  const yaw = yawTo(pp.x, pp.z, tx, tz) + (sim.rnd() - 0.5) * 0.05 * sim.diff.spread;
-  const pitch = solvePitch(d, foe.y + 1.2 - pp.y, sp) + (sim.rnd() - 0.5) * 0.03 * sim.diff.spread;
+  const sk = opt.spread || 1;
+  const yaw = yawTo(pp.x, pp.z, tx, tz) + (sim.rnd() - 0.5) * 0.05 * sim.diff.spread * sk;
+  const pitch = solvePitch(d, foe.y + 1.2 - pp.y, sp) + (sim.rnd() - 0.5) * 0.03 * sim.diff.spread * sk;
   const cp = Math.cos(pitch);
   sim.spawnShot({
     kind: 'enemy', x: pp.x + Math.sin(yaw) * 2, y: pp.y, z: pp.z + Math.cos(yaw) * 2,
@@ -203,7 +204,7 @@ export function updateBoss(e, sim, dt) {
       if (d > 32) { e.v = sp; e.x += Math.sin(e.yaw) * sp * dt; e.z += Math.cos(e.yaw) * sp * dt; }
       if (e.v > 0 && e.cd.stomp <= 0) { e.cd.stomp = 0.8; sim.emit({ t: 'stomp', id: e.id, x: e.x, z: e.z }); }
       const gun = e.parts.find((p) => p.gun && p.alive);
-      if (gun && e.cd.gun <= 0 && d < 100) { e.cd.gun = 2.8 * sim.diff.reload; fireFrom(e, sim, gun, foe, { dmg: 16 }); }
+      if (gun && e.cd.gun <= 0 && d < 100) { e.cd.gun = 3.4 * sim.diff.reload; fireFrom(e, sim, gun, foe, { dmg: 14, spread: 1.6 }); }
       // 機銃の掃射(扇状)
       if (e.cd.sweep <= 0 && d < 70) {
         e.cd.sweep = 7 * sim.diff.reload;
@@ -233,7 +234,8 @@ export function updateBoss(e, sim, dt) {
     if (e.z > zMax) e.dir = -1;
     if (e.z < zMin) e.dir = 1;
     e.yaw = approachAngle(e.yaw, e.dir > 0 ? 0 : Math.PI, 0.4 * dt);
-    if (Math.abs(wrapAngle((e.dir > 0 ? 0 : Math.PI) - e.yaw)) < 0.3) {
+    // 吸気口を壊されたら機関が止まり、その場に浮いたまま動けない(曲射の的になる)
+    if (ventsLeft > 0 && Math.abs(wrapAngle((e.dir > 0 ? 0 : Math.PI) - e.yaw)) < 0.3) {
       e.v = 3;
       e.z += Math.cos(e.yaw) * 3 * dt;
     }
@@ -264,10 +266,10 @@ export function updateBoss(e, sim, dt) {
       e.yaw = approachAngle(e.yaw, want, 0.45 * dt);
       if (d > 40) { e.v = 2.5; e.x += Math.sin(e.yaw) * 2.5 * dt; e.z += Math.cos(e.yaw) * 2.5 * dt; }
       const guns = e.parts.filter((p) => p.gun && p.alive);
-      if (guns.length && e.cd.gun <= 0 && d < 100) { e.cd.gun = 4 * sim.diff.reload; fireFrom(e, sim, guns[Math.floor(sim.rnd() * guns.length)], foe, { dmg: 12 }); }
+      if (guns.length && e.cd.gun <= 0 && d < 100) { e.cd.gun = 5 * sim.diff.reload; fireFrom(e, sim, guns[Math.floor(sim.rnd() * guns.length)], foe, { dmg: 11, spread: 1.6 }); }
       if (e.cd.missile <= 0) {
-        e.cd.missile = 11 * sim.diff.reload;
-        for (let i = 0; i < 4; i++) sim.spawnMissile(e, { x: e.x + Math.sin(e.yaw + 3.14) * 6, y: e.y + 11, z: e.z + Math.cos(e.yaw + 3.14) * 6 }, foe, { delay: i * 0.25, dmg: 9 * sim.diff.dmg });
+        e.cd.missile = 14 * sim.diff.reload;
+        for (let i = 0; i < 3; i++) sim.spawnMissile(e, { x: e.x + Math.sin(e.yaw + 3.14) * 6, y: e.y + 11, z: e.z + Math.cos(e.yaw + 3.14) * 6 }, foe, { delay: i * 0.35, dmg: 8 * sim.diff.dmg, turn: 1.0 });
       }
       if (e.pt > 9 && Math.abs(wrapAngle(want - e.yaw)) < 0.25 && d < 110) {
         e.phase = 'windup';
@@ -277,7 +279,7 @@ export function updateBoss(e, sim, dt) {
       }
     } else if (e.phase === 'windup') {
       e.yaw = approachAngle(e.yaw, want, 0.2 * dt);
-      if (e.pt > 1.8) { e.phase = 'charge'; e.pt = 0; }
+      if (e.pt > 2.2) { e.phase = 'charge'; e.pt = 0; }
     } else if (e.phase === 'charge') {
       const sp = 20;
       e.v = sp;
@@ -309,7 +311,7 @@ export function updateBoss(e, sim, dt) {
       }
     } else if (e.phase === 'stun') {
       e.stunned = true;
-      if (e.pt > 6) { e.phase = 'track'; e.pt = 0; e.stunned = false; }
+      if (e.pt > 8) { e.phase = 'track'; e.pt = 0; e.stunned = false; }
     }
   }
 
@@ -329,7 +331,7 @@ export function onPartDestroyed(e, p, sim) {
     if (n === 2) sim.radio('mech', '脚が折れた!胴体が落ちるぞ、腹の動力炉が見えた!');
   }
   if (e.boss === 'dredger' && p.vent) {
-    if (!e.parts.some((q) => q.vent && q.alive)) sim.radio('mech', '吸気口をつぶした!上のハッチが開いたぞ、曲射で上から叩き込め!');
+    if (!e.parts.some((q) => q.vent && q.alive)) sim.radio('mech', '吸気口をつぶした!機関が止まって上のハッチが開いたぞ、曲射で上から叩き込め!');
   }
   if (e.boss === 'hauler' && p.gun && !e.parts.some((q) => q.gun && q.alive)) sim.radio('mech', '甲板の砲塔は全部黙らせた。あとは機関部だ!');
   return false;
