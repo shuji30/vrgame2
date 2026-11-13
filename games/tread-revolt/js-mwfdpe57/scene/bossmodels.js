@@ -121,6 +121,7 @@ export function buildBoss(id) {
     body.add(box(6, 3, 5, m.steel, 0, 11.5, -8));
     body.add(box(9, 6, 2, m.dark, 0, 6, -15));
     for (const s of [-1, 1]) body.add(cyl(0.8, 6, m.dark, s * 4, 12, -12, 'y', 8));
+    body.add(cyl(1.4, 3.2, m.dark, 0, 11.2, -3, 'y', 10)); // 排気口の煙突(止まると先が光る)
     drill = new THREE.Group();
     drill.position.set(0, 5, 15);
     const cone = new THREE.Mesh(new THREE.ConeGeometry(4.6, 9, 10), m.drill);

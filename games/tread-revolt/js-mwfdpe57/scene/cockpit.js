@@ -81,7 +81,7 @@ export class Cockpit {
     this.ctx = this.canvas.getContext('2d');
     this.tex = new THREE.CanvasTexture(this.canvas);
     this.tex.colorSpace = THREE.SRGBColorSpace;
-    const panel = add(new THREE.PlaneGeometry(0.62, 0.62 * (H / W)), new THREE.MeshBasicMaterial({ map: this.tex, toneMapped: false }), 0.0, -0.52, 0.46, -dashTilt - 0.25, Math.PI);
+    const panel = add(new THREE.PlaneGeometry(0.62, 0.62 * (H / W)), new THREE.MeshBasicMaterial({ map: this.tex, toneMapped: false }), 0.4, -0.42, 0.5, -dashTilt - 0.15, Math.PI + 0.5);
     this.panel = panel;
     // 簡易モニター(レーダー)
     this.radar = document.createElement('canvas');
@@ -90,8 +90,8 @@ export class Cockpit {
     this.rtex = new THREE.CanvasTexture(this.radar);
     this.rtex.colorSpace = THREE.SRGBColorSpace;
     // 運転手の目の方へ向ける(モニターは右手側。コックピットの -X が右)
-    add(new THREE.BoxGeometry(0.24, 0.24, 0.04), dark, -0.38, -0.52, 0.47, -dashTilt - 0.25, Math.PI - 0.2);
-    const mon = add(new THREE.PlaneGeometry(0.21, 0.21), new THREE.MeshBasicMaterial({ map: this.rtex, toneMapped: false }), -0.376, -0.515, 0.445, -dashTilt - 0.25, Math.PI - 0.2);
+    add(new THREE.BoxGeometry(0.24, 0.24, 0.04), dark, -0.42, -0.42, 0.52, -dashTilt - 0.15, Math.PI - 0.55);
+    const mon = add(new THREE.PlaneGeometry(0.21, 0.21), new THREE.MeshBasicMaterial({ map: this.rtex, toneMapped: false }), -0.408, -0.414, 0.5, -dashTilt - 0.15, Math.PI - 0.55);
     this.monitor = mon;
     // 揺れる小物(お守り)
     this.charmPivot = new THREE.Group();

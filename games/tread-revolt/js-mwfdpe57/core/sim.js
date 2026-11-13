@@ -91,7 +91,7 @@ export class Sim {
     const e = {
       id: p.id, name: p.name || p.id, isPlayer: p.ctrl !== 'bot', ctrl: p.ctrl || 'local', team: p.team ?? 0,
       kind: spec.kind, color: p.color, alive: true, hp: spec.hp, maxHp: spec.hp, radius: spec.radius,
-      reload: 0, mgCd: 0, sub: 'mg', smokeAmmo: 3, weapon: 'cannon', turret: 0, gunPitch: 0, turretYaw: 0,
+      reload: 0, cycle: 0, ammo: 2, barrel: 0, recoilT: [0, 0], mgCd: 0, sub: 'mg', smokeAmmo: 3, weapon: 'cannon', turret: 0, gunPitch: 0, turretYaw: 0,
       kills: 0, deaths: 0, score: 0, respawnT: 0, invuln: 0, drop: 0, hatch: false, index, ai: {}, lobAmt: 0,
       aim: { x: 0, y: 0, z: 0, d: 100, lock: null }, lobAim: null, spread: 0, fireT: 0, hitT: 0,
     };
@@ -123,6 +123,8 @@ export class Sim {
     e.hp = e.maxHp;
     e.turret = 0;
     e.reload = 0;
+    e.cycle = 0;
+    e.ammo = 2;
     e.smokeAmmo = 3;
     e.drop = 1; // 空から投下されて始まる
     e.y = this.terrain.height(sp.x, sp.z) + 40;
@@ -412,14 +414,18 @@ export class Sim {
     e.spread = spreadDeg(e.v, e.spec.speed, e.w, !!e.air);
 
     // 装填
+    // 装填:砲身2本。撃ち切ったら2本まとめて装填する。2発目までの間隔は cycle
     if (e.reload > 0) {
       e.reload -= dt;
-      if (e.reload <= 0) { e.reload = 0; this.emit({ t: 'reload', id: e.id }); }
+      if (e.reload <= 0) { e.reload = 0; e.ammo = 2; this.emit({ t: 'reload', id: e.id }); }
     }
+    e.cycle = Math.max(0, (e.cycle || 0) - dt);
+    if (e.recoilT) for (let k = 0; k < 2; k++) e.recoilT[k] = Math.max(0, e.recoilT[k] - dt * 2.2);
     e.mgCd -= dt;
     e.fireT = Math.max(0, e.fireT - dt);
     // 主砲
-    const canFire = this.mission.state !== 'drop' && this.mission.state !== 'over' && e.reload <= 0;
+    const twin = !isMech;
+    const canFire = this.mission.state !== 'drop' && this.mission.state !== 'over' && e.cycle <= 0 && (twin ? e.ammo > 0 : e.reload <= 0);
     if (cmd.fire && canFire) {
       if (e.wheelie > 0.55 && !isMech) this.fireLob(e);
       else if (e.wheelie < 0.08) this.fireMain(e, cmd.fireStrength ?? 1);
@@ -463,8 +469,21 @@ export class Sim {
       const yaw = o.yaw + a * spreadR * 0.5;
       const pitch = e.gunPitch + b * spreadR * 0.5;
       const cp = Math.cos(pitch);
+      if (e.spec.body === 'tank') {
+        // 砲身2本を左右交互に。撃ち切ったら2本まとめて装填
+        const k = e.barrel || 0;
+        const side = k === 0 ? 0.24 : -0.24; // 0 = 左(+X)
+        o.x += Math.cos(o.yaw) * side;
+        o.z -= Math.sin(o.yaw) * side;
+        e.barrel = 1 - k;
+        e.recoilT[k] = 1;
+        e.ammo = Math.max(0, e.ammo - 1);
+        e.cycle = 0.2;
+        if (e.ammo === 0) e.reload = e.spec.reload * 1.4;
+      } else {
+        e.reload = e.spec.reload;
+      }
       this.spawnShot({ kind: 'shell', x: o.x, y: o.y, z: o.z, vx: Math.sin(yaw) * cp * sp, vy: Math.sin(pitch) * sp, vz: Math.cos(yaw) * cp * sp, team: e.team, owner: e.id, dmg: e.spec.dmg, splash: e.spec.splash, life: 4 });
-      e.reload = e.spec.reload;
     }
     this.mission.shots += e.isPlayer ? 1 : 0;
     e.fireT = 0.35;
@@ -479,7 +498,9 @@ export class Sim {
     const yaw = o.yaw + (this.rnd() - 0.5) * 0.02;
     const vv = v * (1 + (this.rnd() - 0.5) * 0.02);
     this.spawnShot({ kind: 'lob', x: e.x, y: e.y + 3, z: e.z, vx: Math.sin(yaw) * c * vv, vy: s * vv, vz: Math.cos(yaw) * c * vv, g: LOB_G / G, team: e.team, owner: e.id, dmg: e.spec.dmg * 1.1, splash: 6, lob: true, life: 10, prox: true });
-    e.reload = e.spec.reload * 1.2;
+    e.reload = e.spec.reload * 1.4;
+    e.ammo = 0;
+    e.recoilT = [1, 1];
     e.fireT = 0.35;
     this.emit({ t: 'fire', id: e.id, x: e.x, y: e.y + 3, z: e.z, kind: 'lob', strength: 1 });
   }
@@ -886,8 +907,9 @@ export class Sim {
   damagePart(e, p, s) {
     if (!this.authority) return;
     // つながった部位(掘削機の排気口 → 動力炉)へダメージを回す
-    if (p.link) { const q = e.parts.find((x) => x.name === p.link); if (q && q.alive) p = q; }
     let dmg = s.dmg;
+    // 開いた排気口への命中は大きな好機なので 2.5 倍
+    if (p.link) { const q = e.parts.find((x) => x.name === p.link); if (q && q.alive) { p = q; dmg *= 2.5; } }
     if (e.stunned) dmg *= 1.5;
     p.hp -= dmg;
     this.emit({ t: 'hitPart', id: e.id, part: p.name, hp: p.hp / p.maxHp, x: s.x, y: s.y, z: s.z });
