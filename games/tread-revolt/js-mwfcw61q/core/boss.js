@@ -42,6 +42,8 @@ export const BOSSES = {
       P('drill', 0, 5, 17, 3.5, 9999, { armored: true }),
       P('s1', 7.6, 9, 2, 1.9, 85, { gun: true }), P('s2', -7.6, 9, 2, 1.9, 85, { gun: true }),
       P('core', 0, 6, -15.6, 3, 300, { weak: true, core: true }),
+      // 止まっている(気絶)間だけ開く上の排気口。当てると動力炉にダメージが通る
+      P('vent', 0, 10.8, -3, 2.4, 1e6, { weak: true, stunOnly: true, link: 'core' }),
     ],
   },
 };
@@ -78,6 +80,7 @@ export function partPos(e, p) {
 // 部位が弾を受け付けるか
 export function partVulnerable(e, p, shot) {
   if (!p.alive || p.armored) return false;
+  if (p.stunOnly && !e.stunned) return false;
   if (e.boss === 'dredger' && e.sub > 0.5) return false;
   if (p.shielded) {
     if (e.boss === 'walker' && e.parts.filter((q) => q.knee && !q.alive).length < 2) return false;
@@ -306,7 +309,7 @@ export function updateBoss(e, sim, dt) {
         if (hitWall) {
           sim.emit({ t: 'explode', x: nose.x, y: 4, z: nose.z, size: 3, kind: 'ground' });
           sim.emit({ t: 'quake', x: nose.x, z: nose.z });
-          sim.radio('mech', '壁にめり込んだ!今だ、後ろの動力炉を撃て!');
+          sim.radio('mech', '壁にめり込んだ!上の排気口が開いたぞ、今だ!後ろの動力炉でもいい!');
         }
       }
     } else if (e.phase === 'stun') {

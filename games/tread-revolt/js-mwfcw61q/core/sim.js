@@ -23,6 +23,7 @@ export class Sim {
     this.authority = opts.authority ?? true;
     this.diff = DIFFICULTY[opts.difficulty || 'normal'];
     this.comfortTurn = opts.comfortTurn ?? 1;
+    this.turretRange = (opts.turretRange ?? 90) * DEG; // プレイヤーの砲塔の左右の旋回範囲(180 で全周)
     this.rng = makeRng(opts.seed ?? ((stage.seed || 1) * 31 + 7));
     this.rnd = this.rng.next;
     this.terrain = new Terrain(stage);
@@ -108,7 +109,8 @@ export class Sim {
       const off = [-9, 9, -18, 18][k];
       return { x: b.x + off, z: b.z, yaw: b.yaw };
     }
-    const s = this.stage.spawn;
+    // 中間地点(区画制圧で最後に開けた門の先)があればそこから
+    const s = this.checkpoint || this.stage.spawn;
     const k = e.index % 4;
     const off = [0, 8, -8, 16][k];
     return { x: s.x + Math.cos(s.yaw) * off, z: s.z - Math.sin(s.yaw) * off - (k ? 4 : 0) * Math.cos(s.yaw), yaw: s.yaw };
@@ -387,11 +389,12 @@ export class Sim {
       e.turret = wrapAngle(e.turret + clamp(cmd.turret || 0, -1, 1) * tr * dt);
     }
     // 歩行メカは上半身のひねりに限界がある
+    // 砲塔の旋回範囲(前後が分からなくならないように、既定は左右 90°)。限界の手前から FFB で押し返す
     e.turretLimit = 0;
-    if (isMech) {
-      const lim = 115 * DEG;
-      if (Math.abs(e.turret) > lim) { e.turret = Math.sign(e.turret) * lim; }
-      e.turretLimit = clamp((Math.abs(e.turret) - 95 * DEG) / (20 * DEG), 0, 1) * Math.sign(e.turret);
+    const lim = isMech ? Math.min(115 * DEG, this.turretRange) : this.turretRange;
+    if (e.isPlayer && lim < Math.PI - 0.01) {
+      if (Math.abs(e.turret) > lim) e.turret = Math.sign(e.turret) * lim;
+      e.turretLimit = clamp((Math.abs(e.turret) - (lim - 20 * DEG)) / (20 * DEG), 0, 1) * Math.sign(e.turret);
     }
     e.turretRate = (cmd.turret || 0);
 
@@ -882,6 +885,8 @@ export class Sim {
 
   damagePart(e, p, s) {
     if (!this.authority) return;
+    // つながった部位(掘削機の排気口 → 動力炉)へダメージを回す
+    if (p.link) { const q = e.parts.find((x) => x.name === p.link); if (q && q.alive) p = q; }
     let dmg = s.dmg;
     if (e.stunned) dmg *= 1.5;
     p.hp -= dmg;
@@ -1012,6 +1017,15 @@ export class Sim {
         g.opening = true;
         g.alive = false;
         this.emit({ t: 'gate', id: g.id, x: g.x, z: g.z });
+        // 中間地点:門の、次の敵がいる側へ 10m
+        const nextGroup = `r${Number(String(g.gate).replace(/\D/g, '')) + 1}`;
+        const next = this.ents.find((u) => u.group === nextGroup && u.alive) || this.ents.find((u) => u.objective && u.alive);
+        if (next) {
+          const horiz = g.w > g.d;
+          const sx = horiz ? 0 : Math.sign(next.x - g.x) || 1, sz = horiz ? Math.sign(next.z - g.z) || 1 : 0;
+          // 門の手前(いま制圧した側)に置く。次の部屋へは門をくぐってすぐ
+          this.checkpoint = { x: g.x - sx * 10, z: g.z - sz * 10, yaw: Math.atan2(sx, sz) };
+        }
         this.radio('mech', '門が開いた!次の区画へ進め。');
       }
     }
