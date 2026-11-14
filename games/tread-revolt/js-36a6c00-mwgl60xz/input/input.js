@@ -14,7 +14,7 @@ export class InputManager {
     this.keys = new Set();
     this.pressed = new Set(); // このフレームで押されたキー
     this.mouse = { dx: 0, down: [false, false, false], clicked: [false, false, false], locked: false };
-    this.settings = { scheme: 'tracks', manualPitch: false, mouseTurret: true, invertMouse: false, mouseSens: 1 };
+    this.settings = { scheme: 'tracks', manualPitch: false, mouseTurret: true, invertMouse: false, mouseSens: 1, wheelAutoCenter: true };
     this.wheelCfg = loadWheel();
     this.wheelState = {};
     this.padPrev = [];
@@ -186,6 +186,9 @@ export class InputManager {
       const moving = Math.abs(wa.left) > 0.05 || Math.abs(wa.right) > 0.05 || Math.abs(w.steer) > 0.08 || wa.fire;
       if (moving) this.active = 'wheel';
       merge(a, 'left', wa.left); merge(a, 'right', wa.right); merge(a, 'turret', wa.turret);
+      // ハンドルを中央にして 1 秒たったら、砲塔を正面へ戻すよう頼む(設定で切れる。照準の固定と撃った直後は sim 側で戻さない)
+      this.wheelCenterT = Math.abs(w.steer) < 0.02 ? (this.wheelCenterT || 0) + dt : 0;
+      if (S.wheelAutoCenter !== false && this.wheelCenterT > 1.0) a.turretCenter = true;
       for (const key of ['fire', 'sub', 'subPress', 'subSelect', 'view', 'pause', 'recenter', 'quickTurn', 'weaponSwap', 'crouch', 'up', 'down', 'ok', 'back']) a[key] = a[key] || wa[key];
       if (wa.fire) a.fireStrength = wa.fireStrength;
       a.pitchStep += wa.pitchStep;

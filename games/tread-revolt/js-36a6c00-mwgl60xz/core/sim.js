@@ -419,6 +419,12 @@ export class Sim {
       e.turret = approachAngle(e.turret, wrapAngle(cmd.turretYaw), tr * dt);
     } else {
       e.turret = wrapAngle(e.turret + clamp(cmd.turret || 0, -1, 1) * tr * dt);
+      // 砲塔を正面へ戻す(ハンコンでハンドルを中央にしているとき)。止めているときだけ、旋回の 6 割の速さで。
+      // 敵に照準が合っている間と、撃ってから 2.5 秒は戻さない(狙いを保ったまま走れるように)
+      e.sinceFire = (e.fireT > 0.3 ? 0 : (e.sinceFire ?? 9) + dt);
+      if (cmd.turretCenter && Math.abs(cmd.turret || 0) < 0.02 && !e.aim?.lock && e.sinceFire > 2.5) {
+        e.turret = approachAngle(e.turret, 0, tr * 0.6 * dt);
+      }
     }
     // 歩行メカは上半身のひねりに限界がある
     // 砲塔の旋回範囲(前後が分からなくならないように、既定は左右 90°)。限界の手前から FFB で押し返す
