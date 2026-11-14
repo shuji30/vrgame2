@@ -9,7 +9,7 @@ import { VEHICLES, UNITS, DIFFICULTY } from './vehicles.js';
 import { initMotion, stepMotion, separate } from './tankphys.js';
 import { G, LOB_G, LOB_ANGLE, lobSpeed, lobRange, LOB_MIN, LOB_MAX, solvePitch, spreadDeg, gaussPair, GUN_MIN, GUN_MAX } from './ballistics.js';
 import { thinkTank, steerTo } from './ai.js';
-import { initBoss, updateBoss, partPos, partVulnerable, bodyHit, pushVehicle, onPartDestroyed } from './boss.js';
+import { initBoss, updateBoss, partPos, partVulnerable, bodyHit, bodyBlocks, pushVehicle, onPartDestroyed } from './boss.js';
 
 const ELEV_H = 26;
 const ELEV_DUR = 7.5;
@@ -222,7 +222,16 @@ export class Sim {
       const d = dist(o.x, o.z, t.x, t.z);
       if (d > bd || d < 3) continue;
       const tolerance = Math.max(1.5 * DEG, Math.atan2((t.radius || 2) * 0.8, d));
-      const da = Math.abs(wrapAngle(yawTo(o.x, o.z, t.x, t.z) - o.yaw));
+      let da = Math.abs(wrapAngle(yawTo(o.x, o.z, t.x, t.z) - o.yaw));
+      // ボス:胴体からはみ出た部位(多脚の膝など)に向けたときも狙いを合わせる
+      if (da >= tolerance && t.type === 'boss') {
+        for (const p of t.parts) {
+          if (!p.alive || p.armored) continue;
+          const pp = partPos(t, p);
+          const pd = Math.max(3, dist(o.x, o.z, pp.x, pp.z));
+          if (Math.abs(wrapAngle(yawTo(o.x, o.z, pp.x, pp.z) - o.yaw)) < Math.atan2(p.r + 1, pd)) { da = 0; break; }
+        }
+      }
       if (da < tolerance) { best = t; bd = d; }
     }
     let ax, ay, az, d;
@@ -233,7 +242,8 @@ export class Sim {
         if (!p.alive || p.armored) continue;
         const pp = partPos(best, p);
         const da = Math.abs(wrapAngle(yawTo(o.x, o.z, pp.x, pp.z) - o.yaw));
-        const score = da + (partVulnerable(best, p, { lob: false, vy: 0 }) ? 0 : 0.15);
+        // 胴体にさえぎられて届かない部位は後回し(近くから上の砲を狙って胴体に当たるのを防ぐ)
+        const score = da + (partVulnerable(best, p, { lob: false, vy: 0 }) ? 0 : 0.15) + (bodyBlocks(best, o, pp, p.r) ? 0.5 : 0) + (p.weak ? 0 : 0.03);
         if (score < bs) { bs = score; bp = pp; }
       }
       const tgt = bp || { x: best.x, y: best.y + 5, z: best.z };

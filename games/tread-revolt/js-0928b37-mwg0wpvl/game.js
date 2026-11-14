@@ -100,7 +100,7 @@ export class Game {
     this.radioQ = [];
     this.radioT = 0;
     this.app.hud.reset();
-    this.app.audio.playMusic(cfg.stage.music || 'area1');
+    this.app.audio.playMusic(cfg.stage.music || 'area1', cfg.stage.musicFallback);
     this.app.audio.jingle('start');
     this.app.audio.setInterior(true);
     this.bossShown = false;
@@ -119,6 +119,7 @@ export class Game {
     if (this.fx) this.scene.remove(this.fx.group);
     if (this.cockpit) this.seat.remove(this.cockpit.group);
     this.app.audio.pruneEngines(new Set());
+    this.app.audio.syncMissiles([]);
     if (this.me) this.app.audio.removeEngine(this.me.id);
     this.app.bridge?.stopForces();
     this.sim = null;
@@ -268,7 +269,7 @@ export class Game {
     }
 
     if (view === 'diorama') {
-      this.seat.scale.setScalar(inXR ? 40 : 1);
+      this.seat.scale.setScalar(1);
       // 盤面は回さない(北が奥)。自機が盤の手前に来るように置く
       const tx = me.x, tz = me.z;
       this.dioramaPos ??= { x: tx, z: tz };
@@ -276,9 +277,9 @@ export class Game {
       const dd = Math.hypot(tx - dp.x, tz - dp.z);
       if (dd > 12) { dp.x += (tx - dp.x) * dt * 1.5; dp.z += (tz - dp.z) * dt * 1.5; }
       if (inXR) {
-        // 盤面(地面)が手前 0.6m、高さ 0.8m の卓に見える
-        this.seat.position.set(dp.x, -0.8 * 40 + 0.0 + 40 * 0.9, dp.z - 0.6 * 40);
-        this.seat.position.y = this.sim.terrain.height(dp.x, dp.z) - 0.8 * 40 + 1.2 * 40 * 0.0;
+        // 自車の後ろ上方 30m から戦場を見下ろす(盤面は回さない。北が奥)
+        // (以前は床が原点の前提で縮尺 40 倍にしていて、座って遊ぶ設定では視点が地面の下に入り、何も見えなかった)
+        this.seat.position.set(dp.x, this.sim.terrain.height(dp.x, dp.z) + 30, dp.z - 28);
         this.seat.rotation.set(0, Math.PI, 0);
       } else {
         this.seat.position.set(dp.x, me.y + 62, dp.z - 52);
@@ -293,11 +294,20 @@ export class Game {
       if (view === 'hatch') eye = spec.height + 1.25;
       // VR のコックピット:砲塔の付け根より少し下(車内)。砲身が目線の上で回る
       if (inXR && view === 'cockpit' && ownModel?.turretBase && spec.body === 'tank') eye = ownModel.turretBase - 0.2;
-      // 高さはなめらかに(揺れを伝えない)
-      const ty = me.y + eye;
-      this.seatY = Math.abs(ty - this.seatY) > 8 ? ty : damp(this.seatY, ty, 5, dt);
       // VR は車体の前寄りの中央(砲塔より前)。砲身は足元から前へ伸び、覗き窓の下に見える
       const fwd = view === 'cockpit' ? (inXR ? spec.radius * 0.25 : 0.3) : -0.6;
+      // 逆立ち(曲射):車体は後端を支点に起き上がる。視点もその回転に合わせて上がり、後ろへ寄る
+      // (ゆっくりした操作なので位置は追う。VR は傾けると酔うので、向きを変えるのは画面のときだけ)
+      const wa = spec.body === 'tank' ? (me.wheelie || 0) * 0.66 : 0;
+      let lift = 0, back = 0;
+      if (wa > 0) {
+        const rz = fwd + (ownModel?.hullL ?? spec.radius * 2.6) / 2; // 支点から視点までの前後の距離
+        lift = eye * (Math.cos(wa) - 1) + rz * Math.sin(wa);
+        back = rz * (Math.cos(wa) - 1) - eye * Math.sin(wa);
+      }
+      // 高さはなめらかに(揺れを伝えない)
+      const ty = me.y + eye + lift;
+      this.seatY = Math.abs(ty - this.seatY) > 8 ? ty : damp(this.seatY, ty, 5, dt);
       const yawPos = followTurret ? this.viewYaw : me.yaw;
       // コックピットは運転手ののぞき窓(車体の前)。前に車体の前端と履帯が見え、砲塔は後ろになる
       const eyeNode = false; // VR も車体の中央(砲塔の位置)から見る。覗き窓から斜め下に左右の履帯の前端が見える
@@ -308,12 +318,14 @@ export class Game {
         this.seatY = Math.abs(ty2 - this.seatY) > 8 ? ty2 : damp(this.seatY, ty2, 5, dt);
         this.seat.position.set(p.x, this.seatY, p.z);
       } else {
-        this.seat.position.set(me.x + Math.sin(yawPos) * fwd, this.seatY, me.z + Math.cos(yawPos) * fwd);
+        this.seat.position.set(me.x + Math.sin(yawPos) * fwd + Math.sin(me.yaw) * back, this.seatY, me.z + Math.cos(yawPos) * fwd + Math.cos(me.yaw) * back);
       }
       this.seat.rotation.set(0, this.viewYaw + Math.PI, 0);
       if (!inXR) {
         // 砲身の仰角に少しだけ合わせる(見下ろしすぎない)
-        const pitch = view === 'hatch' ? -0.12 : -0.05 + me.gunPitch * 0.5;
+        // 逆立ち中は車体の傾きの分だけ見上げる(砲塔を横へ向けているときは小さく)
+        const up = wa * Math.max(0, Math.cos(this.viewYaw - me.yaw));
+        const pitch = (view === 'hatch' ? -0.12 : -0.05 + me.gunPitch * 0.5) + up;
         this.camera.rotation.set(pitch, 0, 0);
       }
     }
@@ -440,7 +452,6 @@ export class Game {
           } else if (ev.kind === 'mg') au.play(mine ? 'mg' : 'mgEnemy', { ...pos, gain: mine ? 0.7 : 0.6 });
           else if (ev.kind === 'mgEnemy') au.play('mgEnemy', { ...pos, gain: 0.6 });
           else if (ev.kind === 'lob') { au.play('lob', pos); this.fx.muzzle(ev.x, ev.y, ev.z, 0, 0.8); if (mine) this.ffbModel.recoil(0.8); }
-          else if (ev.kind === 'missile') au.play('missile', pos);
           else if (ev.kind === 'smoke') au.play('smoke', pos);
           break;
         }
@@ -549,6 +560,7 @@ export class Game {
       active.add(e.id);
     }
     au.pruneEngines(active);
+    au.syncMissiles(this.sim.shots);
     au.update(dt);
   }
 
