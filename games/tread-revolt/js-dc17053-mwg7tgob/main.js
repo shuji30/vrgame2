@@ -25,7 +25,7 @@ const TOUCH = isTouchDevice();
 const DEFAULT_SETTINGS = {
   difficulty: 'normal', vehicle: 'medium', scheme: 'tracks', manualPitch: false, mouseSens: 1,
   vignette: 0.6, snapTurn: false, horizon: false, comfortTurn: 1, shadows: !TOUCH, // スマホは影を切って軽くする
-  master: 0.8, sfx: 0.9, music: 0.35, speech: false, speechVoice: 'male',
+  master: 0.8, sfx: 0.9, music: 0.35, trackVol: 0.5, speech: false, speechVoice: 'male',
   vrScale: 0.8, turretRange: 90, sortieVR: false, simhub: true, paint: 0, ffb: true, ffbInvert: true, ffbGain: 0.8, ffbSpring: 0.45, ffbSoftLock: 0.8, xrMode: 'sticks', turretHead: true, wheelOffset: { x: 0, y: 0, z: 0 }, name: 'PLAYER',
 };
 const settings = { ...DEFAULT_SETTINGS, ...load(SETTINGS_KEY, {}) };
@@ -69,7 +69,7 @@ function applySettings() {
   input.settings.mouseSens = settings.mouseSens;
   xr.mode = settings.xrMode;
   xr.turretHead = settings.turretHead;
-  audio.setVolumes({ master: settings.master, sfx: settings.sfx, music: settings.music });
+  audio.setVolumes({ master: settings.master, sfx: settings.sfx, music: settings.music, tracks: settings.trackVol ?? 0.5 });
   save(SETTINGS_KEY, settings);
 }
 
@@ -265,6 +265,7 @@ function startVersus() {
 
 function quit() {
   playing = false;
+  checkUpdate(); // メニューへ戻ったときに新しい版が出ていれば読み込み直す
   game.stop();
   hud.show(false);
   document.exitPointerLock?.();
@@ -375,6 +376,7 @@ function renderSettings() {
     ${check('shadows', '影(重いときは切る)')}
     ${slider('master', '全体の音量', 0, 1, 0.05)}
     ${slider('sfx', '効果音', 0, 1, 0.05)}
+    ${slider('trackVol', '履帯の音(ガラガラという金属音)', 0, 1, 0.05)}
     ${slider('music', 'BGM', 0, 1, 0.05)}
     ${check('speech', '無線を読み上げる')}
     ${sel('speechVoice', '読み上げの声', [['male', '男性'], ['female', '女性'], ['auto', 'ブラウザの既定']])}
@@ -792,6 +794,26 @@ setMenuVehicle(settings.vehicle);
 $('#loading').hidden = true;
 $('#title-note').innerHTML = '推奨:PC の Chrome / Edge。VR は PCVR(OpenXR)。ハンコンは vrgame2 の ffb-bridge を起動しておく。<br><span id="ver"></span>';
 loadBuildInfo().then((t) => { $('#ver').textContent = t; });
+
+// 古い版のまま遊び続けないようにする:公開されている版(version.json)がこのプログラムと違えば読み込み直す。
+// ブラウザが古い index.html を使い続けることがある(開いたままのタブを戻したときなど)。遊んでいる最中は読み込み直さない
+let updating = false;
+async function checkUpdate() {
+  if (updating || playing) return;
+  try {
+    const r = await fetch(`./version.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (!r.ok) return; // 手元で開いたとき(version.json がない)
+    const v = (await r.json()).version;
+    if (!v || v === VERSION) return;
+    const u = new URL(location.href);
+    if (u.searchParams.get('v') === v) return; // 読み込み直しても変わらない(公開の途中など)。繰り返さない
+    updating = true;
+    u.searchParams.set('v', v);
+    location.replace(u.toString());
+  } catch { /* つながらない */ }
+}
+checkUpdate();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 audio.playMusic('title');
 if (params.has('stage')) {
   pending = { mode: 'campaign', stageIndex: Number(params.get('stage')) };

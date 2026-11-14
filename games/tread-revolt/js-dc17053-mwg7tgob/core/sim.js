@@ -879,13 +879,13 @@ export class Sim {
           const pp = partPos(e, p);
           if (Math.hypot(pp.x - s.x, pp.y - s.y, pp.z - s.z) < p.r + (s.kind === 'mg' ? 0.2 : 0.6)) {
             if (partVulnerable(e, p, s)) { this.damagePart(e, p, s); s.hitPart = p; }
-            else this.emit({ t: 'ricochet', x: s.x, y: s.y, z: s.z, id: e.id });
+            else this.emit({ t: 'ricochet', x: s.x, y: s.y, z: s.z, id: e.id, boss: e.boss, by: s.owner, shot: s.kind });
             this.explode(s, e, 'hit', true);
             return true;
           }
         }
         if (bodyHit(e, s.x, s.y, s.z)) {
-          this.emit({ t: 'ricochet', x: s.x, y: s.y, z: s.z, id: e.id });
+          this.emit({ t: 'ricochet', x: s.x, y: s.y, z: s.z, id: e.id, boss: e.boss, by: s.owner, shot: s.kind });
           this.explode(s, e, 'hit', true);
           return true;
         }
@@ -955,7 +955,7 @@ export class Sim {
     if (p.link) { const q = e.parts.find((x) => x.name === p.link); if (q && q.alive) { p = q; dmg *= 2.5; } }
     if (e.stunned) dmg *= 1.5;
     p.hp -= dmg;
-    this.emit({ t: 'hitPart', id: e.id, part: p.name, hp: p.hp / p.maxHp, x: s.x, y: s.y, z: s.z });
+    this.emit({ t: 'hitPart', id: e.id, part: p.name, hp: p.hp / p.maxHp, x: s.x, y: s.y, z: s.z, by: s.owner, weak: !!p.weak || !!p.link });
     this.creditHit(s.owner);
     if (p.hp <= 0) {
       p.alive = false;

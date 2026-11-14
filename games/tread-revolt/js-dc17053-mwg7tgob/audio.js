@@ -137,7 +137,7 @@ function setPos(p, x, y, z, t) {
 export class GameAudio {
   constructor() {
     this.ctx = null;
-    this.vol = { master: 0.8, sfx: 0.9, music: 0.35 };
+    this.vol = { master: 0.8, sfx: 0.9, music: 0.35, tracks: 0.5 };
     this.inside = true;
     this.engines = new Map();
     this.posVoices = [];
@@ -186,7 +186,8 @@ export class GameAudio {
     if (this._pendingMusic) this.playMusic(this._pendingMusic, this._pendingFallback);
   }
 
-  setVolumes({ master, sfx, music } = {}) {
+  setVolumes({ master, sfx, music, tracks } = {}) {
+    if (tracks != null) this.vol.tracks = clamp(tracks);
     if (master != null) this.vol.master = clamp(master);
     if (sfx != null) this.vol.sfx = clamp(sfx);
     if (music != null) this.vol.music = clamp(music);
@@ -265,12 +266,15 @@ export class GameAudio {
     const load = Math.max(Math.abs(tl), Math.abs(tr));
     const T = (p, v, tau = 0.08) => p.setTargetAtTime(v, t, tau);
     // 左右の履帯:板の当たる数を速さに合わせる(素材の再生速度で)。転がる低い音と砂利の音も速さで
+    // 板の金属音は目立つとうるさく不自然なので、控えめにしてこもらせる。速くなるほど転がる音に溶け込ませる。
+    // 自車は車内なのでさらにこもらせる。音量は設定の「履帯の音」(既定 0.5)
+    const tv = this.vol.tracks ?? 0.5;
     for (const [side, v, a] of [[e.L, vl, Math.abs(tl)], [e.R, vr, Math.abs(tr)]]) {
       if (side.clank) {
         const rate = Math.abs(v) / (LINK[o.kind] || LINK.tank) / CLANK_RATE;
         T(side.clank.playbackRate, clamp(rate, 0.3, 2.2));
-        T(side.clkG.gain, clamp(Math.abs(v) / 1.2) * (0.35 + 0.4 * a) * k.g);
-        T(side.clkF.frequency, 1800 + 2600 * a);
+        T(side.clkG.gain, clamp(Math.abs(v) / 1.5) * (0.3 - 0.12 * a) * k.g * tv * (e.local ? 0.8 : 1), 0.15);
+        T(side.clkF.frequency, e.local ? 600 + 700 * a : 1000 + 1200 * a);
       }
       T(side.rumF.frequency, 70 + 160 * a);
       T(side.rumG.gain, (0.05 + 0.6 * a) * k.g);

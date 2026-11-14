@@ -8,13 +8,14 @@ import { buildVehicle, buildUnit } from './scene/models.js';
 import { buildBoss } from './scene/bossmodels.js';
 import { FfbModel } from './core/ffbmodel.js';
 import { clamp, damp, wrapAngle, yawTo, fmtTime, DEG } from './core/util.js';
-import { bossProgress } from './core/boss.js';
+import { bossProgress, BOSS_HINTS } from './core/boss.js';
 import { isStill } from './core/ballistics.js';
 import { LIBERATION } from './core/stages.js';
 import { Vignette } from './scene/comfort.js';
 import { TankTelemetry } from './core/telemetry.js';
 
 const STEP = 1 / 60;
+const BOSS_DEATH_T = 2.8; // ボスが倒れてから大爆発するまで(秒)
 const WHO = { leader: 'リーダー', mech: '整備士', boss: '公社司令官', town: '町の人', sys: '' };
 
 export class Game {
@@ -98,6 +99,10 @@ export class Game {
     this.ended = false;
     this.time = 0;
     this.pendingEdges = null;
+    this.bossDeath = null;
+    this.deflects = 0; // ボスに弾かれた回数(助言を出すため)
+    this.hintT = -1e9;
+    this.hints = 0;
     this.radioQ = [];
     this.radioT = 0;
     this.app.hud.reset();
@@ -184,6 +189,7 @@ export class Game {
     this.world.update(dt, this.time);
     this.world.follow(this.me.x, this.me.z);
     this.fx.syncShells(this.sim.shots);
+    this.updateBossDeath(dt);
     this.fx.update(dt);
     this.app.net?.frame?.(this, dt);
     this.checkEnd(dt);
@@ -403,9 +409,75 @@ export class Game {
     return m;
   }
 
+  // ------------------------------------------------------------ ボスの最期
+  // 倒した瞬間に消さず、車体のあちこちで誘爆を続けてから、最後に大爆発する
+  startBossDeath(ev) {
+    const e = this.sim.byId.get(ev.id);
+    const b = e?.bossDef?.body || { w: 12, d: 24, h: 6, y0: 0 };
+    this.bossDeath = { id: ev.id, t: 0, next: 0.05, done: false, x: ev.x, y: ev.y, z: ev.z, yaw: e?.yaw || 0, b, lean: Math.random() < 0.5 ? -1 : 1, ey: e?.y ?? ev.y };
+    const au = this.app.audio;
+    this.fx.explosion(ev.x, ev.y + b.y0 + b.h * 0.7, ev.z, 3, 'air');
+    au.play('bigExplosion', { x: ev.x, y: ev.y + 3, z: ev.z, strength: 1 });
+  }
+
+  updateBossDeath(dt) {
+    const d = this.bossDeath;
+    if (!d) return;
+    d.t += dt;
+    const au = this.app.audio;
+    const c = Math.cos(d.yaw), s = Math.sin(d.yaw);
+    const at = (lx, ly, lz) => ({ x: d.x + lx * c + lz * s, y: d.ey + ly, z: d.z - lx * s + lz * c });
+    if (!d.done) {
+      // 誘爆:だんだん間隔を詰めて大きくする
+      while (d.next <= d.t && d.t < BOSS_DEATH_T) {
+        const k = d.t / BOSS_DEATH_T;
+        d.next += 0.22 - 0.13 * k + Math.random() * 0.08;
+        const p = at((Math.random() - 0.5) * d.b.w, d.b.y0 + Math.random() * d.b.h, (Math.random() - 0.5) * d.b.d);
+        this.fx.explosion(p.x, p.y, p.z, 1.2 + Math.random() * 1.2 + k * 1.5, 'air');
+        au.play(Math.random() < 0.35 + k * 0.4 ? 'bigExplosion' : 'explosion', { ...p, strength: 0.6 + 0.4 * k });
+      }
+      if (d.t >= BOSS_DEATH_T) {
+        d.done = true;
+        // 大爆発:中心の火球、まわりの爆発の輪、黒煙
+        const cy = d.b.y0 + d.b.h * 0.5;
+        const p0 = at(0, cy, 0);
+        this.fx.explosion(p0.x, p0.y, p0.z, 8, 'air');
+        this.fx.wreck(p0.x, d.ey, p0.z, true);
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          const p = at(Math.sin(a) * d.b.w * 0.6, cy, Math.cos(a) * d.b.d * 0.5);
+          this.fx.explosion(p.x, p.y, p.z, 3.5, 'air');
+        }
+        au.play('bigExplosion', { ...p0, strength: 1 });
+        setTimeout(() => au.play('bigExplosion', { ...p0, strength: 1 }), 90);
+        au.play('explosion', { ...p0, strength: 1 });
+        // 自車の揺れはコックピットの小物と FFB・コントローラーの振動で伝える(カメラは揺らさない)
+        this.cockpit?.sway(0.05, -40, 0, 1);
+        this.ffbModel.hit(0, 1);
+        this.app.haptic?.(1, 450);
+        this.vig?.hit?.(0.5);
+      }
+    } else if (d.t < BOSS_DEATH_T + 6) {
+      // 残骸から上がる黒煙と、ときどきの小さな誘爆
+      if (Math.random() < dt * 3) {
+        const p = at((Math.random() - 0.5) * d.b.w, 1 + Math.random() * 2, (Math.random() - 0.5) * d.b.d);
+        this.fx.explosion(p.x, p.y, p.z, 0.8, 'air');
+      }
+    } else this.bossDeath = null;
+  }
+
   updateModels(dt) {
     for (const e of this.sim.ents) {
       const m = this.modelFor(e);
+      // ボスは倒れてから大爆発するまで、炎を上げながら傾いて沈む
+      const bd = this.bossDeath;
+      if (!e.alive && bd && bd.id === e.id && !bd.done && m.boss) {
+        const k = Math.min(1, bd.t / BOSS_DEATH_T);
+        m.root.visible = true;
+        m.root.position.set(e.x + Math.sin(bd.t * 37) * 0.08, e.y - k * k * 2.2, e.z);
+        m.root.rotation.set(k * 0.06, e.yaw, k * k * 0.12 * bd.lean);
+        continue;
+      }
       const showDead = !e.alive;
       if (showDead || (e.hidden && e.type !== 'amphib' && e.type !== 'launcher')) { if (e !== this.me) m.root.visible = false; if (!e.alive) continue; }
       if (e !== this.me) m.root.visible = !e.hidden || e.type === 'launcher' && e.rise > 0;
@@ -491,16 +563,29 @@ export class Game {
           break;
         case 'ricochet':
           au.play('ricochet', pos);
+          // ボスの装甲に弾かれた:効いていないことが分かるように火花と表示を出し、続いたら整備士が弱点を教える
+          if (ev.boss && ev.by === me.id && ev.shot !== 'mg') {
+            this.fx.deflect(ev.x, ev.y, ev.z);
+            this.app.hud.pop('弾かれた', 'deflect');
+            this.deflects++;
+            if (this.deflects >= 3 && this.time - this.hintT > 30 && this.hints < 3 && BOSS_HINTS[ev.boss]) {
+              this.hintT = this.time; this.hints++; this.deflects = 0;
+              sim.radio('mech', BOSS_HINTS[ev.boss]);
+            }
+          }
           if (ev.armor && this.me && Math.hypot(ev.x - me.x, ev.z - me.z) < 200 && !this.armorHinted) { this.armorHinted = true; sim.radio('mech', '弾かれた!発射台は壁に守られてる、曲射で上から狙え!'); }
           break;
         case 'kill': {
+          if (ev.type === 'boss') { this.startBossDeath(ev); break; }
           this.fx.wreck(ev.x, ev.y, ev.z, ev.big);
           au.play(ev.big ? 'bigExplosion' : 'explosion', pos);
           if (ev.id === me.id) { this.flashMsg('撃破された……', 2); this.warnedLow = false; }
           if (ev.by === me.id && ev.id !== me.id) this.app.hud.killPop(ev.type);
           break;
         }
-        case 'hitPart': break;
+        case 'hitPart':
+          if (ev.by === me.id && ev.weak) { this.app.hud.pop('命中!', 'weakhit'); this.deflects = 0; }
+          break;
         case 'partDown': this.fx.explosion(ev.x, ev.y, ev.z, 2.5); au.play('bigExplosion', pos); break;
         case 'reload': if (mine) au.play('reload'); break;
         case 'wake': {
