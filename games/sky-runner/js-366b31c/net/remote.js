@@ -46,7 +46,7 @@ export class RemotePlayers {
     const group = new THREE.Group();
     this.scene.add(group);
     const name = session.players.find((p) => p.id === id)?.name || '';
-    peer = { group, kind: null, model: null, buf: [], name, label: makeLabel(name || '???') };
+    peer = { id, group, kind: null, model: null, buf: [], name, label: makeLabel(name || '???') };
     group.add(peer.label);
     this.peers.set(id, peer);
     this.setKind(peer, session.info.get(id)?.kind || 'ship');
@@ -63,10 +63,15 @@ export class RemotePlayers {
     if (kind === 'girl') {
       // 女の子は揺れもの (髪・スカート) があるので、写さずに読み込む
       const want = peer;
-      import('../girl.js')
+      // 読み込み直すときは名前に印を付ける (ブラウザが、失敗したモジュールの結果を覚えていることがあるため)
+      import(peer.tries ? `../girl.js?r=${peer.tries}` : '../girl.js')
         .then(({ loadGirl }) => loadGirl(`${this.avatar.base}girl.vrm`, this.avatar.models.human?.obj.getObjectByName('HFlameL')))
         .then((g) => { if (want.kind === 'girl' && !want.model) { want.model = g; want.group.add(g.obj); g.obj.visible = true; } })
-        .catch((e) => console.error('仲間の女の子のモデルを読み込めませんでした', e));
+        .catch((e) => {
+          console.error('仲間の女の子のモデルを読み込めませんでした (5 秒後に読み込み直す。5 回まで)', e);
+          want.tries = (want.tries || 0) + 1;
+          if (want.tries <= 5) setTimeout(() => { if (want.kind === 'girl' && !want.model && this.peers.has(want.id)) this.setKind(want, 'girl'); }, 5000);
+        });
       return;
     }
     const src = this.avatar.models[kind];

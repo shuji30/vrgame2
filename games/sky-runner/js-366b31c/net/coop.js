@@ -9,14 +9,16 @@ const SEND_HZ = 15;
 const KIND_NAME = { ship: '宇宙船', human: 'ロボット', girl: '女の子' };
 const SLOT_X = [0, 10, -10, 20]; // 出撃するときの横の位置 (ルームに入った順。重ならないように)
 
-// hooks: { start(msg): ホストが出撃した (自分がホストのときは呼ばない), lobby(): ホストがロビーに戻った, changed(): 入った・抜けた }
+// hooks: { start(msg): ホストが出撃した (自分がホストのときは呼ばない), lobby(): ホストがロビーに戻った, changed(): 入った・抜けた, render(): ロビーの表示が変わった }
 export function setupCoop({ scene, avatar, hooks }) {
   const $ = (id) => document.getElementById(id);
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(STORE) || '{}'); } catch (_) { /* 既定値 */ }
   $('coopName').value = saved.name || '';
-  const server = new URLSearchParams(location.search).get('coopServer') || saved.server || DEFAULT_SERVER;
-  const save = () => { try { localStorage.setItem(STORE, JSON.stringify({ name: $('coopName').value.trim(), server })); } catch (_) { /* 保存できない */ } };
+  // ルームの仲介は PeerJS (peersignal.js)。?coopServer=<api.php の URL> を付けたときだけ、以前のサーバー方式を使う
+  // (以前に保存したサーバーの URL は、終了したレンタルサーバーなので使わない)
+  const server = new URLSearchParams(location.search).get('coopServer') || DEFAULT_SERVER;
+  const save = () => { try { localStorage.setItem(STORE, JSON.stringify({ name: $('coopName').value.trim() })); } catch (_) { /* 保存できない */ } };
 
   let session = null;
   const handlers = new Map(); // 出来事の種類 → 受け取る関数 (main.js が on() で登録する。ルームに入るたびに付け直す)
@@ -30,6 +32,7 @@ export function setupCoop({ scene, avatar, hooks }) {
 
   function render() {
     const inRoom = !!session?.active;
+    hooks.render?.();
     document.querySelector('[data-coop=entry]').hidden = inRoom;
     document.querySelector('[data-coop=lobby]').hidden = !inRoom;
     if (!inRoom) return;
@@ -150,10 +153,15 @@ export function setupCoop({ scene, avatar, hooks }) {
       if (!inGame || session.state !== 'playing') return;
       if ((sendT -= dt) > 0) return;
       sendT = 1 / SEND_HZ;
+      // 位置はモデルから取る。モデルをまだ読み込めていない (女の子の VRM は大きい) ときも、当たり判定の位置を送る
       const m = avatar.models[kind];
-      if (!m) return;
-      m.obj.getWorldPosition(_p);
-      m.obj.getWorldQuaternion(_q);
+      if (m) {
+        m.obj.getWorldPosition(_p);
+        m.obj.getWorldQuaternion(_q);
+      } else {
+        _p.copy(avatar.hitPoint);
+        _q.identity();
+      }
       const r = (v) => Math.round(v * 1000) / 1000;
       session.sendState({ k: kind, h: show ? 0 : 1, x: r(_p.x), y: r(_p.y), z: r(_p.z), qx: r(_q.x), qy: r(_q.y), qz: r(_q.z), qw: r(_q.w), ...extra });
     },

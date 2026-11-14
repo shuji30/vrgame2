@@ -1,7 +1,10 @@
-// オンライン対戦: サーバー（server/api.php）でルームに集まり、WebRTC でプレイヤー同士が直接つながる
+// オンライン対戦: ルームに集まり、WebRTC でプレイヤー同士が直接つながる
+// ルームの仲介は PeerJS の公開サーバーとホストのブラウザ (peersignal.js。SKY RUNNER と同じもの)。
+// 以前のレンタルサーバー (server/api.php) は終了したので、URL に ?netServer=<api.php の URL> を付けたときだけ使う
 //   SignalClient … ルームの作成・参加・ポーリング・メッセージ送信（HTTP）
 //   Mesh         … 全員と WebRTC のデータチャネルでつながる（最大 10 人）
 //   OnlineSession… ロビー・時計合わせ・スタートの同期・走行データのやり取り
+import { PeerSignalClient } from './peersignal.js';
 
 const STUN = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
 // つながらない相手をつなぎ直すまでの時間（回数ごとに少しずつ延ばす）
@@ -247,7 +250,7 @@ export class Mesh {
 
 export class OnlineSession {
   constructor(base) {
-    this.signal = new SignalClient(base);
+    this.signal = base ? new SignalClient(base) : new PeerSignalClient('turbokart');
     this.mesh = new Mesh(this.signal, (id, m) => this.onPeerMessage(id, m), () => this.emit());
     this.players = [];
     this.host = null;

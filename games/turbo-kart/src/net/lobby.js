@@ -5,20 +5,22 @@ import { TRACKS } from '../core/tracks.js';
 
 const STORE = 'turbokart:online';
 
-// 既定のサーバー URL: ゲームと同じサイトに server/ を置いた場合（お名前.com など）はそれを使う
+// ルームの仲介は PeerJS (peersignal.js) なので、サーバーは要らない。
+// 以前のレンタルサーバー (server/api.php、お名前.com) は終了した。使うときだけ URL に ?netServer=<api.php の URL> を付ける
 function defaultServer() {
-  if (/github\.io$/.test(location.hostname)) return '';
-  return new URL('../../server/api.php', location.href).href;
+  return new URLSearchParams(location.search).get('netServer') || '';
 }
 
 export function setupOnline({ game, ui, input, getVR, $ }) {
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(STORE) || '{}'); } catch { /* 既定値 */ }
   const save = () => {
-    try { localStorage.setItem(STORE, JSON.stringify({ name: $('net-name').value, server: $('net-server').value })); } catch { /* 保存できない */ }
+    try { localStorage.setItem(STORE, JSON.stringify({ name: $('net-name').value })); } catch { /* 保存できない */ }
   };
   $('net-name').value = saved.name || '';
-  $('net-server').value = saved.server || defaultServer();
+  // 以前に保存したサーバーの URL は、終了したレンタルサーバーなので使わない
+  $('net-server').value = defaultServer();
+  $('net-server').closest('label').hidden = !$('net-server').value;
   for (const t of TRACKS) $('net-track').add(new Option(t.name, t.id));
   for (let i = 0; i <= 10; i++) $('net-npcs').add(new Option(`${i} 台`, i, i === 0, i === 0));
 
@@ -28,8 +30,8 @@ export function setupOnline({ game, ui, input, getVR, $ }) {
     const url = $('net-server').value.trim();
     const el = $('net-health');
     if (!url) {
-      el.textContent = 'サーバー URL を入力してください（お名前.com に server/ をデプロイした URL）';
-      return false;
+      el.textContent = 'ルームコードで集まって対戦します（サーバー不要。直接つながらない回線は中継サーバーで中継します）';
+      return true;
     }
     try {
       const h = await fetch(`${url}?a=health`).then((r) => r.json());

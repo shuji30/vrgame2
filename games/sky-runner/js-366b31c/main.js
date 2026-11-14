@@ -137,6 +137,7 @@ coop = setupCoop({
     start: (msg) => onCoopStart(msg),
     lobby: () => { coopStart = null; if (S.mode !== 'title') toTitle(); },
     changed: () => onCoopChanged(),
+    render: () => startLabel(),
   },
 });
 // 協力プレイ: combat.js に役目 (ホスト / ゲスト) と送り方を渡す (出撃のたびに startPlay で作り直す)
@@ -703,6 +704,10 @@ async function enterVR(stageNo) {
     S.floorOffset = type === 'local' ? 1.6 : 0;
     session.addEventListener('end', onSessionEnd);
     vrStep('VR を始めています… (3/3 描く準備をしています)');
+    // Chrome 156 の WebXR Layers (投影レイヤー) は、Pimax の OpenXR と組み合わさると、VR に入ったあと画面の順番が回ってこない
+    // (どの WebXR のページも止まる。2026-10-31 に確かめた。Chrome を --disable-features=WebXRLayers で起動すると直る)。
+    // Three.js は renderState.layers があると投影レイヤーを使うので、無いことにして、昔からの XRWebGLLayer で描かせる
+    try { Object.defineProperty(session.renderState, 'layers', { value: undefined, configurable: true }); } catch (_) { /* 書きかえられないブラウザはそのまま */ }
     await renderer.xr.setSession(session);
     renderer.xr.setFoveation?.(1); // 視野の端を粗く描いて軽くする (Quest で効く)
     vrStep('');
@@ -1744,6 +1749,12 @@ const btnStart = document.getElementById('btnStart');
 const startNote = () => {
   document.getElementById('startNote').textContent = chkVR.checked ? 'VR ヘッドセット' : isTouchDevice() ? 'タッチ / パッド' : 'マウス / パッド';
 };
+// 出撃ボタンの文字: 協力プレイでは、押すと何が起きるかを書く
+function startLabel() {
+  const btn = document.getElementById('btnStart');
+  const text = !coop?.active ? '出撃' : coop.isHost ? '全員で出撃' : coop.playing ? '途中から参加' : '出撃して待つ';
+  if (btn.firstChild.nodeValue !== `${text} `) btn.firstChild.nodeValue = `${text} `;
+}
 const launchNow = (stageNo) => (chkVR.checked ? enterVR(stageNo) : startPlay(stageNo));
 // 協力プレイ: ホストは全員に出撃を配ってから出撃する。ゲストは、ホストがもう出撃していればその面から、
 // まだなら「出撃」を押した状態 (準備 OK) で、ホストの出撃を待つ
@@ -1767,6 +1778,7 @@ function onCoopStart(msg) {
 }
 // ルームに入った・抜けた: 協力プレイは 3D だけ
 function onCoopChanged() {
+  startLabel();
   const side = modeInputs.find((el) => el.value === 'side');
   side.disabled = !!coop?.active;
   side.closest('label').classList.toggle('locked', !!coop?.active);
