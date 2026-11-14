@@ -297,7 +297,7 @@ export class Game {
       // VR は車体の前寄りの中央(砲塔より前)。砲身は足元から前へ伸び、覗き窓の下に見える
       const fwd = view === 'cockpit' ? (inXR ? spec.radius * 0.25 : 0.3) : -0.6;
       // 逆立ち(曲射):車体は後端を支点に起き上がる。視点もその回転に合わせて上がり、後ろへ寄る
-      // (ゆっくりした操作なので位置は追う。VR は傾けると酔うので、向きを変えるのは画面のときだけ)
+      // 視界も車体と一緒に起こす。自分で引くゆっくりした操作なので酔いにくいが、VR は控えめ(設定 wheelieTilt、既定 0.6)
       const wa = spec.body === 'tank' ? (me.wheelie || 0) * 0.66 : 0;
       let lift = 0, back = 0;
       if (wa > 0) {
@@ -320,12 +320,12 @@ export class Game {
       } else {
         this.seat.position.set(me.x + Math.sin(yawPos) * fwd + Math.sin(me.yaw) * back, this.seatY, me.z + Math.cos(yawPos) * fwd + Math.cos(me.yaw) * back);
       }
-      this.seat.rotation.set(0, this.viewYaw + Math.PI, 0);
+      // 逆立ちの傾き:見ている向きの前後成分だけ起こす(砲塔を横へ向けているときは小さく、後ろ向きなら下を向く)
+      const tilt = wa * Math.cos(this.viewYaw - me.yaw) * (inXR ? (S.wheelieTilt ?? 0.6) : 1);
+      this.seat.rotation.set(tilt, this.viewYaw + Math.PI, 0, 'YXZ');
       if (!inXR) {
         // 砲身の仰角に少しだけ合わせる(見下ろしすぎない)
-        // 逆立ち中は車体の傾きの分だけ見上げる(砲塔を横へ向けているときは小さく)
-        const up = wa * Math.max(0, Math.cos(this.viewYaw - me.yaw));
-        const pitch = (view === 'hatch' ? -0.12 : -0.05 + me.gunPitch * 0.5) + up;
+        const pitch = view === 'hatch' ? -0.12 : -0.05 + me.gunPitch * 0.5;
         this.camera.rotation.set(pitch, 0, 0);
       }
     }
@@ -343,7 +343,7 @@ export class Game {
     // 照準と曲射の着弾予想
     const showAim = me.alive && !(me.drop > 0) && me.wheelie < 0.3;
     this.fx.setReticle(this.camera, me.aim, !!me.aim.lock, me.spread, showAim && view !== 'diorama' || (showAim && view === 'diorama'));
-    this.fx.setLob(me.lobAim, me.alive && (me.wheelie > 0.05 || this.actions?.lob), this.time);
+    this.fx.setLob(me.lobAim, me.alive && (me.wheelie > 0.05 || this.actions?.lob), this.time, !!me.lobSnap);
     // コックピットの小物とレバー
     const accel = (me.v - (this.lastV ?? me.v)) / Math.max(dt, 1e-3);
     this.lastV = me.v;
@@ -591,7 +591,7 @@ export class Game {
       this.radioT = dur;
       this.app.hud.radio(WHO[r.who] ?? r.who, r.text, dur);
       this.app.audio.radio(true);
-      this.app.audio.speak(r.text, { enabled: this.settings.speech });
+      this.app.audio.speak(r.text, { enabled: this.settings.speech, voice: this.settings.speechVoice });
     }
     this.instT = (this.instT || 0) - dt;
     const objText = sim.mode === 'versus' ? versusText(sim, me) : m.objectives ? `目標 ${m.objectives - m.objectivesLeft}/${m.objectives}` : '';

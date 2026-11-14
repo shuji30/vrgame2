@@ -169,6 +169,15 @@ export class InputManager {
       a.left = 0; a.right = 0;
     }
 
+    // ---------------- タッチ(スマホ・タブレット)
+    if (this.touch?.visible) {
+      const t = this.touch.poll();
+      if (t.activity) this.active = 'touch';
+      merge(a, 'left', t.left); merge(a, 'right', t.right); merge(a, 'turret', t.turret);
+      for (const key of ['fire', 'sub', 'subPress', 'lob', 'view', 'pause']) a[key] = a[key] || t[key];
+      if (t.gear !== this.touchGear) { this.touchGear = t.gear; this.gearKb = t.gear; a.gear = t.gear; }
+    }
+
     // ---------------- VR
     if (this.xr) {
       const x = this.xr;

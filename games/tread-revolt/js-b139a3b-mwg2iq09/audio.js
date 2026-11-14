@@ -82,6 +82,34 @@ function makeMissileBuf(ctx) {
   return b;
 }
 
+// 読み上げの辞書:読み上げに渡す直前だけ置き換える(画面の文字はそのまま)。長い語から順に置き換える
+export const READINGS = [
+  ['超信地旋回', 'ちょうしんちせんかい'], ['停車射撃', 'ていしゃしゃげき'], ['遮蔽物', 'しゃへいぶつ'], ['被撃破', 'ひげきは'],
+  ['履帯', 'りたい'], ['曲射', 'きょくしゃ'], ['砲塔', 'ほうとう'], ['副武装', 'ふくぶそう'], ['浚渫', 'しゅんせつ'],
+  ['掘削機', 'くっさくき'], ['多脚', 'たきゃく'], ['動力炉', 'どうりょくろ'], ['機関部', 'きかんぶ'], ['撤収', 'てっしゅう'],
+  ['錆びた', 'さびた'], ['弾かれた', 'はじかれた'], ['対岸', 'たいがん'], ['砦', 'とりで'], ['隙', 'すき'],
+  ['脚の', 'あしの'], ['脚が', 'あしが'], ['脚を', 'あしを'],
+].sort((a, b) => b[0].length - a[0].length);
+export function toSpeech(text) {
+  let s = String(text);
+  for (const [w, r] of READINGS) s = s.split(w).join(r);
+  return s;
+}
+
+// 読み上げの声を選ぶ。voices は speechSynthesis.getVoices() の結果、want は 'male' / 'female' / 'auto'
+const MALE_VOICE = /Ichiro|Keita|Daichi|Naoki|Otoya|Kenji|Hiroshi|Takumi|male|男性/i;
+const FEMALE_VOICE = /Haruka|Ayumi|Nanami|Sayaka|Mayu|Aoi|Shiori|Kyoko|Mizuki|Google 日本語|female|女性/i;
+export function pickVoice(voices, want) {
+  const ja = (voices || []).filter((v) => /^ja/i.test(v.lang || ''));
+  if (want === 'male') {
+    const m = ja.find((v) => MALE_VOICE.test(v.name) && !/female/i.test(v.name));
+    if (m) return { voice: m, pitch: 1 };
+    return { voice: ja[0] || null, pitch: 0.55 }; // 男性の声がない:低くする
+  }
+  if (want === 'female') return { voice: ja.find((v) => FEMALE_VOICE.test(v.name)) || ja[0] || null, pitch: 1 };
+  return { voice: null, pitch: 1 };
+}
+
 // ノイズの素材(2 秒のループ)
 function makeNoise(ctx, kind) {
   const n = ctx.sampleRate * 2, b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0);
@@ -550,8 +578,12 @@ export class GameAudio {
   speak(text, opts = {}) {
     if (!opts.enabled || typeof window === 'undefined' || !window.speechSynthesis) return;
     try {
-      const u = new window.SpeechSynthesisUtterance(text);
+      const u = new window.SpeechSynthesisUtterance(toSpeech(text));
       u.lang = 'ja-JP';
+      // 声:男性 / 女性の日本語の声を名前で探す。男性の声が入っていなければ、ある声を低くして男性らしくする
+      const { voice, pitch } = pickVoice(window.speechSynthesis.getVoices(), opts.voice || 'auto');
+      if (voice) u.voice = voice;
+      u.pitch = pitch;
       u.rate = opts.rate ?? 1.1;
       u.volume = opts.volume ?? 1;
       if (opts.interrupt) window.speechSynthesis.cancel();
