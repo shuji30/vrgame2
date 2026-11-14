@@ -4,13 +4,126 @@ import { MusicPlayer, TRACKS } from './music.js';
 
 const MAX_POS = 24; // 同時に鳴らす位置付き効果音の上限
 // 自車の中で鳴る音:ハッチを閉じていてもこもらせない
-const OWN = new Set(['cannon', 'mg', 'hit', 'ricochet', 'reload', 'gear', 'click', 'land', 'trackBreak', 'repair', 'crunch', 'smoke', 'lob', 'missile']);
+const OWN = new Set(['cannon', 'mg', 'hit', 'ricochet', 'reload', 'gear', 'click', 'land', 'trackBreak', 'repair', 'crunch', 'smoke', 'lob']);
 // エンジンの種類ごとの基本音程(Hz)と音量
 const KIND = {
   tank: { f: 38, g: 1 }, heavy: { f: 30, g: 1.2 }, light: { f: 50, g: 0.8 }, scout: { f: 62, g: 0.7 },
   mech: { f: 44, g: 0.9 }, boss: { f: 22, g: 1.6 },
 };
 const GEAR = { 1: 1.4, 2: 1.0, 3: 0.75, R: 1.3 };
+// 履帯の板 1 枚の長さ(m)。速さ ÷ これ = 1 秒に鳴る板の数
+const LINK = { tank: 0.17, heavy: 0.2, light: 0.15, scout: 0.13, mech: 0.17, boss: 0.45 };
+const CLANK_RATE = 48; // 履帯の音の素材は 1 秒に 48 枚ぶん
+const FIRE_RATE = 30; // エンジンの音の素材は 1 秒に 30 回の爆発
+const SOUND = 343; // 音速(m/s)
+
+// ---- 合成した音の素材(unlock で一度だけ作る) ----
+// 履帯:板が転輪や起動輪に当たる金属音を、少しずつ間隔・強さ・響きを変えて並べた 2 秒のループ
+function makeClankBuf(ctx) {
+  const sr = ctx.sampleRate, n = sr * 2, b = ctx.createBuffer(1, n, sr), d = b.getChannelData(0);
+  const parts = [[1, 0.05, 1], [2.32, 0.03, 0.6], [3.71, 0.02, 0.45], [5.13, 0.012, 0.3]];
+  const len = Math.floor(sr * 0.09);
+  for (let i = 0; i < CLANK_RATE * 2; i++) {
+    const t0 = Math.floor(((i + (Math.random() - 0.5) * 0.5) / CLANK_RATE) * sr);
+    const amp = (0.35 + 0.65 * Math.random()) * (i % 2 ? 0.75 : 1);
+    const f0 = 650 + Math.random() * 500;
+    const ph = parts.map(() => Math.random() * 6.28);
+    for (let j = 0; j < len; j++) {
+      const t = j / sr;
+      let v = 0;
+      for (let k = 0; k < parts.length; k++) v += Math.sin(6.283 * f0 * parts[k][0] * t + ph[k]) * parts[k][2] * Math.exp(-t / parts[k][1]);
+      v += (Math.random() * 2 - 1) * Math.exp(-t / 0.003) * 1.2; // 当たった瞬間のカチッ
+      v += Math.sin(6.283 * 140 * t) * Math.exp(-t / 0.025) * 0.9; // ピンが転輪を叩く低い音
+      d[(t0 + j + n) % n] += v * amp * 0.3;
+    }
+  }
+  return b;
+}
+// ディーゼル:1 回ごとの爆発(こもった破裂音+胴の響き)を、少しずつ揺らして並べた 1 秒のループ
+function makeEngineBuf(ctx) {
+  const sr = ctx.sampleRate, n = sr, b = ctx.createBuffer(1, n, sr), d = b.getChannelData(0);
+  const len = Math.floor(sr * 0.08);
+  for (let i = 0; i < FIRE_RATE; i++) {
+    const t0 = Math.floor(((i + (Math.random() - 0.5) * 0.08) / FIRE_RATE) * sr);
+    const amp = (0.75 + 0.25 * Math.random()) * (i % 2 ? 0.85 : 1) * (i % 6 === 0 ? 1.1 : 1);
+    let lp = 0;
+    for (let j = 0; j < len; j++) {
+      const t = j / sr;
+      lp += (Math.random() * 2 - 1 - lp) * 0.08;
+      const v = lp * 3 * Math.exp(-t / 0.012) + Math.sin(6.283 * 85 * t) * Math.exp(-t / 0.028) * 0.8 + Math.sin(6.283 * 240 * t) * Math.exp(-t / 0.01) * 0.35;
+      d[(t0 + j + n) % n] += v * amp * 0.45;
+    }
+  }
+  return b;
+}
+// ミサイルの噴射:ゴーという低い音、シャーという高い音、炎のパチパチを混ぜた 2 秒のループ
+// (フィルタは 2 周まわして、ループのつなぎ目で値が飛ばないようにする)
+function makeMissileBuf(ctx) {
+  const sr = ctx.sampleRate, n = sr * 2, b = ctx.createBuffer(1, n, sr), d = b.getChannelData(0);
+  const w = new Float32Array(n), cr = new Float32Array(n);
+  for (let i = 0; i < n; i++) w[i] = Math.random() * 2 - 1;
+  for (let i = 0; i < 840; i++) {
+    const t0 = Math.floor(Math.random() * n), a = Math.random() ** 3 * (Math.random() < 0.5 ? 1 : -1);
+    const len = Math.floor(sr * 0.002 * (1 + Math.random() * 2));
+    for (let j = 0; j < len; j++) cr[(t0 + j) % n] += a * (Math.random() * 2 - 1) * Math.exp(-j / (len * 0.3));
+  }
+  const k = (f) => 1 - Math.exp((-2 * Math.PI * f) / sr);
+  const kLow = k(450), kHi1 = k(3000), kHi2 = k(800), kCr = k(600);
+  let low = 0, h1 = 0, h2 = 0, c1 = 0;
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 0; i < n; i++) {
+      low += (w[i] - low) * kLow;
+      h1 += (w[i] - h1) * kHi1;
+      h2 += (h1 - h2) * kHi2;
+      c1 += (cr[i] - c1) * kCr;
+      if (pass) d[i] = low * 2.2 + (h1 - h2) * 0.4 + (cr[i] - c1) * 0.8;
+    }
+  }
+  return b;
+}
+
+// 読み上げの辞書:読み上げに渡す直前だけ置き換える(画面の文字はそのまま)。長い語から順に置き換える
+export const READINGS = [
+  ['超信地旋回', 'ちょうしんちせんかい'], ['停車射撃', 'ていしゃしゃげき'], ['遮蔽物', 'しゃへいぶつ'], ['被撃破', 'ひげきは'],
+  ['履帯', 'りたい'], ['曲射', 'きょくしゃ'], ['砲塔', 'ほうとう'], ['副武装', 'ふくぶそう'], ['浚渫', 'しゅんせつ'],
+  ['掘削機', 'くっさくき'], ['多脚', 'たきゃく'], ['動力炉', 'どうりょくろ'], ['機関部', 'きかんぶ'], ['撤収', 'てっしゅう'],
+  ['錆びた', 'さびた'], ['弾かれた', 'はじかれた'], ['対岸', 'たいがん'], ['砦', 'とりで'], ['隙', 'すき'],
+  ['脚の', 'あしの'], ['脚が', 'あしが'], ['脚を', 'あしを'],
+].sort((a, b) => b[0].length - a[0].length);
+export function toSpeech(text) {
+  let s = String(text);
+  for (const [w, r] of READINGS) s = s.split(w).join(r);
+  return s;
+}
+
+// 読み上げの声を選ぶ。voices は speechSynthesis.getVoices() の結果、want は 'male' / 'female' / 'auto'
+const MALE_VOICE = /Ichiro|Keita|Daichi|Naoki|Otoya|Kenji|Hiroshi|Takumi|male|男性/i;
+const FEMALE_VOICE = /Haruka|Ayumi|Nanami|Sayaka|Mayu|Aoi|Shiori|Kyoko|Mizuki|Google 日本語|female|女性/i;
+export function pickVoice(voices, want) {
+  const ja = (voices || []).filter((v) => /^ja/i.test(v.lang || ''));
+  if (want === 'male') {
+    const m = ja.find((v) => MALE_VOICE.test(v.name) && !/female/i.test(v.name));
+    if (m) return { voice: m, pitch: 1 };
+    return { voice: ja[0] || null, pitch: 0.55 }; // 男性の声がない:低くする
+  }
+  if (want === 'female') return { voice: ja.find((v) => FEMALE_VOICE.test(v.name)) || ja[0] || null, pitch: 1 };
+  return { voice: null, pitch: 1 };
+}
+
+// ノイズの素材(2 秒のループ)
+function makeNoise(ctx, kind) {
+  const n = ctx.sampleRate * 2, b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0);
+  if (kind === 'brown') {
+    let l = 0;
+    for (let i = 0; i < n; i++) { l = (l + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = l * 3.5; }
+  } else for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  return b;
+}
+
+// 効果音のファイル(assets/sfx/<名前>.wav か .m4a)。あれば合成の代わりに鳴らす。scripts/render-sfx.mjs で今の合成を書き出せる
+// ループの素材は、名前の前に loop- を付ける(履帯は 1 秒に 48 枚、エンジンは 1 秒に 30 回の爆発の速さで作ること)
+const LOOPS = { 'loop-clank': 'clankBuf', 'loop-engine': 'engineBuf', 'loop-missile': 'missileBuf' };
+const LOOP_MAKERS = { 'loop-clank': makeClankBuf, 'loop-engine': makeEngineBuf, 'loop-missile': makeMissileBuf };
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 
 function setPos(p, x, y, z, t) {
@@ -61,16 +174,11 @@ export class GameAudio {
     this.extLp.Q.value = 0.7;
     this.extBus.connect(this.extLp).connect(this.sfxBus);
     // ノイズは一度だけ作る
-    const mk = (fn) => {
-      const n = ctx.sampleRate * 2, b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0);
-      fn(d, n);
-      return b;
-    };
-    this.white = mk((d, n) => { for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1; });
-    this.brown = mk((d, n) => {
-      let l = 0;
-      for (let i = 0; i < n; i++) { l = (l + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = l * 3.5; }
-    });
+    this.white = makeNoise(ctx, 'white');
+    this.brown = makeNoise(ctx, 'brown');
+    for (const [name, key] of Object.entries(LOOPS)) this[key] = LOOP_MAKERS[name](ctx);
+    this.missiles = new Map();
+    this._loadSfxFiles();
     this.music = new MusicPlayer(ctx, this.musicBus, this.white);
     this.setVolumes({});
     this.setInterior(this.inside);
@@ -91,6 +199,7 @@ export class GameAudio {
 
   setListener(pos, fwd, up) {
     if (!this.ctx) return;
+    this.lis = { x: pos.x, y: pos.y, z: pos.z };
     const L = this.ctx.listener, t = this.ctx.currentTime;
     if (L.positionX) {
       L.positionX.setTargetAtTime(pos.x, t, 0.01);
@@ -148,24 +257,30 @@ export class GameAudio {
     setPos(e.pl, x + cy * 1.6, y, z - sy * 1.6, t);
     setPos(e.pr, x - cy * 1.6, y, z + sy * 1.6, t);
     setPos(e.pc, x, y, z, t);
-    const tl = clamp(o.tl || 0, -1, 1), tr = clamp(o.tr || 0, -1, 1);
+    // tl / tr は履帯の速さ(m/s)。maxSpeed(2速で全開の速さ)で割って負荷にする
+    const vmax = Math.max(1, o.maxSpeed || 8);
+    const vl = o.tl || 0, vr = o.tr || 0;
+    const tl = clamp(vl / vmax, -1, 1), tr = clamp(vr / vmax, -1, 1);
     const gf = GEAR[o.gear] ?? 1;
     const load = Math.max(Math.abs(tl), Math.abs(tr));
     const T = (p, v, tau = 0.08) => p.setTargetAtTime(v, t, tau);
-    // 左右の履帯:速さで音程・明るさ・音量
-    for (const [side, sp] of [[e.L, tl], [e.R, tr]]) {
-      const a = Math.abs(sp);
-      const f = k.f * (1 + 1.6 * a * gf);
-      T(side.o1.frequency, f);
-      T(side.o2.frequency, f * 1.005);
-      T(side.lp.frequency, 220 + 1500 * a * gf);
-      T(side.g.gain, (0.12 + 0.55 * a) * k.g);
-      T(side.lfo.frequency, 3 + 22 * a);
-      T(side.clk.gain, 0.25 * a * k.g);
+    // 左右の履帯:板の当たる数を速さに合わせる(素材の再生速度で)。転がる低い音と砂利の音も速さで
+    for (const [side, v, a] of [[e.L, vl, Math.abs(tl)], [e.R, vr, Math.abs(tr)]]) {
+      if (side.clank) {
+        const rate = Math.abs(v) / (LINK[o.kind] || LINK.tank) / CLANK_RATE;
+        T(side.clank.playbackRate, clamp(rate, 0.3, 2.2));
+        T(side.clkG.gain, clamp(Math.abs(v) / 1.2) * (0.35 + 0.4 * a) * k.g);
+        T(side.clkF.frequency, 1800 + 2600 * a);
+      }
+      T(side.rumF.frequency, 70 + 160 * a);
+      T(side.rumG.gain, (0.05 + 0.6 * a) * k.g);
+      T(side.grvG.gain, 0.12 * a * k.g);
     }
-    // 共通の低い唸り:負荷とギアで重さが変わる
-    T(e.sub.frequency, k.f * 0.5 * (1 + 0.9 * load * gf));
-    T(e.subG.gain, (0.35 + 0.35 * load) * k.g * (o.gear === 3 ? 1.2 : 1));
+    // ディーゼル:回転数は負荷×ギア。素材の再生速度で爆発の間隔を変える
+    const rpm = clamp(load * gf, 0, 1.6);
+    T(e.eng.playbackRate, (0.7 + 1.1 * rpm) * (k.f / 38));
+    T(e.engF.frequency, 300 + 900 * load + 400 * rpm);
+    T(e.engG.gain, (0.35 + 0.35 * load) * k.g * (o.gear === 3 ? 1.15 : 1));
     // 逆回転・超信地の軋み
     const diff = Math.abs(tl - tr) / 2;
     const counter = tl * tr < 0 ? Math.min(Math.abs(tl), Math.abs(tr)) : 0;
@@ -196,28 +311,31 @@ export class GameAudio {
     const gain = (v, dest) => { const g = ctx.createGain(); g.gain.value = v; if (dest) g.connect(dest); nodes.push(g); return g; };
     const filt = (type, f, q, dest) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; b.connect(dest); nodes.push(b); return b; };
     const noise = (buf, dest) => { const n = ctx.createBufferSource(); n.buffer = buf; n.loop = true; n.connect(dest); n.start(t, Math.random()); srcs.push(n); return n; };
+    const loop = (buf, dest, rate) => { const n = ctx.createBufferSource(); n.buffer = buf; n.loop = true; n.playbackRate.value = rate; n.connect(dest); n.start(t, Math.random() * buf.duration); srcs.push(n); return n; };
     const track = (p) => {
-      const g = gain(0, p);
-      const lp = filt('lowpass', 300, 3, g);
-      const o1 = osc('sawtooth', k.f), o2 = osc('square', k.f);
-      const og = gain(0.5, lp);
-      o1.connect(og);
-      o2.connect(og);
-      // 履帯のガチャガチャ:ノイズを LFO で刻む
-      const clk = gain(0, p);
-      const cg = gain(0, clk);
-      noise(this.white, filt('bandpass', 2600, 1.5, cg));
-      const lfo = osc('square', 4);
-      lfo.connect(gain(0.5, cg.gain));
-      cg.gain.value = 0.5;
-      return { g, lp, o1, o2, clk, lfo };
+      const sd = {};
+      // 板の金属音(メカは歩くので鳴らさない)
+      if (o.kind !== 'mech') {
+        sd.clkG = gain(0, p);
+        sd.clkF = filt('lowpass', 3000, 0.7, sd.clkG);
+        sd.clank = loop(this.clankBuf, sd.clkF, 0.3);
+      }
+      // 転輪が転がる低い音
+      sd.rumG = gain(0, p);
+      sd.rumF = filt('lowpass', 100, 0.9, sd.rumG);
+      noise(this.brown, sd.rumF);
+      // 地面の砂利を踏む音
+      sd.grvG = gain(0, p);
+      noise(this.white, filt('bandpass', 550, 0.8, sd.grvG));
+      return sd;
     };
     const e = { k, local, out, pl, pr, pc, nodes, srcs, load: 0, step: 0 };
     e.L = track(pl);
     e.R = track(pr);
-    e.subG = gain(0, pc);
-    e.sub = osc('sine', k.f / 2);
-    e.sub.connect(filt('lowpass', 120, 0.7, e.subG));
+    // ディーゼルの鼓動
+    e.engG = gain(0, pc);
+    e.engF = filt('lowpass', 500, 0.8, e.engG);
+    e.eng = loop(this.engineBuf, e.engF, 0.7 * (k.f / 38));
     // 軋み:帯域ノイズ+揺れる高音
     e.sqG = gain(0, pc);
     e.sqBp = filt('bandpass', 1800, 6, e.sqG);
@@ -278,6 +396,54 @@ export class GameAudio {
         this._done(v);
       }
     }
+  }
+
+  // ===================== ミサイルの飛行音 =====================
+  // 飛んでいるミサイルに噴射音を付けて動かす。近づくと高く(ドップラー)、離れると低くなる
+  syncMissiles(shots) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime, L = this.lis || { x: 0, y: 0, z: 0 };
+    const seen = new Set();
+    for (const s of shots) {
+      if (s.kind !== 'missile' || s.delay > 0 || s.dead) continue;
+      seen.add(s.id);
+      let m = this.missiles.get(s.id);
+      if (!m) {
+        if (this.missiles.size >= 6) continue;
+        this.play('missile', { x: s.x, y: s.y, z: s.z, ref: 8 });
+        m = this._makeMissile(s);
+        this.missiles.set(s.id, m);
+      }
+      setPos(m.p, s.x, s.y, s.z, t);
+      // 聞き手へ近づく速さ
+      const dx = L.x - s.x, dy = L.y - s.y, dz = L.z - s.z, d = Math.hypot(dx, dy, dz) || 1;
+      const vr = ((s.vx || 0) * dx + (s.vy || 0) * dy + (s.vz || 0) * dz) / d;
+      const dop = clamp(SOUND / (SOUND - clamp(vr, -150, 150)), 0.7, 1.6);
+      m.src.playbackRate.setTargetAtTime(dop, t, 0.03);
+    }
+    for (const [id, m] of this.missiles) {
+      if (seen.has(id)) continue;
+      this.missiles.delete(id);
+      m.g.gain.cancelScheduledValues(t);
+      m.g.gain.setTargetAtTime(0, t, 0.03);
+      m.src.stop(t + 0.3);
+      setTimeout(() => { for (const n of m.nodes) try { n.disconnect(); } catch { /* 済 */ } }, 500);
+    }
+  }
+  _makeMissile(s) {
+    const ctx = this.ctx, t = ctx.currentTime;
+    const p = this._panner(s.x, s.y, s.z, 8);
+    p.connect(this.extBus);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.9, t + 0.15);
+    g.connect(p);
+    const src = ctx.createBufferSource();
+    src.buffer = this.missileBuf;
+    src.loop = true;
+    src.connect(g);
+    src.start(t, Math.random() * this.missileBuf.duration);
+    return { p, g, src, nodes: [p, g, src] };
   }
 
   // ===================== 効果音 =====================
@@ -370,8 +536,34 @@ export class GameAudio {
     const fn = SFX[name];
     if (!fn) return;
     const v = this._voice(opts, name);
-    fn.call(this, v, v.s);
+    const file = this.sfxFiles?.get(name);
+    if (file) {
+      // ファイルの音:強さは音量で、pitch は再生速度で表す
+      const src = this.ctx.createBufferSource();
+      src.buffer = file;
+      src.playbackRate.value = v.r;
+      const g = this.ctx.createGain();
+      g.gain.value = opts.strength != null ? 0.55 + 0.45 * v.s : 1;
+      src.connect(g).connect(v.out);
+      src.start(v.t0);
+      v.nodes.push(src, g);
+      v.end = file.duration / v.r;
+    } else fn.call(this, v, v.s);
     this._done(v);
+  }
+
+  // assets/sfx にある効果音のファイルを読む(.wav、無ければ .m4a)。無いものは合成のまま
+  _loadSfxFiles() {
+    this.sfxFiles = new Map();
+    const get = (name, ext) => fetch(new URL(`../assets/sfx/${name}.${ext}`, import.meta.url))
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.arrayBuffer(); })
+      .then((a) => this.ctx.decodeAudioData(a));
+    for (const name of [...Object.keys(SFX), ...Object.keys(LOOPS)]) {
+      get(name, 'wav').catch(() => get(name, 'm4a')).then((buf) => {
+        if (LOOPS[name]) this[LOOPS[name]] = buf; // これから作る車両・ミサイルから使う
+        else this.sfxFiles.set(name, buf);
+      }).catch(() => { /* ファイルなし:合成で鳴らす */ });
+    }
   }
 
   radio(on) {
@@ -386,8 +578,12 @@ export class GameAudio {
   speak(text, opts = {}) {
     if (!opts.enabled || typeof window === 'undefined' || !window.speechSynthesis) return;
     try {
-      const u = new window.SpeechSynthesisUtterance(text);
+      const u = new window.SpeechSynthesisUtterance(toSpeech(text));
       u.lang = 'ja-JP';
+      // 声:男性 / 女性の日本語の声を名前で探す。男性の声が入っていなければ、ある声を低くして男性らしくする
+      const { voice, pitch } = pickVoice(window.speechSynthesis.getVoices(), opts.voice || 'auto');
+      if (voice) u.voice = voice;
+      u.pitch = pitch;
       u.rate = opts.rate ?? 1.1;
       u.volume = opts.volume ?? 1;
       if (opts.interrupt) window.speechSynthesis.cancel();
@@ -505,10 +701,12 @@ const SFX = {
     this._n(v, 0, 0.3, { f: 700, f2: 150, peak: 0.6 });
     this._n(v, 0.05, 0.5, { ft: 'bandpass', f: 900, f2: 2500, q: 2, peak: 0.08, a: 0.1 });
   },
+  // ミサイルの点火:カチッという破裂、ドンという圧、噴き出すシュバッという音(続く噴射音は syncMissiles)
   missile(v) {
-    this._n(v, 0, 1.3, { ft: 'bandpass', f: 400, f2: 2600, q: 1.2, peak: 0.6, a: 0.04 });
-    this._t(v, 0, 1.1, { type: 'sawtooth', f: 180, f2: 620, peak: 0.08, lp: 1500 });
-    this._n(v, 0, 0.12, { f: 600, peak: 0.6 });
+    this._n(v, 0, 0.04, { ft: 'highpass', f: 1800, peak: 0.7 });
+    this._t(v, 0, 0.3, { f: 95, f2: 38, peak: 0.6 });
+    this._n(v, 0, 0.8, { ft: 'bandpass', f: 700, f2: 2800, q: 0.6, peak: 0.75, a: 0.015 });
+    this._n(v, 0.02, 1.1, { f: 1600, f2: 300, peak: 0.55, buf: 'brown', a: 0.03 });
   },
   explosion(v) {
     this._n(v, 0, 1.3, { f: 3000, f2: 120, peak: 1 });
@@ -671,3 +869,19 @@ const SFX = {
     this._metal(v, 0.1, 0.2, 900 + Math.random() * 600, 0.08);
   },
 };
+
+// ---- 効果音の書き出し(scripts/render-sfx.mjs がブラウザで呼ぶ) ----
+export const sfxNames = () => [...Object.keys(SFX), ...Object.keys(LOOPS)];
+// 今の合成の音を計算して、モノラルの波形(Float32Array)で返す。強さは 1(全力)
+export async function renderSfx(name, sr = 44100) {
+  if (LOOPS[name]) return LOOP_MAKERS[name](new OfflineAudioContext(1, sr, sr)).getChannelData(0);
+  const max = 8;
+  const ctx = new OfflineAudioContext(1, sr * max, sr);
+  const au = Object.create(GameAudio.prototype);
+  Object.assign(au, { ctx, sfxBus: ctx.destination, posVoices: [], white: makeNoise(ctx, 'white'), brown: makeNoise(ctx, 'brown') });
+  const v = au._voice({ strength: 1 });
+  SFX[name].call(au, v, 1);
+  const len = Math.min(sr * max, Math.ceil((v.t0 + v.end + 0.25) * sr));
+  const buf = await ctx.startRendering();
+  return buf.getChannelData(0).slice(0, len);
+}

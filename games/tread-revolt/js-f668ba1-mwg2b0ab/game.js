@@ -119,6 +119,7 @@ export class Game {
     if (this.fx) this.scene.remove(this.fx.group);
     if (this.cockpit) this.seat.remove(this.cockpit.group);
     this.app.audio.pruneEngines(new Set());
+    this.app.audio.syncMissiles([]);
     if (this.me) this.app.audio.removeEngine(this.me.id);
     this.app.bridge?.stopForces();
     this.sim = null;
@@ -293,11 +294,20 @@ export class Game {
       if (view === 'hatch') eye = spec.height + 1.25;
       // VR のコックピット:砲塔の付け根より少し下(車内)。砲身が目線の上で回る
       if (inXR && view === 'cockpit' && ownModel?.turretBase && spec.body === 'tank') eye = ownModel.turretBase - 0.2;
-      // 高さはなめらかに(揺れを伝えない)
-      const ty = me.y + eye;
-      this.seatY = Math.abs(ty - this.seatY) > 8 ? ty : damp(this.seatY, ty, 5, dt);
       // VR は車体の前寄りの中央(砲塔より前)。砲身は足元から前へ伸び、覗き窓の下に見える
       const fwd = view === 'cockpit' ? (inXR ? spec.radius * 0.25 : 0.3) : -0.6;
+      // 逆立ち(曲射):車体は後端を支点に起き上がる。視点もその回転に合わせて上がり、後ろへ寄る
+      // 視界も車体と一緒に起こす。自分で引くゆっくりした操作なので酔いにくいが、VR は控えめ(設定 wheelieTilt、既定 0.6)
+      const wa = spec.body === 'tank' ? (me.wheelie || 0) * 0.66 : 0;
+      let lift = 0, back = 0;
+      if (wa > 0) {
+        const rz = fwd + (ownModel?.hullL ?? spec.radius * 2.6) / 2; // 支点から視点までの前後の距離
+        lift = eye * (Math.cos(wa) - 1) + rz * Math.sin(wa);
+        back = rz * (Math.cos(wa) - 1) - eye * Math.sin(wa);
+      }
+      // 高さはなめらかに(揺れを伝えない)
+      const ty = me.y + eye + lift;
+      this.seatY = Math.abs(ty - this.seatY) > 8 ? ty : damp(this.seatY, ty, 5, dt);
       const yawPos = followTurret ? this.viewYaw : me.yaw;
       // コックピットは運転手ののぞき窓(車体の前)。前に車体の前端と履帯が見え、砲塔は後ろになる
       const eyeNode = false; // VR も車体の中央(砲塔の位置)から見る。覗き窓から斜め下に左右の履帯の前端が見える
@@ -308,9 +318,11 @@ export class Game {
         this.seatY = Math.abs(ty2 - this.seatY) > 8 ? ty2 : damp(this.seatY, ty2, 5, dt);
         this.seat.position.set(p.x, this.seatY, p.z);
       } else {
-        this.seat.position.set(me.x + Math.sin(yawPos) * fwd, this.seatY, me.z + Math.cos(yawPos) * fwd);
+        this.seat.position.set(me.x + Math.sin(yawPos) * fwd + Math.sin(me.yaw) * back, this.seatY, me.z + Math.cos(yawPos) * fwd + Math.cos(me.yaw) * back);
       }
-      this.seat.rotation.set(0, this.viewYaw + Math.PI, 0);
+      // 逆立ちの傾き:見ている向きの前後成分だけ起こす(砲塔を横へ向けているときは小さく、後ろ向きなら下を向く)
+      const tilt = wa * Math.cos(this.viewYaw - me.yaw) * (inXR ? (S.wheelieTilt ?? 0.6) : 1);
+      this.seat.rotation.set(tilt, this.viewYaw + Math.PI, 0, 'YXZ');
       if (!inXR) {
         // 砲身の仰角に少しだけ合わせる(見下ろしすぎない)
         const pitch = view === 'hatch' ? -0.12 : -0.05 + me.gunPitch * 0.5;
@@ -331,7 +343,7 @@ export class Game {
     // 照準と曲射の着弾予想
     const showAim = me.alive && !(me.drop > 0) && me.wheelie < 0.3;
     this.fx.setReticle(this.camera, me.aim, !!me.aim.lock, me.spread, showAim && view !== 'diorama' || (showAim && view === 'diorama'));
-    this.fx.setLob(me.lobAim, me.alive && (me.wheelie > 0.05 || this.actions?.lob), this.time);
+    this.fx.setLob(me.lobAim, me.alive && (me.wheelie > 0.05 || this.actions?.lob), this.time, !!me.lobSnap);
     // コックピットの小物とレバー
     const accel = (me.v - (this.lastV ?? me.v)) / Math.max(dt, 1e-3);
     this.lastV = me.v;
@@ -440,7 +452,6 @@ export class Game {
           } else if (ev.kind === 'mg') au.play(mine ? 'mg' : 'mgEnemy', { ...pos, gain: mine ? 0.7 : 0.6 });
           else if (ev.kind === 'mgEnemy') au.play('mgEnemy', { ...pos, gain: 0.6 });
           else if (ev.kind === 'lob') { au.play('lob', pos); this.fx.muzzle(ev.x, ev.y, ev.z, 0, 0.8); if (mine) this.ffbModel.recoil(0.8); }
-          else if (ev.kind === 'missile') au.play('missile', pos);
           else if (ev.kind === 'smoke') au.play('smoke', pos);
           break;
         }
@@ -549,6 +560,7 @@ export class Game {
       active.add(e.id);
     }
     au.pruneEngines(active);
+    au.syncMissiles(this.sim.shots);
     au.update(dt);
   }
 
@@ -579,7 +591,7 @@ export class Game {
       this.radioT = dur;
       this.app.hud.radio(WHO[r.who] ?? r.who, r.text, dur);
       this.app.audio.radio(true);
-      this.app.audio.speak(r.text, { enabled: this.settings.speech });
+      this.app.audio.speak(r.text, { enabled: this.settings.speech, voice: this.settings.speechVoice });
     }
     this.instT = (this.instT || 0) - dt;
     const objText = sim.mode === 'versus' ? versusText(sim, me) : m.objectives ? `目標 ${m.objectives - m.objectivesLeft}/${m.objectives}` : '';

@@ -23,7 +23,7 @@ const PROGRESS_KEY = 'treadrevolt:progress';
 const DEFAULT_SETTINGS = {
   difficulty: 'normal', vehicle: 'medium', scheme: 'tracks', manualPitch: false, mouseSens: 1,
   vignette: 0.6, snapTurn: false, horizon: false, comfortTurn: 1, shadows: true,
-  master: 0.8, sfx: 0.9, music: 0.35, speech: false,
+  master: 0.8, sfx: 0.9, music: 0.35, speech: false, speechVoice: 'male',
   vrScale: 0.8, turretRange: 90, sortieVR: false, simhub: true, paint: 0, ffb: true, ffbInvert: true, ffbGain: 0.8, ffbSpring: 0.45, xrMode: 'sticks', turretHead: true, wheelOffset: { x: 0, y: 0, z: 0 }, name: 'PLAYER',
 };
 const settings = { ...DEFAULT_SETTINGS, ...load(SETTINGS_KEY, {}) };
@@ -364,6 +364,7 @@ function renderSettings() {
     ${slider('sfx', '効果音', 0, 1, 0.05)}
     ${slider('music', 'BGM', 0, 1, 0.05)}
     ${check('speech', '無線を読み上げる')}
+    ${sel('speechVoice', '読み上げの声', [['male', '男性'], ['female', '女性'], ['auto', 'ブラウザの既定']])}
     <h2>ハンコン(ffb-bridge 経由)</h2>
     <p class="status" id="bridge-status"></p>
     <p class="note">vrgame2 の ffb-bridge を起動しておくと、ここでハンコンの割り当てとキャリブレーションができます。割り当て:「割り当て」を押してから、その操作(ペダルを踏む、ボタンを押す)をする。ペダルは踏み切ってから離す。</p>
