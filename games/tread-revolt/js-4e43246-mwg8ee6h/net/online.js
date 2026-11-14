@@ -4,6 +4,7 @@
 //   - 敵・ミッション・対戦の点はホストが動かし、15Hz の状態で配る。クライアントは補間して見せる
 //   - FFB はネットワークに流さない(各自のイベントからローカルで作る)
 //   - ホストが落ちたら試合を終えてメニューへ戻る
+import { addBossWreck } from '../core/boss.js';
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const PREFIX = 'treadrevolt-v1-';
 const TICK = 1 / 15;
@@ -573,6 +574,7 @@ function applySnap(sim, m, myId) {
 // クライアント側の撃破(点や残機はホストが数えるので、見た目だけ)
 function puppetKill(sim, e) {
   e.alive = false;
+  if (e.type === 'boss') addBossWreck(sim, e);
   if ((e.spec?.body === 'tank' || e.spec?.body === 'mech') && !e.air && e.type !== 'truck') {
     sim.debris.push({ x: e.x, z: e.z, r: e.radius + 1.6, yaw: e.yaw, kind: e.kind || e.type });
     if (sim.debris.length > 40) sim.debris.shift();

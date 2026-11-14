@@ -60,7 +60,8 @@ export const UNITS = {
 
 // 難易度(敵の攻撃力と命中精度)
 export const DIFFICULTY = {
-  easy: { label: 'イージー', dmg: 0.6, spread: 1.6, reload: 1.25 },
-  normal: { label: 'ノーマル', dmg: 1.0, spread: 1.0, reload: 1.0 },
-  hard: { label: 'ハード', dmg: 1.35, spread: 0.7, reload: 0.85 },
+  // move:敵の戦車の動き。0 = 止まって撃つ、1 = 装填中に位置を変える、2 = さらに側面・背後を取りに来る
+  easy: { label: 'イージー', dmg: 0.6, spread: 1.6, reload: 1.25, move: 0 },
+  normal: { label: 'ノーマル', dmg: 1.0, spread: 1.0, reload: 1.0, move: 1 },
+  hard: { label: 'ハード', dmg: 1.35, spread: 0.7, reload: 0.85, move: 2 },
 };
