@@ -28,7 +28,7 @@ const DEFAULT_SETTINGS = {
   difficulty: 'normal', vehicle: 'medium', scheme: 'tracks', manualPitch: false, mouseSens: 1,
   vignette: 0.6, snapTurn: false, horizon: false, comfortTurn: 1, shadows: !TOUCH, // スマホは影を切って軽くする
   master: 0.8, sfx: 0.9, music: 0.35, trackVol: 0.5, speech: false, speechVoice: 'male',
-  vrScale: 0.8, turretRange: 90, sortieVR: false, simhub: true, paint: 0, ffb: true, ffbInvert: true, ffbGain: 0.8, ffbSpring: 0.45, ffbSoftLock: 0.8, xrMode: 'sticks', turretHead: true, wheelOffset: { x: 0, y: 0, z: 0 }, name: 'PLAYER',
+  vrScale: 0.8, turretRange: 90, sortieVR: false, simhub: true, paint: 0, ffb: true, ffbInvert: true, ffbGain: 0.8, ffbSpring: 0.45, ffbSoftLock: 0.8, wheelAutoCenter: true, xrMode: 'sticks', turretHead: true, wheelOffset: { x: 0, y: 0, z: 0 }, name: 'PLAYER',
 };
 const settings = { ...DEFAULT_SETTINGS, ...load(SETTINGS_KEY, {}) };
 const progress = { cleared: -1, best: {}, ...load(PROGRESS_KEY, {}) };
@@ -69,6 +69,7 @@ function applySettings() {
   input.touch?.setScheme(settings.scheme);
   input.settings.manualPitch = settings.manualPitch;
   input.settings.mouseSens = settings.mouseSens;
+  input.settings.wheelAutoCenter = settings.wheelAutoCenter !== false;
   xr.mode = settings.xrMode;
   xr.turretHead = settings.turretHead;
   audio.setVolumes({ master: settings.master, sfx: settings.sfx, music: settings.music, tracks: settings.trackVol ?? 0.5 });
@@ -394,6 +395,7 @@ function renderSettings() {
     ${slider('wheelDeg', 'ハンドルの回転角(ドライバー設定、°)', 180, 1080, 10, W.steer)}
     <p class="note">効く角度の既定は 180°(左右に 90° ずつ)。超えて回すと FFB のソフトロックで押し返す。ハンドルを物理的に止めたいときは、ドライバー側の回転角も同じ角度にし、「ハンドルの回転角」も合わせる。</p>
     ${slider('deadzone', 'ハンドルの不感帯', 0, 0.2, 0.01, W.steer)}
+    ${check('wheelAutoCenter', 'ハンドルを中央にすると砲塔が正面へ戻る(1 秒後から。敵に照準が合っている間と、撃った直後は戻らない)')}
     <table class="keys" id="wheel-rows">${WHEEL_ACTIONS.map((a) => `<tr data-act="${a.key}"><th>${a.label}${a.optional ? ' <span class="muted">(任意)</span>' : ''}</th><td class="bind"></td><td><div class="meter"><i></i></div></td><td><button data-learn="${a.key}">割り当て</button> <button data-clear="${a.key}">消す</button></td></tr>`).join('')}</table>
     <div class="row"><button id="w-reset">割り当てを初期化</button><button id="w-scan">デバイスを探し直す</button></div>
     <h2>FFB</h2>

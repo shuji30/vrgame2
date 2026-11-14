@@ -25,8 +25,9 @@ export const VEHICLES = {
     ffbDamper: 0.45, mgRate: 10,
   },
   mech: {
-    kind: 'mech', name: '歩行メカ ストライダー', desc: '視点が高い。しゃがみ・急旋回・武器の持ち替え', body: 'mech',
-    speed: 9.5, accel: 9, track: 2.3, turnMax: 1.45, turret: 85 * DEG, reload: 2.6,
+    kind: 'mech', name: '歩行メカ ストライダー', desc: 'いちばん速い。視点が高い。接近戦は主砲のボタンで炸薬パンチ。しゃがみ・急旋回・武器の持ち替え', body: 'mech',
+    // いちばん素早く動ける(足の車輪で走る):最高速・加速・旋回とも軽戦車より上
+    speed: 14.5, accel: 13, track: 2.3, turnMax: 1.75, turret: 85 * DEG, reload: 2.6,
     hp: 95, armor: 1.15, dmg: 30, splash: 2.8, shellSpeed: 100, radius: 2.0, height: 6.5, eye: 5.6,
     ffbDamper: 0.2, mgRate: 12,
   },

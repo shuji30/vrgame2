@@ -413,7 +413,11 @@ function buildMech(o) {
   // 左腕と肩ミサイル(+X)
   const larm = grp(torso, 1.95, 1.3, 0);
   add(larm, B(0.6, 1.6, 0.7, 0.9, 1), k.dark, 0, -1.6, 0.1);
-  add(larm, B(0.75, 0.6, 0.8), k.paint, 0, -2.1, 0.15);
+  // 左の拳(炸薬パンチで打ち出す)と、腕の後ろの空薬莢の排出口
+  const fist = grp(larm, 0, -2.1, 0.15);
+  add(fist, B(0.75, 0.6, 0.8), k.paint, 0, 0, 0);
+  add(larm, C(0.16, 0.16, 0.5, 8, 'z'), k.metal, 0, -1.25, -0.45);
+  const ejector = grp(larm, 0, -1.25, -0.7);
   add(torso, B(1.2, 0.9, 1.5, 1, 1, 0, 0, 1, 1), k.dark, 1.3, 2.0, -0.2);
   for (let i = 0; i < 6; i++) add(torso, C(0.1, 0.1, 0.05, 6, 'z'), k.weakCore, 1.3 + ((i % 3) - 1) * 0.32, 2.25 + ((i / 3) | 0) * 0.36, 0.56);
   const muzzle2 = grp(torso, 1.3, 2.45, 0.6);
@@ -447,10 +451,18 @@ function buildMech(o) {
     torso.rotation.y = s.turret || 0;
     arm.rotation.x = -(s.gunPitch || 0);
     can.position.z = -(s.recoil || 0) * 0.35;
+    // 炸薬パンチ:punch は 1(殴った瞬間)→ 0。腕を前へ振り上げ、拳を打ち出して戻す
+    const pu = s.punch || 0;
+    if (pu > 0) {
+      const p = 1 - pu; // 0 → 1
+      const up = p < 0.12 ? p / 0.12 : p < 0.6 ? 1 : Math.max(0, 1 - (p - 0.6) / 0.4);
+      larm.rotation.x = -1.45 * up;
+      fist.position.y = -2.1 - (p > 0.08 && p < 0.45 ? Math.sin(((p - 0.08) / 0.37) * PI) * 0.9 : 0);
+    } else { larm.rotation.x = 0; fist.position.y = -2.1; }
     tilt.rotation.x = -(s.pitch || 0); tilt.rotation.z = s.roll || 0;
   };
   upd({});
-  return { root, muzzle, muzzle2, eye, hatch, weak, update: upd, dispose: () => own.forEach((x) => x.dispose()) };
+  return { root, muzzle, muzzle2, eye, hatch, weak, ejector, update: upd, dispose: () => own.forEach((x) => x.dispose()) };
 }
 
 export function buildVehicle(kind, opts = {}) {

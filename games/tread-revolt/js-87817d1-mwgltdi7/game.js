@@ -15,6 +15,7 @@ import { Vignette } from './scene/comfort.js';
 import { TankTelemetry } from './core/telemetry.js';
 
 const STEP = 1 / 60;
+const PUNCH_ANIM = 0.45; // 炸薬パンチの腕の動き(秒)
 const BOSS_DEATH_T = 2.8; // ボスが倒れてから大爆発するまで(秒)
 
 // 燃えかすの見た目:黒く焦がし、光をなくす
@@ -118,6 +119,7 @@ export class Game {
     this.time = 0;
     this.pendingEdges = null;
     this.bossDeath = null;
+    this.fx.onCasingBounce = (p, n) => { if (n === 1) this.app.audio.play('click', { x: p.x, y: p.y, z: p.z, gain: 0.5 }); };
     this.deflects = 0; // ボスに弾かれた回数(助言を出すため)
     this.hintT = -1e9;
     this.hints = 0;
@@ -517,7 +519,9 @@ export class Game {
       m.root.position.set(e.x, e.y, e.z);
       m.root.rotation.y = e.yaw;
       if (m.boss) { m.boss.update(e, dt, this.time); continue; }
+      if (m.punchT > 0) m.punchT = Math.max(0, m.punchT - dt);
       m.update({
+        punch: m.punchT > 0 ? m.punchT / PUNCH_ANIM : 0,
         dt, tl: e.tl || 0, tr: e.tr || 0, turret: e.turret || 0, gunPitch: e.gunPitch || 0, pitch: e.pitch || 0, roll: e.roll || 0,
         wheelie: e.wheelie || 0, crouch: e.crouch || 0, rise: e.rise ?? 1, popped: e.popped || 0, recoil: (e.fireT || 0) / 0.35, recoils: e.recoilT,
         hp01: e.hp / (e.maxHp || 1), trackBrokenL: e.trackDmg?.[0] > 0, trackBrokenR: e.trackDmg?.[1] > 0, time: this.time, team: e.team,
@@ -612,6 +616,26 @@ export class Game {
           au.play(ev.big ? 'bigExplosion' : 'explosion', pos);
           if (ev.id === me.id) { this.flashMsg('撃破された……', 2); this.warnedLow = false; }
           if (ev.by === me.id && ev.id !== me.id) this.app.hud.killPop(ev.type);
+          break;
+        }
+        case 'punch': {
+          // 炸薬パンチ:腕を振り、拳の先で炸薬が弾け、腕の後ろから空薬莢が飛び出す
+          const m = this.models.get(ev.id);
+          if (m) m.punchT = PUNCH_ANIM;
+          this.fx.flash(ev.x, ev.y, ev.z, 70, 0xffd080);
+          for (let i = 0; i < 4; i++) this.fx.spawn('smoke', ev.x, ev.y, ev.z, { life: 0.5, size: 0.6, grow: 2, vx: Math.sin(ev.yaw) * 4 + (Math.random() - 0.5) * 2, vy: 1, vz: Math.cos(ev.yaw) * 4 + (Math.random() - 0.5) * 2, op: 0.5 });
+          au.play('smallExplosion', { ...pos, strength: 0.7 });
+          if (m?.ejector) {
+            const p = m.ejector.getWorldPosition(new THREE.Vector3());
+            const c = Math.cos(ev.yaw), s = Math.sin(ev.yaw);
+            // 左腕の外側(車体の +X 側)と後ろへ
+            setTimeout(() => this.fx.casing(p.x, p.y, p.z, -s, -c, c, -s, this.sim ? this.sim.terrain.height(p.x, p.z) : p.y - 3), 70);
+          }
+          if (ev.id === me.id) {
+            this.ffbModel.recoil(0.7);
+            this.app.haptic?.(0.7, 90);
+            this.cockpit.sway(0.05, -24, 0, 0.6);
+          }
           break;
         }
         case 'hitPart':
@@ -729,7 +753,9 @@ export class Game {
     const objText = sim.mode === 'versus' ? versusText(sim, me) : m.objectives ? `目標 ${m.objectives - m.objectivesLeft}/${m.objectives}` : '';
     const state = {
       tl: me.tl / me.spec.speed, tr: me.tr / me.spec.speed, brokenL: me.trackDmg[0] > 0, brokenR: me.trackDmg[1] > 0,
-      reload01: me.spec.body === 'tank' ? (me.ammo > 0 ? me.ammo / 2 : 1 - me.reload / (me.spec.reload * 1.4)) : 1 - me.reload / ((me.weapon === 'rockets' ? 4.6 : me.spec.reload) || 1), hp01: me.hp / me.maxHp, gear: me.gear, speed: me.v,
+      // 戦車:ゲージは 2 発ぶん(半分で 1 発撃てる)
+      twin: me.spec.body === 'tank',
+      reload01: me.spec.body === 'tank' ? Math.min(1, (me.ammo + (me.ammo < 2 ? 1 - me.reload / (me.spec.reload * 0.7) : 0)) / 2) : 1 - me.reload / ((me.weapon === 'rockets' ? 4.6 : me.spec.reload) || 1), hp01: me.hp / me.maxHp, gear: me.gear, speed: me.v,
       still: isStill(me.v, me.w), subLabel: me.spec.body === 'mech' ? (me.weapon === 'cannon' ? '腕の主砲' : '肩のロケット') + ' / ' + (me.sub === 'mg' ? '機銃' : `煙×${me.smokeAmmo}`) : me.sub === 'mg' ? '副:機銃' : `副:スモーク ×${me.smokeAmmo}`,
       timeLeft: m.timeLimit ? m.timeLeft : null, objText,
       livesText: sim.mode === 'versus' ? `撃破 ${me.kills} / 被撃破 ${me.deaths}` : sim.mode === 'training' ? '' : `残機 ${Math.max(0, m.lives)}`,
