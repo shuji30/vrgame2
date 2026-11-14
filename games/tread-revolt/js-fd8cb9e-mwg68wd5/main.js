@@ -14,7 +14,7 @@ import { WHEEL_ACTIONS, defaultWheelConfig } from './core/tankmap.js';
 import { detectChange } from './core/inputmap.js';
 import { Tutorial } from './tutorial.js';
 import { Online } from './net/online.js';
-import { loadBuildInfo } from './version.js';
+import { loadBuildInfo, VERSION } from './version.js';
 
 const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
@@ -26,7 +26,7 @@ const DEFAULT_SETTINGS = {
   difficulty: 'normal', vehicle: 'medium', scheme: 'tracks', manualPitch: false, mouseSens: 1,
   vignette: 0.6, snapTurn: false, horizon: false, comfortTurn: 1, shadows: !TOUCH, // スマホは影を切って軽くする
   master: 0.8, sfx: 0.9, music: 0.35, speech: false, speechVoice: 'male',
-  vrScale: 0.8, turretRange: 90, sortieVR: false, simhub: true, paint: 0, ffb: true, ffbInvert: true, ffbGain: 0.8, ffbSpring: 0.45, xrMode: 'sticks', turretHead: true, wheelOffset: { x: 0, y: 0, z: 0 }, name: 'PLAYER',
+  vrScale: 0.8, turretRange: 90, sortieVR: false, simhub: true, paint: 0, ffb: true, ffbInvert: true, ffbGain: 0.8, ffbSpring: 0.45, ffbSoftLock: 0.8, xrMode: 'sticks', turretHead: true, wheelOffset: { x: 0, y: 0, z: 0 }, name: 'PLAYER',
 };
 const settings = { ...DEFAULT_SETTINGS, ...load(SETTINGS_KEY, {}) };
 const progress = { cleared: -1, best: {}, ...load(PROGRESS_KEY, {}) };
@@ -276,7 +276,12 @@ function quit() {
 app.onPause = (on) => {
   if (!playing) return;
   game.paused = on;
-  if (on) { show('pause', false); document.exitPointerLock?.(); bridge.stopForces(); }
+  if (on) {
+    // ポーズした瞬間の入力の状態(勝手に動く原因を確かめるため)。タッチの状態はこのあと離した状態に戻る
+    const info = $('#pause-input');
+    if (info) info.textContent = `v${VERSION}\n${input.describe()}`;
+    show('pause', false); document.exitPointerLock?.(); bridge.stopForces();
+  }
   else resume();
 };
 function resume() {
@@ -381,6 +386,7 @@ function renderSettings() {
     ${slider('brakeFire', 'ブレーキで撃つ踏み込み', 0.2, 0.95, 0.05, W)}
     ${slider('lockDeg', 'ハンドルの効く角度(°)', 90, 900, 10, W.steer)}
     ${slider('wheelDeg', 'ハンドルの回転角(ドライバー設定、°)', 180, 1080, 10, W.steer)}
+    <p class="note">効く角度の既定は 180°(左右に 90° ずつ)。超えて回すと FFB のソフトロックで押し返す。ハンドルを物理的に止めたいときは、ドライバー側の回転角も同じ角度にし、「ハンドルの回転角」も合わせる。</p>
     ${slider('deadzone', 'ハンドルの不感帯', 0, 0.2, 0.01, W.steer)}
     <table class="keys" id="wheel-rows">${WHEEL_ACTIONS.map((a) => `<tr data-act="${a.key}"><th>${a.label}${a.optional ? ' <span class="muted">(任意)</span>' : ''}</th><td class="bind"></td><td><div class="meter"><i></i></div></td><td><button data-learn="${a.key}">割り当て</button> <button data-clear="${a.key}">消す</button></td></tr>`).join('')}</table>
     <div class="row"><button id="w-reset">割り当てを初期化</button><button id="w-scan">デバイスを探し直す</button></div>
@@ -389,6 +395,7 @@ function renderSettings() {
     ${check('ffbInvert', 'FFB の左右を反転(テストで逆に回るときに切り替える)')}
     ${slider('ffbGain', '強さ', 0, 1, 0.05)}
     ${slider('ffbSpring', 'センタースプリング', 0, 1, 0.05)}
+    ${slider('ffbSoftLock', 'ソフトロック(効く角度で押し返す。0 で無効)', 0, 1, 0.05)}
     ${check('simhub', 'SimHub へテレメトリを送る(ブリッジ側で有効なとき)')}
     <div class="row"><button data-ffbtest="left">テスト:左</button><button data-ffbtest="right">テスト:右</button><button data-ffbtest="rumble">テスト:振動</button></div>
     <h2>VR のハンドル位置合わせ</h2>

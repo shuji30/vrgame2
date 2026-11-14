@@ -18,6 +18,7 @@ export class InputManager {
     this.wheelCfg = loadWheel();
     this.wheelState = {};
     this.padPrev = [];
+    this.padArm = {}; // ゲームパッドごとの、使ってよい軸とボタン
     this.xr = null; // VR からの共通アクション(game が毎フレーム入れる)
     this.active = 'keyboard';
     this.gearKb = 2;
@@ -41,6 +42,27 @@ export class InputManager {
 
   saveWheel() {
     try { localStorage.setItem(STORE, JSON.stringify(this.wheelCfg)); } catch { /* 保存できない */ }
+  }
+
+  // 入力の状態(ポーズ画面に出して、勝手に動く原因を確かめる)
+  describe() {
+    const f = (v) => (Math.abs(v) < 0.005 ? '0' : v.toFixed(2));
+    const lines = [`使っている入力: ${this.active}`];
+    const all = navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : [];
+    if (!all.length) lines.push('ゲームパッド: なし');
+    for (const g of all) {
+      const used = g.mapping === 'standard' && !SIM_DEVICE.test(g.id);
+      const arm = this.padArm[`${g.index}:${g.id}`];
+      const axes = g.axes.map((v, n) => `${f(v)}${arm && !arm.axes[n] ? '(無視)' : ''}`).join(' ');
+      const btns = g.buttons.map((b, n) => (b.pressed ? `${n}${arm && !arm.buttons[n] ? '(無視)' : ''}` : null)).filter((x) => x != null).join(' ');
+      lines.push(`ゲームパッド${g.index}: ${g.id}${used ? '' : '(使わない)'} / 軸 ${axes || 'なし'} / 押しているボタン ${btns || 'なし'}`);
+    }
+    if (this.touch) {
+      const s = this.touch.state;
+      lines.push(`タッチ: 左 ${f(s.l)} 右 ${f(s.r)} なぞり ${f(s.swipe)} 押している ${Object.keys(this.touch.held).filter((k) => this.touch.held[k]).join(' ') || 'なし'}`);
+    }
+    if (this.keys.size) lines.push(`押しているキー: ${[...this.keys].join(' ')}`);
+    return lines.join('\n');
   }
 
   get wheelBound() {
@@ -105,10 +127,16 @@ export class InputManager {
     const pads = navigator.getGamepads ? [...navigator.getGamepads()].filter((g) => g && g.mapping === 'standard' && !SIM_DEVICE.test(g.id)) : [];
     pads.forEach((g, i) => {
       const prev = this.padPrev[i] || [];
-      const btn = (n) => (g.buttons[n]?.value ?? 0) > 0.5;
+      // 止まっているときに軸が中央(0)にない機器や、押しっぱなしに見えるボタンを、倒しっぱなし・押しっぱなしと取り違えない。
+      // 軸は一度中央に戻るのを見てから、ボタンは一度離れるのを見てから使う(スマホが内蔵の機器をゲームパッドとして見せることがある)
+      const key = `${g.index}:${g.id}`;
+      const arm = (this.padArm[key] ||= { axes: [], buttons: [] });
+      g.axes.forEach((v, n) => { if (Math.abs(v) < 0.2) arm.axes[n] = true; });
+      g.buttons.forEach((b, n) => { if (!b.pressed && (b.value ?? 0) < 0.2) arm.buttons[n] = true; });
+      const btn = (n) => !!arm.buttons[n] && (g.buttons[n]?.value ?? 0) > 0.5;
       const edge = (n) => btn(n) && !prev[n];
-      const ax = g.axes.map((v) => dz(v));
-      const any = ax.some((v) => v !== 0) || g.buttons.some((b) => b.pressed);
+      const ax = g.axes.map((v, n) => (arm.axes[n] ? dz(v) : 0));
+      const any = ax.some((v) => v !== 0) || g.buttons.some((b, n) => btn(n));
       if (any) this.active = 'gamepad';
       if (S.scheme === 'easy') {
         const t = arcadeToTracks(-ax[1], -ax[0] * 0.8);
