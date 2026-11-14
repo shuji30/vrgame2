@@ -20,8 +20,8 @@ export const BOSSES = {
     name: '多脚制圧戦車 グラップル', hpScale: 1,
     body: { w: 13, d: 13, h: 4.5, y0: 6.5 }, radius: 8,
     parts: () => [
-      P('k1', 7.5, 4, 6, 1.7, 55, { weak: true, knee: true }), P('k2', -7.5, 4, 6, 1.7, 55, { weak: true, knee: true }),
-      P('k3', 7.5, 4, -6, 1.7, 55, { weak: true, knee: true }), P('k4', -7.5, 4, -6, 1.7, 55, { weak: true, knee: true }),
+      P('k1', 7.5, 4, 6, 2.2, 55, { weak: true, knee: true }), P('k2', -7.5, 4, 6, 2.2, 55, { weak: true, knee: true }),
+      P('k3', 7.5, 4, -6, 2.2, 55, { weak: true, knee: true }), P('k4', -7.5, 4, -6, 2.2, 55, { weak: true, knee: true }),
       P('cannon', 0, 12, 3.5, 1.7, 90, { gun: true }),
       P('core', 0, 5.6, 0, 2.5, 260, { weak: true, core: true, shielded: true }),
     ],
@@ -43,7 +43,7 @@ export const BOSSES = {
       P('s1', 7.6, 9, 2, 1.9, 85, { gun: true }), P('s2', -7.6, 9, 2, 1.9, 85, { gun: true }),
       P('core', 0, 6, -15.6, 3, 300, { weak: true, core: true }),
       // 止まっている(気絶)間だけ開く上の排気口。当てると動力炉にダメージが通る
-      P('vent', 0, 10.8, -3, 2.4, 1e6, { weak: true, stunOnly: true, link: 'core' }),
+      P('vent', 0, 13, -3, 2.8, 1e6, { weak: true, stunOnly: true, link: 'core' }),
     ],
   },
 };
@@ -100,7 +100,22 @@ export function bodyHit(e, x, y, z) {
   let y0 = e.y + b.y0;
   if (e.boss === 'walker') y0 -= e.lower * 3.2;
   if (e.boss === 'dredger') y0 -= e.sub * 7;
-  return Math.abs(lx) < b.w / 2 && Math.abs(lz) < b.d / 2 && y > y0 && y < y0 + b.h;
+  if (y <= y0 || y >= y0 + b.h) return false;
+  // 多脚の胴体は六角柱なので、四角の角で弾を止めないよう円で判定する
+  if (e.boss === 'walker') return lx * lx + lz * lz < (b.w / 2) * (b.w / 2);
+  return Math.abs(lx) < b.w / 2 && Math.abs(lz) < b.d / 2;
+}
+
+// 砲口(o)から部位(pp、半径 r)へまっすぐ撃ったとき、手前で胴体に当たるか
+export function bodyBlocks(e, o, pp, r) {
+  const dx = pp.x - o.x, dy = pp.y - o.y, dz = pp.z - o.z;
+  const len = Math.hypot(dx, dy, dz);
+  const end = len - r;
+  for (let t = 0; t < end; t += 0.5) {
+    const k = t / len;
+    if (bodyHit(e, o.x + dx * k, o.y + dy * k, o.z + dz * k)) return true;
+  }
+  return false;
 }
 
 // 車両を胴体の外へ押し出す(移動する障害物)
@@ -269,10 +284,10 @@ export function updateBoss(e, sim, dt) {
       e.yaw = approachAngle(e.yaw, want, 0.45 * dt);
       if (d > 40) { e.v = 2.5; e.x += Math.sin(e.yaw) * 2.5 * dt; e.z += Math.cos(e.yaw) * 2.5 * dt; }
       const guns = e.parts.filter((p) => p.gun && p.alive);
-      if (guns.length && e.cd.gun <= 0 && d < 100) { e.cd.gun = 5 * sim.diff.reload; fireFrom(e, sim, guns[Math.floor(sim.rnd() * guns.length)], foe, { dmg: 11, spread: 1.6 }); }
+      if (guns.length && e.cd.gun <= 0 && d < 100) { e.cd.gun = 6 * sim.diff.reload; fireFrom(e, sim, guns[Math.floor(sim.rnd() * guns.length)], foe, { dmg: 9, spread: 1.8 }); }
       if (e.cd.missile <= 0) {
         e.cd.missile = 14 * sim.diff.reload;
-        for (let i = 0; i < 3; i++) sim.spawnMissile(e, { x: e.x + Math.sin(e.yaw + 3.14) * 6, y: e.y + 11, z: e.z + Math.cos(e.yaw + 3.14) * 6 }, foe, { delay: i * 0.35, dmg: 8 * sim.diff.dmg, turn: 1.0 });
+        for (let i = 0; i < 3; i++) sim.spawnMissile(e, { x: e.x + Math.sin(e.yaw + 3.14) * 6, y: e.y + 11, z: e.z + Math.cos(e.yaw + 3.14) * 6 }, foe, { delay: i * 0.35, dmg: 7 * sim.diff.dmg, turn: 1.0 });
       }
       if (e.pt > 9 && Math.abs(wrapAngle(want - e.yaw)) < 0.25 && d < 110) {
         e.phase = 'windup';
@@ -294,7 +309,7 @@ export function updateBoss(e, sim, dt) {
         const dp = partPos(e, e.parts[0]);
         if (dist(dp.x, dp.z, p.x, p.z) < 5 + p.spec.radius && !p.rammed) {
           p.rammed = 1;
-          sim.damage(p, 25 * sim.diff.dmg, { team: e.team, owner: e.id, x: e.x, z: e.z, kind: 'ram' });
+          sim.damage(p, 20 * sim.diff.dmg, { team: e.team, owner: e.id, x: e.x, z: e.z, kind: 'ram' });
           p.x += Math.sin(e.yaw) * 6;
           p.z += Math.cos(e.yaw) * 6;
         }
@@ -303,8 +318,11 @@ export function updateBoss(e, sim, dt) {
       const nose = { x: e.x + Math.sin(e.yaw) * 16, z: e.z + Math.cos(e.yaw) * 16 };
       const hitWall = !sim.terrain.inBounds(nose.x, nose.z, 2) || [...sim.obstacles.near(nose.x, nose.z, 6)].some((o) => !o.passable && dist(o.x, o.z, nose.x, nose.z) < o.br + 4);
       if (hitWall || e.pt > 3.5) {
-        e.phase = hitWall ? 'stun' : 'track';
+        // 壁に当たれば長く(8 秒)、外れても機関が過熱して短く(4 秒)止まる。止まっている間は上の排気口が開く
+        e.phase = 'stun';
+        e.stunLen = hitWall ? 8 : 4;
         e.pt = 0;
+        if (!hitWall) sim.radio('mech', '突進のあとで機関が過熱してる!上の排気口を狙え!');
         for (const p of sim.ents) p.rammed = 0;
         if (hitWall) {
           sim.emit({ t: 'explode', x: nose.x, y: 4, z: nose.z, size: 3, kind: 'ground' });
@@ -314,7 +332,7 @@ export function updateBoss(e, sim, dt) {
       }
     } else if (e.phase === 'stun') {
       e.stunned = true;
-      if (e.pt > 8) { e.phase = 'track'; e.pt = 0; e.stunned = false; }
+      if (e.pt > (e.stunLen || 8)) { e.phase = 'track'; e.pt = 0; e.stunned = false; }
     }
   }
 

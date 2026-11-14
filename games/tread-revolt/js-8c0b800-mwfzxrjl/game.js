@@ -100,7 +100,7 @@ export class Game {
     this.radioQ = [];
     this.radioT = 0;
     this.app.hud.reset();
-    this.app.audio.playMusic(cfg.stage.music || 'area1');
+    this.app.audio.playMusic(cfg.stage.music || 'area1', cfg.stage.musicFallback);
     this.app.audio.jingle('start');
     this.app.audio.setInterior(true);
     this.bossShown = false;
@@ -268,7 +268,7 @@ export class Game {
     }
 
     if (view === 'diorama') {
-      this.seat.scale.setScalar(inXR ? 40 : 1);
+      this.seat.scale.setScalar(1);
       // 盤面は回さない(北が奥)。自機が盤の手前に来るように置く
       const tx = me.x, tz = me.z;
       this.dioramaPos ??= { x: tx, z: tz };
@@ -276,9 +276,9 @@ export class Game {
       const dd = Math.hypot(tx - dp.x, tz - dp.z);
       if (dd > 12) { dp.x += (tx - dp.x) * dt * 1.5; dp.z += (tz - dp.z) * dt * 1.5; }
       if (inXR) {
-        // 盤面(地面)が手前 0.6m、高さ 0.8m の卓に見える
-        this.seat.position.set(dp.x, -0.8 * 40 + 0.0 + 40 * 0.9, dp.z - 0.6 * 40);
-        this.seat.position.y = this.sim.terrain.height(dp.x, dp.z) - 0.8 * 40 + 1.2 * 40 * 0.0;
+        // 自車の後ろ上方 30m から戦場を見下ろす(盤面は回さない。北が奥)
+        // (以前は床が原点の前提で縮尺 40 倍にしていて、座って遊ぶ設定では視点が地面の下に入り、何も見えなかった)
+        this.seat.position.set(dp.x, this.sim.terrain.height(dp.x, dp.z) + 30, dp.z - 28);
         this.seat.rotation.set(0, Math.PI, 0);
       } else {
         this.seat.position.set(dp.x, me.y + 62, dp.z - 52);

@@ -554,7 +554,10 @@ export function campaignStage(index) {
 export function arenaStage(id) {
   const s = (ARENAS[id] || ARENAS.plains)();
   s.areaName = s.name;
-  s.music = 'versus';
+  // アリーナごとの曲(ARENA_LIST の順に arena1〜4)。曲のファイルが無ければ versus を流す
+  const n = ARENA_LIST.findIndex((a) => a.id === id);
+  s.music = `arena${(n < 0 ? 0 : n) + 1}`;
+  s.musicFallback = 'versus';
   return s;
 }
 export { AREA_NAMES };

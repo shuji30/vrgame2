@@ -1,6 +1,6 @@
 // 効果音・エンジン音・BGM(すべて WebAudio で合成。外部音源なし)
 // AudioContext は unlock() で初めて作る(node で import しても落ちない)
-import { MusicPlayer } from './music.js';
+import { MusicPlayer, TRACKS } from './music.js';
 
 const MAX_POS = 24; // 同時に鳴らす位置付き効果音の上限
 // 自車の中で鳴る音:ハッチを閉じていてもこもらせない
@@ -75,7 +75,7 @@ export class GameAudio {
     this.setVolumes({});
     this.setInterior(this.inside);
     if (ctx.state === 'suspended') ctx.resume();
-    if (this._pendingMusic) this.playMusic(this._pendingMusic);
+    if (this._pendingMusic) this.playMusic(this._pendingMusic, this._pendingFallback);
   }
 
   setVolumes({ master, sfx, music } = {}) {
@@ -396,21 +396,26 @@ export class GameAudio {
   }
 
   // ===================== BGM =====================
-  // BGM は書き出した WAV(assets/bgm/<id>.wav、つなぎ目なしの 1 周)をくり返す。
-  // 読み込むまでは合成で鳴らし、読み込めたら WAV に切りかえる(scripts/render-bgm.mjs で作る)
-  playMusic(id) {
-    if (!this.ctx) { this._pendingMusic = id; return; }
+  // BGM は曲のファイル(assets/bgm/<id>.m4a か <id>.wav、くり返して鳴らす 1 周)を流す。
+  // 読み込むまでは合成で鳴らし、読み込めたらファイルに切りかえる(WAV は scripts/render-bgm.mjs で書き出せる)。
+  // fallback を渡すと、id の曲のファイルが無いときにそちらを流す(アリーナごとの曲がまだ無いときなど)
+  playMusic(id, fallback = null) {
+    if (!this.ctx) { this._pendingMusic = id; this._pendingFallback = fallback; return; }
     if (this.musicId === id) return;
     this.musicId = id;
     this._stopWav(1.5);
-    const buf = this._wavCache?.get(id);
-    if (buf && buf !== 'loading' && buf !== 'none') { this._playWav(id, buf, 1.5); return; }
-    this.music.play(id, 1.5);
-    this._loadWav(id).then((b) => {
-      if (!b || this.musicId !== id) return;
-      this.music.stop(2);
-      this._playWav(id, b, 2);
-    });
+    const ready = (k) => { const b = this._wavCache?.get(k); return b && b !== 'loading' && b !== 'none' ? b : null; };
+    const buf = ready(id) || (this._wavCache?.get(id) === 'none' && fallback && ready(fallback));
+    if (buf) { this.music.stop(1.5); this._playWav(id, buf, 1.5); return; }
+    const synth = TRACKS[id] ? id : fallback;
+    if (synth && TRACKS[synth]) this.music.play(synth, 1.5); else this.music.stop(1.5);
+    this._loadWav(id)
+      .then((b) => b || (fallback ? this._loadWav(fallback) : null))
+      .then((b) => {
+        if (!b || this.musicId !== id) return;
+        this.music.stop(2);
+        this._playWav(id, b, 2);
+      });
   }
   _loadWav(id) {
     this._wavCache ||= new Map();
@@ -419,9 +424,10 @@ export class GameAudio {
     if (c === 'loading') return this._wavLoading.get(id);
     this._wavCache.set(id, 'loading');
     this._wavLoading ||= new Map();
-    const p = fetch(new URL(`../assets/bgm/${id}.wav`, import.meta.url))
+    const get = (ext) => fetch(new URL(`../assets/bgm/${id}.${ext}`, import.meta.url))
       .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.arrayBuffer(); })
-      .then((a) => this.ctx.decodeAudioData(a))
+      .then((a) => this.ctx.decodeAudioData(a));
+    const p = get('m4a').catch(() => get('wav'))
       .then((b) => { this._wavCache.set(id, b); return b; })
       .catch(() => { this._wavCache.set(id, 'none'); return null; });
     this._wavLoading.set(id, p);
@@ -452,6 +458,7 @@ export class GameAudio {
   }
   stopMusic(fade = 1) {
     this._pendingMusic = null;
+    this._pendingFallback = null;
     this.musicId = null;
     if (this.music) this.music.stop(fade);
     if (this.ctx) this._stopWav(fade);
