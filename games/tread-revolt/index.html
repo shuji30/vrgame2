@@ -71,13 +71,12 @@
     .hud-center { position: absolute; top: 60%; left: 0; right: 0; text-align: center; font-size: 18px; font-weight: 700; }
     .hud-boss { position: absolute; top: 76px; left: 50%; transform: translateX(-50%); width: min(520px, 80vw); text-align: center; }
     .hud-boss .name { font-weight: 800; color: var(--bad); letter-spacing: 0.1em; }
-    .hud-boss .bar, .hud-mini .bar { height: 9px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.25); }
+    .hud-boss .bar, .hud-mini .bar { height: 11px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.3); }
     .hud-boss .bar i { display: block; height: 100%; background: linear-gradient(90deg, #ff3a1a, #ffb33a); }
-    .hud-mini { position: absolute; left: 14px; top: 12px; width: 210px; font-size: 13px; transition: opacity 0.3s; }
-    .hud-mini.dim { opacity: 0.55; }
+    .hud-mini { position: absolute; left: 14px; top: 12px; width: 230px; font-size: 15px; font-weight: 700; padding: 8px 12px; border-radius: 8px; background: rgba(10, 8, 4, 0.55); }
     .hud-mini .time { font-size: 30px; font-weight: 900; color: var(--accent2); }
     .hud-mini .row { display: flex; gap: 8px; align-items: center; margin: 3px 0; }
-    .hud-mini .row span { width: 34px; }
+    .hud-mini .row span { width: 38px; }
     .hud-mini .row .bar { flex: 1; }
     .hud-mini .bar i { display: block; height: 100%; background: var(--cool); }
     .hud-mini .rl i { background: var(--accent); }
@@ -87,16 +86,23 @@
     .hud-tracks .tk.l { left: 12px; } .hud-tracks .tk.r { right: 12px; }
     .hud-tracks .tk i { position: absolute; left: 0; right: 0; }
     .hud-tracks .tk.broken { border-color: var(--bad); background: rgba(255,60,30,0.35); }
-    /* 車体と砲塔の向き(画面の下の中央。上が砲塔の向き) */
-    .hud-dir { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: grid; justify-items: center; opacity: 0.55; transition: opacity 0.3s; }
-    .hud-dir.off { opacity: 0.95; }
-    .hud-dir svg { overflow: visible; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.8)); }
-    .hud-dir .ring { fill: rgba(0,0,0,0.35); stroke: rgba(255,255,255,0.25); stroke-width: 2; }
-    .hud-dir .hull rect { fill: #8a7a5a; } .hud-dir .hull .trk { fill: #4a4232; }
-    .hud-dir .front { fill: #f4ead8; }
-    .hud-dir.off .hull rect:first-child { fill: #c79a3a; }
-    .hud-dir .gun { stroke: var(--accent2); stroke-width: 5; stroke-linecap: round; } .hud-dir .tur { fill: var(--accent2); }
-    .hud-dir .lbl { font-size: 12px; font-weight: 800; color: var(--accent2); min-height: 15px; }
+    /* 画面のレーダー(上が視線の向き。真ん中に車体と砲塔) */
+    .hud-radar { position: absolute; right: 26px; bottom: 22px; width: 156px; display: grid; justify-items: center; gap: 2px; }
+    .hud-radar canvas { width: 156px; height: 156px; border-radius: 50%; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.7)); }
+    .hud-radar .lbl { font-size: 13px; font-weight: 800; color: var(--accent2); min-height: 16px; }
+    /* スマホ・タブレット:左右の端は履帯のゲージ、下にはボタンがあるので、その間に置く */
+    @media (pointer: coarse) {
+      .hud-mini { left: calc(max(84px, 15vw) + 8px); top: 8px; width: 200px; font-size: 12px; padding: 5px 9px; }
+      .hud-mini .time { font-size: 20px; }
+      .hud-mini .row { margin: 1px 0; }
+      /* 高さの小さい画面では縮める(下の副武装ボタンにかからないように) */
+      .hud-radar { right: calc(max(84px, 15vw) + 8px); top: 64px; bottom: auto; width: min(92px, 21vh); }
+      .hud-radar canvas { width: min(92px, 21vh); height: min(92px, 21vh); }
+      /* 角度の文字はレーダーの左に出す(下にはボタンがある) */
+      .hud-radar .lbl { position: absolute; right: 100%; top: 36px; margin-right: 6px; white-space: nowrap; font-size: 12px; }
+      .hud-radio { top: auto; bottom: 8px; max-width: calc(100vw - 2 * (max(84px, 15vw) + 100px)); font-size: 13px; padding: 6px 10px; line-height: 1.5; }
+      .hud-boss { top: 8px; width: min(320px, 40vw); }
+    }
     .hud-hit { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; transition: opacity 0.4s; }
     .hud-hit.on { opacity: 1; }
     .hud-hit::after { content: ''; position: absolute; left: -60px; top: -170px; width: 120px; height: 34px;
@@ -227,6 +233,6 @@
   </section>
 
 
-  <script type="module" src="./js-79f12cf-mwgeabkd/main.js"></script>
+  <script type="module" src="./js-671f652-mwgi46w3/main.js"></script>
 </body>
 </html>

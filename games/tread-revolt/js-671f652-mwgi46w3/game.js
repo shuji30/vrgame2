@@ -741,6 +741,8 @@ export class Game {
       this.instT = 0.1;
       this.cockpit.draw(state);
       this.cockpit.drawRadar(sim, me, this.viewYaw);
+      // 画面のレーダー(スマホ・PC):車内のレーダーを写し、真ん中に車体と砲塔の向きを描く(上が視線の向き)
+      this.app.hud.radar(this.cockpit.radar, wrapAngle(me.yaw - this.viewYaw), wrapAngle(me.yaw + me.turret - this.viewYaw));
     }
     // ボスの体力
     const boss = sim.ents.find((e) => e.type === 'boss' && e.ai.state !== 'sleep');

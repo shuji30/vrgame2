@@ -17,6 +17,8 @@ import { Online } from './net/online.js';
 import { loadBuildInfo, VERSION } from './version.js';
 
 const $ = (s) => document.querySelector(s);
+// デバイスブリッジ(ffb-bridge)の ZIP。vrgame4(SKY RUNNER)と同じもの。vrgame2 の中に置かれたときは同じサイトから
+const BRIDGE_ZIP = /\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname) ? '../../downloads/ffb-bridge.zip' : 'https://shuji30.github.io/vrgame2/downloads/ffb-bridge.zip';
 const params = new URLSearchParams(location.search);
 const SETTINGS_KEY = 'treadrevolt:settings';
 const PROGRESS_KEY = 'treadrevolt:progress';
@@ -382,7 +384,9 @@ function renderSettings() {
     ${sel('speechVoice', '読み上げの声', [['male', '男性'], ['female', '女性'], ['auto', 'ブラウザの既定']])}
     <h2>ハンコン(ffb-bridge 経由)</h2>
     <p class="status" id="bridge-status"></p>
-    <p class="note">vrgame2 の ffb-bridge を起動しておくと、ここでハンコンの割り当てとキャリブレーションができます。割り当て:「割り当て」を押してから、その操作(ペダルを踏む、ボタンを押す)をする。ペダルは踏み切ってから離す。</p>
+    <div class="row"><a class="dl" id="bridge-dl" href="${BRIDGE_ZIP}" download>⬇ デバイスブリッジ(ffb-bridge)をダウンロード(Windows・ZIP)</a></div>
+    <p class="note">ZIP を展開して <b>start.bat</b>(使うときに起動)か <b>install-autostart.bat</b>(ログオン時に自動で起動)を実行。止めるときは uninstall-autostart.bat。VR の最中もハンコンを読めて、FFB も出せます。<br>
+    ffb-bridge を起動しておくと、ここでハンコンの割り当てとキャリブレーションができます。割り当て:「割り当て」を押してから、その操作(ペダルを踏む、ボタンを押す)をする。ペダルは踏み切ってから離す。</p>
     ${sel('pedals', 'ペダル', [['3', '3ペダル(クラッチ=左履帯、アクセル=右履帯、ブレーキ=主砲)'], ['2', '2ペダル(ブレーキ=左履帯、アクセル=右履帯)']], W)}
     ${check('swap', '左右を入れ替える(パドルも連動)', W)}
     ${slider('brakeFire', 'ブレーキで撃つ踏み込み', 0.2, 0.95, 0.05, W)}
