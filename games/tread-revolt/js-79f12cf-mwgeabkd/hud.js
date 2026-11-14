@@ -14,6 +14,14 @@ export class Hud {
         <div class="row small"><span class="gear"></span><span class="still"></span><span class="obj"></span></div>
       </div>
       <div class="hud-tracks"><div class="tk l"><i></i></div><div class="tk r"><i></i></div></div>
+      <div class="hud-dir">
+        <svg viewBox="-40 -40 80 80" width="76" height="76" aria-hidden="true">
+          <circle r="36" class="ring"/>
+          <g class="hull"><rect x="-13" y="-20" width="26" height="40" rx="3"/><rect x="-17" y="-21" width="5" height="42" class="trk"/><rect x="12" y="-21" width="5" height="42" class="trk"/><path d="M-8 -14 L0 -27 L8 -14 Z" class="front"/></g>
+          <line x1="0" y1="0" x2="0" y2="-33" class="gun"/><circle r="7" class="tur"/>
+        </svg>
+        <span class="lbl"></span>
+      </div>
       <div class="hud-hit"></div>
       <div class="hud-pop"></div>
       <div class="hud-center"></div>`;
@@ -114,6 +122,16 @@ export class Hud {
     };
     tk('.tk.l', s.tl, s.brokenL);
     tk('.tk.r', s.tr, s.brokenR);
+    // 車体と砲塔の向き:画面の上が砲塔(照準)の向き。砲塔が左を向くと、車体は右へ傾いて見える。
+    // 前へ走ったときに画面の中で進む向きが分かるように(ずれているほど目立たせる)
+    const dir = this.$('.hud-dir');
+    // ジオラマ視点は盤面が北を上に固定で、画面の上が砲塔の向きではないので出さない(自機そのものが見えている)
+    dir.hidden = s.view === 'diorama';
+    const deg = ((s.turret || 0) * 180) / Math.PI;
+    dir.querySelector('.hull').setAttribute('transform', `rotate(${deg.toFixed(1)})`);
+    const off = Math.abs(deg);
+    dir.classList.toggle('off', off >= 8);
+    dir.querySelector('.lbl').textContent = off >= 8 ? `車体 ${deg > 0 ? '右' : '左'}${Math.round(off)}°` : '';
     const c = this.$('.hud-center');
     if (s.respawn > 0) c.textContent = `再出撃まで ${Math.ceil(s.respawn)}`;
     else if (s.lob) c.textContent = `逆立ち曲射 ${Math.round(s.lob)}m ― 主砲で発射`;

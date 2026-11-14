@@ -87,6 +87,16 @@
     .hud-tracks .tk.l { left: 12px; } .hud-tracks .tk.r { right: 12px; }
     .hud-tracks .tk i { position: absolute; left: 0; right: 0; }
     .hud-tracks .tk.broken { border-color: var(--bad); background: rgba(255,60,30,0.35); }
+    /* 車体と砲塔の向き(画面の下の中央。上が砲塔の向き) */
+    .hud-dir { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: grid; justify-items: center; opacity: 0.55; transition: opacity 0.3s; }
+    .hud-dir.off { opacity: 0.95; }
+    .hud-dir svg { overflow: visible; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.8)); }
+    .hud-dir .ring { fill: rgba(0,0,0,0.35); stroke: rgba(255,255,255,0.25); stroke-width: 2; }
+    .hud-dir .hull rect { fill: #8a7a5a; } .hud-dir .hull .trk { fill: #4a4232; }
+    .hud-dir .front { fill: #f4ead8; }
+    .hud-dir.off .hull rect:first-child { fill: #c79a3a; }
+    .hud-dir .gun { stroke: var(--accent2); stroke-width: 5; stroke-linecap: round; } .hud-dir .tur { fill: var(--accent2); }
+    .hud-dir .lbl { font-size: 12px; font-weight: 800; color: var(--accent2); min-height: 15px; }
     .hud-hit { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; transition: opacity 0.4s; }
     .hud-hit.on { opacity: 1; }
     .hud-hit::after { content: ''; position: absolute; left: -60px; top: -170px; width: 120px; height: 34px;
@@ -217,6 +227,6 @@
   </section>
 
 
-  <script type="module" src="./js-26207a7-mwgcyboi/main.js"></script>
+  <script type="module" src="./js-79f12cf-mwgeabkd/main.js"></script>
 </body>
 </html>

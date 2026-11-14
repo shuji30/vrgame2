@@ -5,7 +5,7 @@
 //   - FFB はネットワークに流さない(各自のイベントからローカルで作る)
 //   - ホストが落ちたら試合を終えてメニューへ戻る
 import { addBossWreck } from '../core/boss.js';
-import { getIceServers, hasTurn } from './ice.js';
+import { getIceServers, hasTurn, testRelay } from './ice.js';
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const PREFIX = 'treadrevolt-v1-';
 const TICK = 1 / 15;
@@ -145,12 +145,18 @@ export class Online {
         <label class="field"><span>同じPCで試す(タブ同士)</span><input type="checkbox" id="on-local" ${this.local ? 'checked' : ''}><span></span></label>
         <div class="row"><button class="primary" id="on-host">ルームを作る</button></div>
         <div class="row"><input type="text" id="on-code" placeholder="コード(例 AB3K)" maxlength="4" style="text-transform:uppercase;width:140px"><button id="on-join">参加する</button></div>
+        ${hasTurn() ? '<div class="row"><button id="on-turntest">中継(TURN)を試す</button></div>' : ''}
         <p class="status" id="on-status"></p>
         <div class="row"><button data-go="title">◀ 戻る</button></div>`;
       el.querySelector('#on-host').onclick = () => this.hostRoom();
       el.querySelector('#on-join').onclick = () => this.joinRoom(el.querySelector('#on-code').value);
       el.querySelector('#on-name').oninput = (e) => { settings.name = e.target.value || 'PLAYER'; };
       el.querySelector('#on-local').onchange = (e) => { this.local = e.target.checked; };
+      el.querySelector('#on-turntest')?.addEventListener('click', async () => {
+        this.status('中継サーバーを試しています…');
+        const r = await testRelay();
+        this.status(r.ok ? `中継サーバーにつながりました(${r.via})。直接つながらない回線でも対戦できます` : `中継サーバーにつながりませんでした${r.why ? `(${r.why})` : ''}`);
+      });
       return;
     }
     // ロビー(格納庫)
