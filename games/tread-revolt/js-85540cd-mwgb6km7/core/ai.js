@@ -1,6 +1,10 @@
 // 敵AI:休眠 → 接近(側面へ回り込む)→ 攻撃(止まって撃ち、撃たれたら遮蔽物へ下がる)
+// 難易度の move で動きの量を変える:0 = 止まって撃つ、1 = 装填中に横へずれて位置を変える(撃つときは止まる)、
+// 2 = それに加えて、相手の正面を避けて側面・背後を取りに来る。2 両以上なら左右に分かれる
 // 対戦のボットもこれを使う。出力は履帯の指示(プレイヤーと同じ共通アクション)
 import { clamp, wrapAngle, yawTo, dist } from './util.js';
+
+const hashId = (id) => { let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) | 0; return Math.abs(h); };
 
 // 目標地点へ向かう履帯の指示
 export function steerTo(e, tx, tz, opt = {}) {
@@ -112,9 +116,47 @@ export function thinkTank(e, sim, dt) {
     ai.cover = null;
   }
 
+  const mv = sim.diff?.move ?? 0;
+  ai.repoCd = (ai.repoCd || 0) - dt;
+  // 位置を変えている途中:撃たずに目標へ走る。装填が終わる前に着くか、時間切れで止まって撃つ
+  if (ai.repo) {
+    const g = avoid(e, sim, ai.repo.x, ai.repo.z);
+    const s = steerTo(e, g.x, g.z, { arrive: 3, speed: 0.8 });
+    ai.repoT -= dt;
+    if (dist(e.x, e.z, ai.repo.x, ai.repo.z) < 4 || ai.repoT <= 0 || (e.reload ?? 0) < 0.4) ai.repo = null;
+    else {
+      Object.assign(cmd, { left: s.left, right: s.right });
+      ai.state = 'attack';
+      return cmd;
+    }
+  }
+
   if (los && d < range * 0.85) {
     // 攻撃:止まって撃つ。対戦ボットは少し動き回る
     ai.state = 'attack';
+    // 装填中に位置を変える(協力ミッションの敵。偵察車は別の動き)
+    if (mv > 0 && e.ctrl !== 'bot' && e.spec.kind !== 'scout' && (e.reload ?? 0) > 1.2 && ai.repoCd <= 0) {
+      ai.repoCd = 1.5;
+      if (sim.rnd() < (mv >= 2 ? 0.9 : 0.6)) {
+        const toMe = yawTo(foe.x, foe.z, e.x, e.z); // 相手から見た自分の方位
+        let side = sim.rnd() < 0.5 ? 1 : -1;
+        if (mv >= 2) {
+          // 相手の正面から外れる向きへ(すでに側面なら、さらに後ろへ)
+          const off = wrapAngle(toMe - (foe.yaw || 0));
+          side = off >= 0 ? 1 : -1;
+        }
+        const lat = 9 + sim.rnd() * 6;
+        // 遠ければ少し詰め、近すぎれば下がる
+        const fwd = d > range * 0.6 ? 5 : d < 25 ? -6 : (sim.rnd() - 0.5) * 6;
+        const perp = toMe + (Math.PI / 2) * side;
+        const px = e.x + Math.sin(perp) * lat - Math.sin(toMe) * fwd;
+        const pz = e.z + Math.cos(perp) * lat - Math.cos(toMe) * fwd;
+        if (sim.terrain.inBounds(px, pz, 6) && (e.spec.swim || !sim.terrain.isWater(px, pz, e.spec.radius))) {
+          ai.repo = { x: px, z: pz };
+          ai.repoT = 3;
+        }
+      }
+    }
     if (e.ctrl === 'bot' && ai.strafe) {
       const s = steerTo(e, ai.strafe.x, ai.strafe.z, { arrive: 4, speed: 0.6 });
       Object.assign(cmd, { left: s.left, right: s.right });
@@ -138,8 +180,9 @@ export function thinkTank(e, sim, dt) {
   ai.state = 'approach';
   if (ai.think <= 0 || !ai.goal) {
     ai.think = 1.2 + Math.random();
-    ai.flank ??= Math.random() < 0.5 ? 1 : -1;
-    const side = (foe.yaw || 0) + (Math.PI / 2) * ai.flank;
+    // ハード:2 両以上なら左右に分かれ(番号の偶奇)、より後ろ寄りへ回り込む
+    ai.flank ??= mv >= 2 ? (hashId(e.id) % 2 ? 1 : -1) : Math.random() < 0.5 ? 1 : -1;
+    const side = (foe.yaw || 0) + (Math.PI / 2 + (mv >= 2 ? 0.6 : 0)) * ai.flank;
     const r = Math.min(range * 0.6, d * 0.7);
     ai.goal = { x: foe.x + Math.sin(side) * r * 0.6 + (e.x - foe.x) * 0.25, z: foe.z + Math.cos(side) * r * 0.6 + (e.z - foe.z) * 0.25 };
     if (ai.goalOverride) ai.goal = ai.goalOverride;

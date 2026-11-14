@@ -148,6 +148,24 @@ export function haulerSpeedK(e) {
   return Math.max(0.38, k);
 }
 
+// 倒したボスの燃えかす:沈んで傾いた車体を遮蔽物として残す(ぶつかる・弾を止める・陰に隠れられる)。
+// ホスト(kill)とクライアント(puppetKill)の両方で呼び、当たり判定をそろえる。
+// 水に沈む浚渫要塞と、脱出の穴・エレベーターをふさぐ位置では、見た目だけにして当たり判定は足さない
+export function addBossWreck(sim, e) {
+  if (!e?.bossDef || e.wreckAdded) return null;
+  e.wreckAdded = true;
+  if (e.boss === 'dredger') return null;
+  const b = e.bossDef.body;
+  const o = e.boss === 'walker'
+    ? { shape: 'cyl', r: 7, h: 5, x: e.x, z: e.z }
+    : { shape: 'box', w: b.w, d: b.d, h: Math.max(3, Math.min(b.h, b.y0 + b.h - 2.2)), rot: e.yaw, x: e.x, z: e.z };
+  o.kind = 'bossWreck';
+  const br = o.shape === 'box' ? Math.hypot(o.w, o.d) / 2 : o.r;
+  const keepClear = [...(sim.exit ? [sim.exit] : []), ...(sim.elevators || [])];
+  for (const k of keepClear) if (dist(k.x, k.z, e.x, e.z) < br + (k.r || 5) + 6) return null;
+  return sim.obstacles.add(o, sim.terrain);
+}
+
 // 弾かれ続けたときの整備士の助言(ボスごと)
 export const BOSS_HINTS = {
   hauler: '弾かれてるぞ!前と横は分厚い装甲だ。後ろに回って光る機関部を狙え!甲板の砲塔を壊せば足も鈍る!',

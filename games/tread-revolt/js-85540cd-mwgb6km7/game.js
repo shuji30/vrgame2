@@ -16,6 +16,24 @@ import { TankTelemetry } from './core/telemetry.js';
 
 const STEP = 1 / 60;
 const BOSS_DEATH_T = 2.8; // ボスが倒れてから大爆発するまで(秒)
+
+// 燃えかすの見た目:黒く焦がし、光をなくす
+function charModel(root) {
+  root.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    const conv = (mt) => {
+      const c = mt.clone();
+      if (c.color) c.color.lerp(new THREE.Color(0x141210), 0.85);
+      if (c.emissive) c.emissive.setHex(0x000000);
+      if ('emissiveIntensity' in c) c.emissiveIntensity = 0;
+      if ('roughness' in c) c.roughness = 1;
+      if ('metalness' in c) c.metalness = 0.1;
+      if (c.transparent && c.opacity < 1) c.opacity = Math.min(c.opacity, 0.2);
+      return c;
+    };
+    o.material = Array.isArray(o.material) ? o.material.map(conv) : conv(o.material);
+  });
+}
 const WHO = { leader: 'リーダー', mech: '整備士', boss: '公社司令官', town: '町の人', sys: '' };
 
 export class Game {
@@ -457,13 +475,23 @@ export class Game {
         this.app.haptic?.(1, 450);
         this.vig?.hit?.(0.5);
       }
-    } else if (d.t < BOSS_DEATH_T + 6) {
-      // 残骸から上がる黒煙と、ときどきの小さな誘爆
-      if (Math.random() < dt * 3) {
-        const p = at((Math.random() - 0.5) * d.b.w, 1 + Math.random() * 2, (Math.random() - 0.5) * d.b.d);
-        this.fx.explosion(p.x, p.y, p.z, 0.8, 'air');
+    } else {
+      // 燃えかす:黒煙を上げ続け、ちらちら燃える。はじめの 8 秒はときどき小さく誘爆する
+      const after = d.t - BOSS_DEATH_T;
+      d.smokeT = (d.smokeT || 0) - dt;
+      if (d.smokeT <= 0) {
+        d.smokeT = after < 8 ? 0.12 : 0.3;
+        const top = d.b.y0 + d.b.h - 2;
+        const p = at((Math.random() - 0.5) * d.b.w * 0.8, top, (Math.random() - 0.5) * d.b.d * 0.8);
+        this.fx.spawn('smoke', p.x, p.y, p.z, { life: 5 + Math.random() * 3, size: 2.5, grow: 9, vx: (Math.random() - 0.5) * 0.8, vy: 2.5 + Math.random() * 2, vz: (Math.random() - 0.5) * 0.8, color: 0x1e1e1e, op: 0.65, drag: 0.3 });
+        if (Math.random() < 0.6) this.fx.spawn('fire', p.x, p.y + 0.3, p.z, { life: 0.4 + Math.random() * 0.4, size: 1.4, grow: 1.5, vy: 2 + Math.random() * 2 });
       }
-    } else this.bossDeath = null;
+      if (after < 8 && Math.random() < dt * 2.5) {
+        const p = at((Math.random() - 0.5) * d.b.w, 1 + Math.random() * 3, (Math.random() - 0.5) * d.b.d);
+        this.fx.explosion(p.x, p.y, p.z, 0.8, 'air');
+        if (Math.random() < 0.5) this.app.audio.play('explosion', { ...p, strength: 0.4 });
+      }
+    }
   }
 
   updateModels(dt) {
@@ -471,11 +499,14 @@ export class Game {
       const m = this.modelFor(e);
       // ボスは倒れてから大爆発するまで、炎を上げながら傾いて沈む
       const bd = this.bossDeath;
-      if (!e.alive && bd && bd.id === e.id && !bd.done && m.boss) {
+      if (!e.alive && bd && bd.id === e.id && m.boss) {
         const k = Math.min(1, bd.t / BOSS_DEATH_T);
         m.root.visible = true;
-        m.root.position.set(e.x + Math.sin(bd.t * 37) * 0.08, e.y - k * k * 2.2, e.z);
-        m.root.rotation.set(k * 0.06, e.yaw, k * k * 0.12 * bd.lean);
+        const shake = bd.done ? 0 : Math.sin(bd.t * 37) * 0.08;
+        m.root.position.set(bd.x + shake, bd.ey - k * k * (e.boss === 'dredger' ? 4 : 2.2), bd.z);
+        m.root.rotation.set(k * 0.06, bd.yaw, k * k * 0.12 * bd.lean);
+        // 大爆発のあとは燃えかす:黒く焦げた色にして、光る弱点を消す(素材はボスの間で共有なので複製して変える)
+        if (bd.done && !bd.charred) { bd.charred = true; charModel(m.root); }
         continue;
       }
       const showDead = !e.alive;

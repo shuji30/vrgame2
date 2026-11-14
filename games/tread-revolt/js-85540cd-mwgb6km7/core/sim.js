@@ -9,7 +9,7 @@ import { VEHICLES, UNITS, DIFFICULTY } from './vehicles.js';
 import { initMotion, stepMotion, separate } from './tankphys.js';
 import { G, LOB_G, LOB_ANGLE, lobSpeed, lobRange, LOB_MIN, LOB_MAX, solvePitch, spreadDeg, gaussPair, GUN_MIN, GUN_MAX } from './ballistics.js';
 import { thinkTank, steerTo } from './ai.js';
-import { initBoss, updateBoss, partPos, partVulnerable, bodyHit, bodyBlocks, pushVehicle, onPartDestroyed } from './boss.js';
+import { initBoss, updateBoss, partPos, partVulnerable, bodyHit, bodyBlocks, pushVehicle, onPartDestroyed, addBossWreck } from './boss.js';
 
 const ELEV_H = 26;
 const ELEV_DUR = 7.5;
@@ -1010,6 +1010,7 @@ export class Sim {
     const m = this.mission;
     if (!silent) this.emit({ t: 'kill', id: e.id, by, x: e.x, y: e.y, z: e.z, type: e.type || e.kind, big: e.type === 'boss' || e.objective, air: !!e.air });
     if (e.type === 'boss' || e.objective || e.type === 'skyFortress') this.emit({ t: 'objective', id: e.id, type: e.type });
+    if (e.type === 'boss') addBossWreck(this, e);
     // 残骸は減速地形になる
     if ((e.spec?.body === 'tank' || e.spec?.body === 'mech') && !e.air && e.type !== 'truck') {
       this.debris.push({ x: e.x, z: e.z, r: e.radius + 1.6, yaw: e.yaw, kind: e.kind || e.type });
