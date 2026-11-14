@@ -5,6 +5,7 @@
 //   - FFB はネットワークに流さない(各自のイベントからローカルで作る)
 //   - ホストが落ちたら試合を終えてメニューへ戻る
 import { addBossWreck } from '../core/boss.js';
+import { getIceServers, hasTurn } from './ice.js';
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const PREFIX = 'treadrevolt-v1-';
 const TICK = 1 / 15;
@@ -31,10 +32,18 @@ class PeerLink {
     this.peer = null;
   }
 
+  // 直接つながらないときは Cloudflare の TURN で中継する(取れなければ直接だけ)
+  async peerOptions() {
+    const { iceServers, relay } = await getIceServers();
+    this.relay = relay;
+    return iceServers ? { debug: 0, config: { iceServers } } : { debug: 0 };
+  }
+
   async host(code) {
     await loadPeerJs();
+    const opts = await this.peerOptions();
     return new Promise((ok, ng) => {
-      const peer = new window.Peer(PREFIX + code, { debug: 0 });
+      const peer = new window.Peer(PREFIX + code, opts);
       this.peer = peer;
       peer.on('open', () => ok());
       peer.on('error', (e) => { if (!this.ready) ng(e); else this.onState('error', e); });
@@ -51,8 +60,9 @@ class PeerLink {
 
   async join(code) {
     await loadPeerJs();
+    const opts = await this.peerOptions();
     return new Promise((ok, ng) => {
-      const peer = new window.Peer(undefined, { debug: 0 });
+      const peer = new window.Peer(undefined, opts);
       this.peer = peer;
       const timer = setTimeout(() => ng(new Error('ルームが見つかりません(時間切れ)')), 15000);
       peer.on('open', () => {
@@ -130,7 +140,7 @@ export class Online {
     if (this.state === 'idle') {
       el.innerHTML = `<h2>オンライン(ルームコード)</h2>
         <p class="note">ホストがルームを作り、4文字のコードを仲間に伝える。仲間はコードを入れて参加する。協力ミッションは2〜4人、対戦は1vs1〜4vs4(空いた席はボット)。<br>
-        つなぎ方は WebRTC(接続の仲介だけ PeerJS の公開サーバーを使う)。回線によってはつながらないことがある。<br>
+        つなぎ方は WebRTC(接続の仲介だけ PeerJS の公開サーバーを使う)。${hasTurn() ? '直接つながらない回線では TURN(Metered の Open Relay)で中継する。' : '回線によってはつながらないことがある。'}<br>
         「同じPCで試す」をオンにすると、同じブラウザのタブ同士でつながる(1台で確かめる用)。</p>
         <label class="field"><span>名前</span><input type="text" id="on-name" value="${esc(settings.name)}" maxlength="12"><span></span></label>
         <label class="field"><span>同じPCで試す(タブ同士)</span><input type="checkbox" id="on-local" ${this.local ? 'checked' : ''}><span></span></label>
