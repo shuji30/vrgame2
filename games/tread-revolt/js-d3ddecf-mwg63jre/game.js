@@ -97,6 +97,7 @@ export class Game {
     this.running = true;
     this.ended = false;
     this.time = 0;
+    this.pendingEdges = null;
     this.radioQ = [];
     this.radioT = 0;
     this.app.hud.reset();
@@ -145,6 +146,15 @@ export class Game {
     } else this.app.input.xr = null;
 
     const cmd = this.makeCommand(a);
+    // 押した瞬間の値は、物理を 1 歩も進めないフレーム(画面の書き換えが 60Hz より速い端末)で捨てずに次へ持ち越す
+    const pend = this.pendingEdges;
+    if (pend) {
+      if (pend.fire && !cmd.fire) { cmd.fire = true; cmd.fireStrength = pend.fireStrength; }
+      if (pend.quickTurn && !cmd.quickTurn) { cmd.quickTurn = true; cmd.quickDir = pend.quickDir; }
+      for (const k of ['subPress', 'subSelect', 'weaponSwap']) cmd[k] = cmd[k] || pend[k];
+      cmd.pitchStep = (cmd.pitchStep || 0) + (pend.pitchStep || 0);
+      this.pendingEdges = null;
+    }
     this.time += dt;
     this.acc += dt;
     let steps = 0;
@@ -157,6 +167,10 @@ export class Game {
       this.processEvents();
     }
     if (steps === 4) this.acc = 0;
+    if (steps === 0) {
+      const { fire, fireStrength, subPress, subSelect, pitchStep, quickTurn, quickDir, weaponSwap } = cmd;
+      if (fire || subPress || subSelect || pitchStep || quickTurn || weaponSwap) this.pendingEdges = { fire, fireStrength, subPress, subSelect, pitchStep, quickTurn, quickDir, weaponSwap };
+    }
     if (this.renderer.xr.isPresenting) {
       if (this.recenterT > 0 && (this.recenterT -= dt) <= 0) this.recenter();
       if (this.recenterAtPlay && this.sim.mission.state === 'play') { this.recenterAtPlay = false; this.recenter(); }
@@ -355,7 +369,7 @@ export class Game {
     const wheelOn = this.app.input.active === 'wheel' || this.app.input.wheelBound;
     this.cockpit.wheelRig.visible = wheelOn;
     for (const L of this.cockpit.levers) L.pivot.visible = !wheelOn;
-    if (w) this.cockpit.setWheel(w.steer * ((this.app.input.wheelCfg.steer.lockDeg || 270) / 2) * DEG, [w.clutch || 0, w.brake || 0, w.throttle || 0], me.gear, w.handbrake || 0);
+    if (w) this.cockpit.setWheel(w.steer * ((this.app.input.wheelCfg.steer.lockDeg || 180) / 2) * DEG, [w.clutch || 0, w.brake || 0, w.throttle || 0], me.gear, w.handbrake || 0);
     void a;
   }
 
@@ -570,10 +584,12 @@ export class Game {
     if (br?.connected && this.settings.simhub !== false && me.alive) br.telemetry(this.telem.compute(me, dt, this.time, this.sim.mission.state === 'play'));
     if (!br?.connected || !this.settings.ffb) return;
     if (me.bump > 0.2) this.ffbModel.bump(me.bump * 0.6);
-    Object.assign(this.ffbModel.set, { gain: this.settings.ffbGain ?? 0.8, spring: this.settings.ffbSpring ?? 0.45 });
+    Object.assign(this.ffbModel.set, { gain: this.settings.ffbGain ?? 0.8, spring: this.settings.ffbSpring ?? 0.45, softLock: this.settings.ffbSoftLock ?? 0.8 });
+    const w = this.app.input.wheel;
     const f = this.ffbModel.update({
       dt, speed01: clamp(Math.abs(me.v) / me.spec.speed, 0, 1), rough: (me.surf?.rough ?? 0.3) + (me.onDebris ? 0.4 : 0), roadHz: me.surf?.hz ?? 14,
       turretWeight: me.spec.ffbDamper, turretLimit: me.turretLimit || 0,
+      steerBeyond: w?.steerBeyond || 0, steerSign: w?.steerSign || 0,
     });
     // 機器によって力の左右が逆になるので、設定で反転できるようにする
     if (this.settings.ffbInvert) f.c = -f.c;

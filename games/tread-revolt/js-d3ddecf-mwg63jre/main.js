@@ -4,6 +4,7 @@ import { GameAudio } from './audio.js';
 import { FfbBridge } from './input/bridge.js';
 import { InputManager } from './input/input.js';
 import { XrControls } from './input/xr.js';
+import { TouchControls, isTouchDevice } from './input/touch.js';
 import { Hud } from './hud.js';
 import { Game } from './game.js';
 import { buildVehicle } from './scene/models.js';
@@ -20,11 +21,12 @@ const params = new URLSearchParams(location.search);
 const SETTINGS_KEY = 'treadrevolt:settings';
 const PROGRESS_KEY = 'treadrevolt:progress';
 
+const TOUCH = isTouchDevice();
 const DEFAULT_SETTINGS = {
   difficulty: 'normal', vehicle: 'medium', scheme: 'tracks', manualPitch: false, mouseSens: 1,
-  vignette: 0.6, snapTurn: false, horizon: false, comfortTurn: 1, shadows: true,
+  vignette: 0.6, snapTurn: false, horizon: false, comfortTurn: 1, shadows: !TOUCH, // スマホは影を切って軽くする
   master: 0.8, sfx: 0.9, music: 0.35, speech: false, speechVoice: 'male',
-  vrScale: 0.8, turretRange: 90, sortieVR: false, simhub: true, paint: 0, ffb: true, ffbInvert: true, ffbGain: 0.8, ffbSpring: 0.45, xrMode: 'sticks', turretHead: true, wheelOffset: { x: 0, y: 0, z: 0 }, name: 'PLAYER',
+  vrScale: 0.8, turretRange: 90, sortieVR: false, simhub: true, paint: 0, ffb: true, ffbInvert: true, ffbGain: 0.8, ffbSpring: 0.45, ffbSoftLock: 0.8, xrMode: 'sticks', turretHead: true, wheelOffset: { x: 0, y: 0, z: 0 }, name: 'PLAYER',
 };
 const settings = { ...DEFAULT_SETTINGS, ...load(SETTINGS_KEY, {}) };
 const progress = { cleared: -1, best: {}, ...load(PROGRESS_KEY, {}) };
@@ -38,7 +40,7 @@ function save(k, v) {
 
 // ------------------------------------------------------------ 描画とサブシステム
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: params.has('snap') });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, TOUCH ? 1.5 : 2)); // スマホは解像度を少し下げて軽くする
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -52,6 +54,7 @@ const audio = new GameAudio();
 const bridge = new FfbBridge();
 bridge.start();
 const input = new InputManager(bridge);
+if (TOUCH) input.touch = new TouchControls();
 const hud = new Hud($('#hud'));
 const xr = new XrControls(renderer);
 const app = { renderer, audio, input, bridge, settings, hud, xr, onEnd: null, onPause: null, net: null };
@@ -61,6 +64,7 @@ applySettings();
 
 function applySettings() {
   input.settings.scheme = settings.scheme;
+  input.touch?.setScheme(settings.scheme);
   input.settings.manualPitch = settings.manualPitch;
   input.settings.mouseSens = settings.mouseSens;
   xr.mode = settings.xrMode;
@@ -235,7 +239,11 @@ function beginNow(cfg) {
   playing = true;
   // シェーダーを先に作っておく(最初の爆発や被弾で止まらないように)
   try { renderer.compile(game.scene, game.camera); } catch { /* 無視 */ }
-  if (!renderer.xr.isPresenting && !params.has('nolock')) renderer.domElement.requestPointerLock?.()?.catch?.(() => {});
+  if (!renderer.xr.isPresenting && !params.has('nolock') && !TOUCH) renderer.domElement.requestPointerLock?.()?.catch?.(() => {});
+  // スマホ:全画面・横向きにする(できない端末では何もしない)
+  if (TOUCH && !document.fullscreenElement) {
+    document.documentElement.requestFullscreen?.()?.then(() => screen.orientation?.lock?.('landscape'))?.catch?.(() => {});
+  }
 }
 
 function startCampaign(index) {
@@ -373,6 +381,7 @@ function renderSettings() {
     ${slider('brakeFire', 'ブレーキで撃つ踏み込み', 0.2, 0.95, 0.05, W)}
     ${slider('lockDeg', 'ハンドルの効く角度(°)', 90, 900, 10, W.steer)}
     ${slider('wheelDeg', 'ハンドルの回転角(ドライバー設定、°)', 180, 1080, 10, W.steer)}
+    <p class="note">効く角度の既定は 180°(左右に 90° ずつ)。超えて回すと FFB のソフトロックで押し返す。ハンドルを物理的に止めたいときは、ドライバー側の回転角も同じ角度にし、「ハンドルの回転角」も合わせる。</p>
     ${slider('deadzone', 'ハンドルの不感帯', 0, 0.2, 0.01, W.steer)}
     <table class="keys" id="wheel-rows">${WHEEL_ACTIONS.map((a) => `<tr data-act="${a.key}"><th>${a.label}${a.optional ? ' <span class="muted">(任意)</span>' : ''}</th><td class="bind"></td><td><div class="meter"><i></i></div></td><td><button data-learn="${a.key}">割り当て</button> <button data-clear="${a.key}">消す</button></td></tr>`).join('')}</table>
     <div class="row"><button id="w-reset">割り当てを初期化</button><button id="w-scan">デバイスを探し直す</button></div>
@@ -381,6 +390,7 @@ function renderSettings() {
     ${check('ffbInvert', 'FFB の左右を反転(テストで逆に回るときに切り替える)')}
     ${slider('ffbGain', '強さ', 0, 1, 0.05)}
     ${slider('ffbSpring', 'センタースプリング', 0, 1, 0.05)}
+    ${slider('ffbSoftLock', 'ソフトロック(効く角度で押し返す。0 で無効)', 0, 1, 0.05)}
     ${check('simhub', 'SimHub へテレメトリを送る(ブリッジ側で有効なとき)')}
     <div class="row"><button data-ffbtest="left">テスト:左</button><button data-ffbtest="right">テスト:右</button><button data-ffbtest="rumble">テスト:振動</button></div>
     <h2>VR のハンドル位置合わせ</h2>
@@ -704,6 +714,7 @@ function loop(t) {
   learnTick(dt);
   if ((menuT += dt) > 0.1) { menuT = 0; meterTick(); }
   const inXR = renderer.xr.isPresenting;
+  input.touch?.setVisible(!inXR && playing && game.running && current === 'game' && !game.paused);
   if (playing && game.running && current === 'game') {
     game.frame(dt);
     attachVrMenu(null);
