@@ -2,7 +2,7 @@
 // 出力は ffb-bridge の形式 { c: -1..1, d: 0..1, s: 0..1, r: 0..1, hz: 0..200 }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-export const FFB_DEFAULTS = { gain: 0.8, spring: 0.45, recoil: 0.9, impact: 0.9, road: 0.5, turretWeight: 1, click: 0.7 };
+export const FFB_DEFAULTS = { gain: 0.8, spring: 0.45, recoil: 0.9, impact: 0.9, road: 0.5, turretWeight: 1, click: 0.7, softLock: 0.8 };
 
 export class FfbModel {
   constructor(settings = {}) {
@@ -34,7 +34,7 @@ export class FfbModel {
     this.rumbles.push({ r: 0.6 * this.set.click, hz: 70, dur: 0.035, t: 0 });
   }
 
-  // 毎フレーム。s = { dt, speed01, rough, roadHz, turretWeight, turretLimit, active }
+  // 毎フレーム。s = { dt, speed01, rough, roadHz, turretWeight, turretLimit, steerBeyond, steerSign, active }
   update(s) {
     const set = this.set;
     let c = 0, r = 0, hz = 0;
@@ -57,8 +57,17 @@ export class FfbModel {
     // 砲塔の旋回限界:押し返す
     c += -clamp(s.turretLimit || 0, -1, 1) * 0.7;
     const g = set.gain;
+    // ソフトロック:効く角度(beyond = 1)を超えて回したら中央へ押し返す。数度超えたところで強く効く。
+    // 向きは旋回限界(上の turretLimit)とそろえる。ハンドルを右(steer +)に切ると砲塔は右(turret −)へ回るので、
+    // 砲塔の向きに直した -steerSign を turretLimit と同じく引く。ゲインを下げても壁として感じられるよう gain は掛けない
+    let lock = 0;
+    const beyond = s.steerBeyond || 0;
+    if (beyond > 1 && s.steerSign) {
+      const turretSide = -Math.sign(s.steerSign);
+      lock = -turretSide * clamp((beyond - 1) * 8, 0, 1) * clamp(set.softLock ?? 0, 0, 1);
+    }
     return {
-      c: clamp(c * g, -1, 1),
+      c: clamp(c * g + lock, -1, 1),
       d: clamp((0.05 + (s.turretWeight || 0.2) * set.turretWeight) * g, 0, 1),
       s: clamp(set.spring * g, 0, 1), // センタースプリング
       r: clamp(r * g, 0, 1),

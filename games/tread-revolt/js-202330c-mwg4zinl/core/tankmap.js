@@ -60,7 +60,7 @@ export function defaultWheelConfig() {
     pedals: 3, // 3 か 2(2ペダル:ブレーキが左履帯)
     swap: false, // 左右の入れ替え(パドルも連動)
     bindings: {},
-    steer: { center: 0, min: -1, max: 1, invert: false, wheelDeg: 900, lockDeg: 270, deadzone: 0.04, gamma: 1.3 },
+    steer: { center: 0, min: -1, max: 1, invert: false, wheelDeg: 900, lockDeg: 180, deadzone: 0.04, gamma: 1.3 },
     pedalCal: {}, // key → { rest, full, deadzone, gamma }
     brakeFire: 0.55, // ブレーキを踏み込んで撃つ閾値
   };
@@ -80,7 +80,13 @@ export function readWheel(pads, cfg) {
     const b = cfg.bindings[a.key];
     const v = readBinding(pads, b);
     if (v == null) { out[a.key] = a.kind === 'axis' ? (a.key === 'steer' ? 0 : 0) : false; continue; }
-    if (a.key === 'steer') out.steer = mapSteer(v, cfg.steer).value;
+    if (a.key === 'steer') {
+      // beyond: 効く角度を超えて回したか(1 を超えると超えている)。FFB のソフトロックに使う
+      const m = mapSteer(v, cfg.steer);
+      out.steer = m.value;
+      out.steerBeyond = m.beyond;
+      out.steerSign = Math.sign(m.value) || 0;
+    }
     else if (a.pedal) out[a.key] = mapPedal(v, cfg.pedalCal[a.key] || { rest: b.rest ?? -1, full: b.full ?? 1 });
     else out[a.key] = v;
   }
