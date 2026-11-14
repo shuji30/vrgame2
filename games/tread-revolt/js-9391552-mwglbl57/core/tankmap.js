@@ -8,6 +8,8 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 export function emptyActions() {
   return {
     left: 0, right: 0, turret: 0, turretYaw: null, pitchStep: 0, pitchRate: 0,
+    // 砲塔を車体の正面へゆっくり戻す(ハンコン:ハンドルを中央にしてしばらくたったとき)。速度制御のまま、止めている間だけ効く
+    turretCenter: false,
     fire: false, fireStrength: 1, sub: false, subPress: false, subSelect: false,
     lob: false, lobAmount: 0, lobAnalog: false, gear: null,
     crouch: false, quickTurn: false, quickDir: 1, weaponSwap: false,

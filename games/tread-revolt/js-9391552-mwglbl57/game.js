@@ -729,7 +729,9 @@ export class Game {
     const objText = sim.mode === 'versus' ? versusText(sim, me) : m.objectives ? `目標 ${m.objectives - m.objectivesLeft}/${m.objectives}` : '';
     const state = {
       tl: me.tl / me.spec.speed, tr: me.tr / me.spec.speed, brokenL: me.trackDmg[0] > 0, brokenR: me.trackDmg[1] > 0,
-      reload01: me.spec.body === 'tank' ? (me.ammo > 0 ? me.ammo / 2 : 1 - me.reload / (me.spec.reload * 1.4)) : 1 - me.reload / ((me.weapon === 'rockets' ? 4.6 : me.spec.reload) || 1), hp01: me.hp / me.maxHp, gear: me.gear, speed: me.v,
+      // 戦車:ゲージは 2 発ぶん(半分で 1 発撃てる)
+      twin: me.spec.body === 'tank',
+      reload01: me.spec.body === 'tank' ? Math.min(1, (me.ammo + (me.ammo < 2 ? 1 - me.reload / (me.spec.reload * 0.7) : 0)) / 2) : 1 - me.reload / ((me.weapon === 'rockets' ? 4.6 : me.spec.reload) || 1), hp01: me.hp / me.maxHp, gear: me.gear, speed: me.v,
       still: isStill(me.v, me.w), subLabel: me.spec.body === 'mech' ? (me.weapon === 'cannon' ? '腕の主砲' : '肩のロケット') + ' / ' + (me.sub === 'mg' ? '機銃' : `煙×${me.smokeAmmo}`) : me.sub === 'mg' ? '副:機銃' : `副:スモーク ×${me.smokeAmmo}`,
       timeLeft: m.timeLimit ? m.timeLeft : null, objText,
       livesText: sim.mode === 'versus' ? `撃破 ${me.kills} / 被撃破 ${me.deaths}` : sim.mode === 'training' ? '' : `残機 ${Math.max(0, m.lives)}`,
@@ -741,6 +743,8 @@ export class Game {
       this.instT = 0.1;
       this.cockpit.draw(state);
       this.cockpit.drawRadar(sim, me, this.viewYaw);
+      // 画面のレーダー(スマホ・PC):車内のレーダーを写し、真ん中に車体と砲塔の向きを描く(上が視線の向き)
+      this.app.hud.radar(this.cockpit.radar, wrapAngle(me.yaw - this.viewYaw), wrapAngle(me.yaw + me.turret - this.viewYaw));
     }
     // ボスの体力
     const boss = sim.ents.find((e) => e.type === 'boss' && e.ai.state !== 'sleep');

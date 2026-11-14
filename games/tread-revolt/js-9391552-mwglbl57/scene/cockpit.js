@@ -247,8 +247,10 @@ export class Cockpit {
     g.fillText('装填', 110, 50);
     g.fillStyle = '#0a0a08';
     g.fillRect(190, 36, 260, 28);
-    g.fillStyle = s.reload01 >= 1 ? green : amber;
+    g.fillStyle = s.reload01 >= 1 ? green : s.reload01 >= 0.5 && s.twin ? '#c8e86a' : amber;
     g.fillRect(193, 39, 254 * clamp(s.reload01, 0, 1), 22);
+    // 戦車は真ん中まで装填すると 1 発撃てる(目盛り)
+    if (s.twin) { g.fillStyle = '#000'; g.fillRect(193 + 127 - 2, 37, 4, 26); }
     if (s.reload01 >= 1) { g.fillStyle = '#000'; g.fillText('完了', 290, 51); }
     // 耐久
     g.fillStyle = '#ddd';
@@ -332,7 +334,8 @@ export class Cockpit {
       if (x < 0 || y < 0 || x > 256 || y > 256) continue;
       const foe = e.team !== me.team;
       g.fillStyle = !foe ? '#5ac8ff' : e.objective || e.type === 'boss' ? '#ff4a2a' : e.ai?.state === 'sleep' ? '#7a6a3a' : '#ffb33a';
-      const sz = e.objective || e.type === 'boss' ? 7 : 4;
+      // 画面のレーダーは小さく映るので、点は大きめに
+      const sz = e.objective || e.type === 'boss' ? 10 : 7;
       if (e.objective || e.type === 'boss') { g.fillRect(x - sz, y - sz, sz * 2, sz * 2); }
       else { g.beginPath(); g.arc(x, y, sz, 0, 7); g.fill(); }
     }
@@ -345,7 +348,8 @@ export class Cockpit {
     for (const el of sim.elevators) {
       const [x, y] = toScreen(el.x, el.z);
       g.strokeStyle = '#55e0ff';
-      g.strokeRect(x - 4, y - 4, 8, 8);
+      g.lineWidth = 3;
+      g.strokeRect(x - 7, y - 7, 14, 14);
     }
     // 自分
     g.fillStyle = '#6cff8a';
