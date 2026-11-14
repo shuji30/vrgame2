@@ -8,7 +8,7 @@ import { buildVehicle, buildUnit } from './scene/models.js';
 import { buildBoss } from './scene/bossmodels.js';
 import { FfbModel } from './core/ffbmodel.js';
 import { clamp, damp, wrapAngle, yawTo, fmtTime, DEG } from './core/util.js';
-import { bossProgress } from './core/boss.js';
+import { bossProgress, BOSS_HINTS } from './core/boss.js';
 import { isStill } from './core/ballistics.js';
 import { LIBERATION } from './core/stages.js';
 import { Vignette } from './scene/comfort.js';
@@ -98,6 +98,9 @@ export class Game {
     this.ended = false;
     this.time = 0;
     this.pendingEdges = null;
+    this.deflects = 0; // ボスに弾かれた回数(助言を出すため)
+    this.hintT = -1e9;
+    this.hints = 0;
     this.radioQ = [];
     this.radioT = 0;
     this.app.hud.reset();
@@ -491,6 +494,16 @@ export class Game {
           break;
         case 'ricochet':
           au.play('ricochet', pos);
+          // ボスの装甲に弾かれた:効いていないことが分かるように火花と表示を出し、続いたら整備士が弱点を教える
+          if (ev.boss && ev.by === me.id && ev.shot !== 'mg') {
+            this.fx.deflect(ev.x, ev.y, ev.z);
+            this.app.hud.pop('弾かれた', 'deflect');
+            this.deflects++;
+            if (this.deflects >= 3 && this.time - this.hintT > 30 && this.hints < 3 && BOSS_HINTS[ev.boss]) {
+              this.hintT = this.time; this.hints++; this.deflects = 0;
+              sim.radio('mech', BOSS_HINTS[ev.boss]);
+            }
+          }
           if (ev.armor && this.me && Math.hypot(ev.x - me.x, ev.z - me.z) < 200 && !this.armorHinted) { this.armorHinted = true; sim.radio('mech', '弾かれた!発射台は壁に守られてる、曲射で上から狙え!'); }
           break;
         case 'kill': {
@@ -500,7 +513,9 @@ export class Game {
           if (ev.by === me.id && ev.id !== me.id) this.app.hud.killPop(ev.type);
           break;
         }
-        case 'hitPart': break;
+        case 'hitPart':
+          if (ev.by === me.id && ev.weak) { this.app.hud.pop('命中!', 'weakhit'); this.deflects = 0; }
+          break;
         case 'partDown': this.fx.explosion(ev.x, ev.y, ev.z, 2.5); au.play('bigExplosion', pos); break;
         case 'reload': if (mine) au.play('reload'); break;
         case 'wake': {

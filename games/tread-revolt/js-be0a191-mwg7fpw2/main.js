@@ -14,7 +14,7 @@ import { WHEEL_ACTIONS, defaultWheelConfig } from './core/tankmap.js';
 import { detectChange } from './core/inputmap.js';
 import { Tutorial } from './tutorial.js';
 import { Online } from './net/online.js';
-import { loadBuildInfo } from './version.js';
+import { loadBuildInfo, VERSION } from './version.js';
 
 const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
@@ -265,6 +265,7 @@ function startVersus() {
 
 function quit() {
   playing = false;
+  checkUpdate(); // メニューへ戻ったときに新しい版が出ていれば読み込み直す
   game.stop();
   hud.show(false);
   document.exitPointerLock?.();
@@ -276,7 +277,12 @@ function quit() {
 app.onPause = (on) => {
   if (!playing) return;
   game.paused = on;
-  if (on) { show('pause', false); document.exitPointerLock?.(); bridge.stopForces(); }
+  if (on) {
+    // ポーズした瞬間の入力の状態(勝手に動く原因を確かめるため)。タッチの状態はこのあと離した状態に戻る
+    const info = $('#pause-input');
+    if (info) info.textContent = `v${VERSION}\n${input.describe()}`;
+    show('pause', false); document.exitPointerLock?.(); bridge.stopForces();
+  }
   else resume();
 };
 function resume() {
@@ -787,6 +793,26 @@ setMenuVehicle(settings.vehicle);
 $('#loading').hidden = true;
 $('#title-note').innerHTML = '推奨:PC の Chrome / Edge。VR は PCVR(OpenXR)。ハンコンは vrgame2 の ffb-bridge を起動しておく。<br><span id="ver"></span>';
 loadBuildInfo().then((t) => { $('#ver').textContent = t; });
+
+// 古い版のまま遊び続けないようにする:公開されている版(version.json)がこのプログラムと違えば読み込み直す。
+// ブラウザが古い index.html を使い続けることがある(開いたままのタブを戻したときなど)。遊んでいる最中は読み込み直さない
+let updating = false;
+async function checkUpdate() {
+  if (updating || playing) return;
+  try {
+    const r = await fetch(`./version.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (!r.ok) return; // 手元で開いたとき(version.json がない)
+    const v = (await r.json()).version;
+    if (!v || v === VERSION) return;
+    const u = new URL(location.href);
+    if (u.searchParams.get('v') === v) return; // 読み込み直しても変わらない(公開の途中など)。繰り返さない
+    updating = true;
+    u.searchParams.set('v', v);
+    location.replace(u.toString());
+  } catch { /* つながらない */ }
+}
+checkUpdate();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 audio.playMusic('title');
 if (params.has('stage')) {
   pending = { mode: 'campaign', stageIndex: Number(params.get('stage')) };

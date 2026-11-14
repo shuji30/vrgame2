@@ -122,6 +122,12 @@ export class Fx {
     this.flash(x, y + 1, z, 120 * size, 0xff8a3a);
   }
 
+  // 装甲に弾かれた:白っぽい火花を跳ねさせる(効いていない合図)
+  deflect(x, y, z) {
+    for (let i = 0; i < 10; i++) this.spawn('spark', x, y, z, { life: 0.25 + Math.random() * 0.25, size: 0.2, grow: 0.05, vx: (Math.random() - 0.5) * 30, vy: 2 + Math.random() * 10, vz: (Math.random() - 0.5) * 30, g: 25, drag: 0.2 });
+    this.flash(x, y, z, 50, 0xcfe0ff);
+  }
+
   tiny(x, y, z, kind = 'ground') {
     this.spawn(kind === 'water' ? 'water' : 'dust', x, y, z, { life: 0.5, size: 0.4, grow: 1.2, vy: 2, op: 0.6 });
     this.spawn('spark', x, y, z, { life: 0.15, size: 0.5, grow: 0.2 });

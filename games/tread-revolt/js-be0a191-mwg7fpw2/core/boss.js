@@ -141,6 +141,21 @@ export function pushVehicle(e, v) {
   return true;
 }
 
+// 移動要塞の速さの倍率:砲塔 1 つで 13%、迫撃砲で 10% 遅くなる(全部壊すと 38%)
+export function haulerSpeedK(e) {
+  let k = 1;
+  for (const p of e.parts) if (!p.alive) k -= p.gun ? 0.13 : p.mortar ? 0.1 : 0;
+  return Math.max(0.38, k);
+}
+
+// 弾かれ続けたときの整備士の助言(ボスごと)
+export const BOSS_HINTS = {
+  hauler: '弾かれてるぞ!前と横は分厚い装甲だ。後ろに回って光る機関部を狙え!甲板の砲塔を壊せば足も鈍る!',
+  walker: '胴体は弾かれる!まず脚の関節を撃て、2本折れば胴体が落ちて腹の動力炉が見える!',
+  dredger: '弾かれてるぞ!先に横の吸気口をつぶせ。上のハッチは曲射で上から叩くんだ!',
+  driller: '正面のドリルは効かない!後ろの機関部か、止まったときに開く上の排気口を狙え!',
+};
+
 function nearestPlayer(e, sim, maxD = 1e9) {
   let best = null, bd = maxD;
   for (const p of sim.ents) {
@@ -199,7 +214,8 @@ export function updateBoss(e, sim, dt) {
 
   if (e.boss === 'hauler') {
     e.y = ground;
-    followPath(e, sim, dt, 4.2);
+    // 甲板の砲塔と迫撃砲は機関から動力を取っている。壊すほど遅くなり、後ろへ回り込みやすくなる
+    followPath(e, sim, dt, 4.2 * haulerSpeedK(e));
     if (foe) {
       // 甲板の砲塔:順番に撃つ
       const guns = e.parts.filter((p) => p.gun && p.alive);
@@ -354,7 +370,11 @@ export function onPartDestroyed(e, p, sim) {
   if (e.boss === 'dredger' && p.vent) {
     if (!e.parts.some((q) => q.vent && q.alive)) sim.radio('mech', '吸気口をつぶした!機関が止まって上のハッチが開いたぞ、曲射で上から叩き込め!');
   }
-  if (e.boss === 'hauler' && p.gun && !e.parts.some((q) => q.gun && q.alive)) sim.radio('mech', '甲板の砲塔は全部黙らせた。あとは機関部だ!');
+  if (e.boss === 'hauler' && (p.gun || p.mortar)) {
+    const guns = e.parts.filter((q) => q.gun && q.alive).length;
+    if (p.gun && guns === 0) sim.radio('mech', '甲板の砲塔は全部黙らせた。足もだいぶ鈍ったぞ、あとは後ろの機関部だ!');
+    else if (!e.slowHinted) { e.slowHinted = true; sim.radio('mech', '砲塔をつぶすたびに要塞の足が鈍る!後ろへ回り込みやすくなるぞ!'); }
+  }
   return false;
 }
 
