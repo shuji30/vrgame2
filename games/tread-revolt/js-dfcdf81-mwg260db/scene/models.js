@@ -335,6 +335,7 @@ function buildTank(sp, o, f = {}) {
   const dispose = () => own.forEach((x) => x.dispose());
   return {
     root, muzzle, muzzle2, muzzles, eye, hatch, weak, dispose,
+    hullL: L, // 逆立ちの支点(車体の後端)から視点の位置を出すのに使う
     update(s) {
       const dt = s.dt || 0;
       updTracks(sides, s, dt);

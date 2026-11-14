@@ -9,7 +9,7 @@ import { VEHICLES, UNITS, DIFFICULTY } from './vehicles.js';
 import { initMotion, stepMotion, separate } from './tankphys.js';
 import { G, LOB_G, LOB_ANGLE, lobSpeed, lobRange, LOB_MIN, LOB_MAX, solvePitch, spreadDeg, gaussPair, GUN_MIN, GUN_MAX } from './ballistics.js';
 import { thinkTank, steerTo } from './ai.js';
-import { initBoss, updateBoss, partPos, partVulnerable, bodyHit, pushVehicle, onPartDestroyed } from './boss.js';
+import { initBoss, updateBoss, partPos, partVulnerable, bodyHit, bodyBlocks, pushVehicle, onPartDestroyed } from './boss.js';
 
 const ELEV_H = 26;
 const ELEV_DUR = 7.5;
@@ -222,7 +222,16 @@ export class Sim {
       const d = dist(o.x, o.z, t.x, t.z);
       if (d > bd || d < 3) continue;
       const tolerance = Math.max(1.5 * DEG, Math.atan2((t.radius || 2) * 0.8, d));
-      const da = Math.abs(wrapAngle(yawTo(o.x, o.z, t.x, t.z) - o.yaw));
+      let da = Math.abs(wrapAngle(yawTo(o.x, o.z, t.x, t.z) - o.yaw));
+      // ボス:胴体からはみ出た部位(多脚の膝など)に向けたときも狙いを合わせる
+      if (da >= tolerance && t.type === 'boss') {
+        for (const p of t.parts) {
+          if (!p.alive || p.armored) continue;
+          const pp = partPos(t, p);
+          const pd = Math.max(3, dist(o.x, o.z, pp.x, pp.z));
+          if (Math.abs(wrapAngle(yawTo(o.x, o.z, pp.x, pp.z) - o.yaw)) < Math.atan2(p.r + 1, pd)) { da = 0; break; }
+        }
+      }
       if (da < tolerance) { best = t; bd = d; }
     }
     let ax, ay, az, d;
@@ -233,7 +242,8 @@ export class Sim {
         if (!p.alive || p.armored) continue;
         const pp = partPos(best, p);
         const da = Math.abs(wrapAngle(yawTo(o.x, o.z, pp.x, pp.z) - o.yaw));
-        const score = da + (partVulnerable(best, p, { lob: false, vy: 0 }) ? 0 : 0.15);
+        // 胴体にさえぎられて届かない部位は後回し(近くから上の砲を狙って胴体に当たるのを防ぐ)
+        const score = da + (partVulnerable(best, p, { lob: false, vy: 0 }) ? 0 : 0.15) + (bodyBlocks(best, o, pp, p.r) ? 0.5 : 0) + (p.weak ? 0 : 0.03);
         if (score < bs) { bs = score; bp = pp; }
       }
       const tgt = bp || { x: best.x, y: best.y + 5, z: best.z };
@@ -256,7 +266,8 @@ export class Sim {
       e.gunPitch = approachAngle(e.gunPitch, clamp(p - e.pitch * 0.0, GUN_MIN, GUN_MAX), 25 * DEG * (1 / 60) * 4);
     }
     // 曲射の着弾予想
-    const r = e.lobAnalog ? lobRange(e.lobAmt) : this.autoLobRange(e);
+    e.lobSnap = false;
+    const r = e.lobAnalog ? this.snapLobRange(e, lobRange(e.lobAmt)) : this.autoLobRange(e);
     e.lobRangeNow = r;
     const lx = e.x + Math.sin(o.yaw) * r, lz = e.z + Math.cos(o.yaw) * r;
     e.lobAim = { x: lx, z: lz, y: this.terrain.height(lx, lz), r };
@@ -268,8 +279,9 @@ export class Sim {
     // 照準が捉えている目標(砲塔を向けている相手)を最優先
     const lock = e.aim?.lock && this.byId.get(e.aim.lock);
     if (lock && lock.alive) {
-      const d = dist(e.x, e.z, lock.x, lock.z);
-      if (d >= LOB_MIN && d <= LOB_MAX) return d;
+      // ボスは照準が合っている部位(脚の関節など)の距離に落とす
+      const d = lock.type === 'boss' ? dist(e.x, e.z, e.aim.x, e.aim.z) : dist(e.x, e.z, lock.x, lock.z);
+      if (d >= LOB_MIN && d <= LOB_MAX) { e.lobSnap = true; return d; }
     }
     let best = null, bd = 1e9;
     for (const t of this.ents) {
@@ -283,6 +295,24 @@ export class Sim {
       if (score < bd) { bd = score; best = t; }
     }
     return best ? dist(e.x, e.z, best.x, best.z) : 90;
+  }
+
+  // ハンドブレーキで距離を決めるとき:引いた量の距離の近く(±12m)に、砲塔の向きの先の敵がいれば、その距離に吸いつける
+  snapLobRange(e, r) {
+    const ty = e.yaw + e.turret;
+    const lock = e.aim?.lock && this.byId.get(e.aim.lock);
+    let best = null, bd = 12;
+    const consider = (d) => { const dd = Math.abs(d - r); if (d >= LOB_MIN && d <= LOB_MAX && dd < bd) { bd = dd; best = d; } };
+    if (lock && lock.alive) consider(lock.type === 'boss' ? dist(e.x, e.z, e.aim.x, e.aim.z) : dist(e.x, e.z, lock.x, lock.z));
+    for (const t of this.ents) {
+      if (!t.alive || t.team === e.team || t.hidden || t === lock || t.type === 'boss') continue;
+      const d = dist(e.x, e.z, t.x, t.z);
+      if (Math.abs(wrapAngle(yawTo(e.x, e.z, t.x, t.z) - ty)) > Math.max(4 * DEG, Math.atan2((t.radius || 2) + 2, d))) continue;
+      consider(d);
+    }
+    if (best == null) return r;
+    e.lobSnap = true;
+    return best;
   }
 
   // ------------------------------------------------------------ 1ステップ
@@ -848,7 +878,7 @@ export class Sim {
           if (!p.alive) continue;
           const pp = partPos(e, p);
           if (Math.hypot(pp.x - s.x, pp.y - s.y, pp.z - s.z) < p.r + (s.kind === 'mg' ? 0.2 : 0.6)) {
-            if (partVulnerable(e, p, s)) this.damagePart(e, p, s);
+            if (partVulnerable(e, p, s)) { this.damagePart(e, p, s); s.hitPart = p; }
             else this.emit({ t: 'ricochet', x: s.x, y: s.y, z: s.z, id: e.id });
             this.explode(s, e, 'hit', true);
             return true;
@@ -895,6 +925,19 @@ export class Sim {
     if (!this.authority) return;
     const src = { team: s.team, owner: s.owner, x: s.x - s.vx * 0.05, z: s.z - s.vz * 0.05, lob: !!s.lob || s.vy < -10, kind: s.kind, vy: s.vy };
     if (direct && !noDamageDirect && direct.type !== 'boss') this.damage(direct, s.dmg, src);
+    // 曲射の爆風はボスの部位にも届く(撃てる部位だけ。直撃した部位は除く)
+    if (s.lob && s.splash > 0) {
+      for (const e of this.ents) {
+        if (e.type !== 'boss' || !e.alive || e.team === s.team || dist(e.x, e.z, s.x, s.z) > e.radius + s.splash + 4) continue;
+        for (const p of e.parts) {
+          if (!p.alive || p === s.hitPart || !partVulnerable(e, p, src)) continue;
+          const pp = partPos(e, p);
+          const d = Math.hypot(pp.x - s.x, pp.y - s.y, pp.z - s.z);
+          if (d < s.splash + p.r) this.damagePart(e, p, { ...s, dmg: s.dmg * 0.6 * (1 - d / (s.splash + p.r + 1)) });
+          if (!e.alive) break;
+        }
+      }
+    }
     if (s.splash > 0) {
       for (const e of this.ents) {
         if (!e.alive || e === direct || e.hidden || e.team === s.team || e.type === 'boss') continue;

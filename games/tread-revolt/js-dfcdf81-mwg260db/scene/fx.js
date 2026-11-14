@@ -188,11 +188,15 @@ export class Fx {
     this.reticle.material.color.set(locked ? 0xff5a3a : spreadDeg < 0.2 ? 0x66ff99 : 0xffd84a);
   }
 
-  setLob(p, visible, time) {
+  // snapped:着弾点が敵の距離に合っている(緑にして、速く脈打たせる)
+  setLob(p, visible, time, snapped = false) {
     this.lobMarker.visible = !!visible;
     if (!visible || !p) return;
     this.lobMarker.position.set(p.x, p.y + 0.3, p.z);
-    this.lobMarker.scale.setScalar(6 + Math.sin(time * 6) * 0.5);
+    this.lobMarker.scale.setScalar(snapped ? 5 + Math.sin(time * 12) * 0.8 : 6 + Math.sin(time * 6) * 0.5);
+    this.lobMarker.material.color.setHex(snapped ? 0x55ff88 : 0xffffff);
+    // 合っているときはボスや建物に隠れないよう手前に描く
+    this.lobMarker.material.depthTest = !snapped;
   }
 
   update(dt) {

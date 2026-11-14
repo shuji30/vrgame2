@@ -20,8 +20,8 @@ export const BOSSES = {
     name: '多脚制圧戦車 グラップル', hpScale: 1,
     body: { w: 13, d: 13, h: 4.5, y0: 6.5 }, radius: 8,
     parts: () => [
-      P('k1', 7.5, 4, 6, 1.7, 55, { weak: true, knee: true }), P('k2', -7.5, 4, 6, 1.7, 55, { weak: true, knee: true }),
-      P('k3', 7.5, 4, -6, 1.7, 55, { weak: true, knee: true }), P('k4', -7.5, 4, -6, 1.7, 55, { weak: true, knee: true }),
+      P('k1', 7.5, 4, 6, 2.2, 55, { weak: true, knee: true }), P('k2', -7.5, 4, 6, 2.2, 55, { weak: true, knee: true }),
+      P('k3', 7.5, 4, -6, 2.2, 55, { weak: true, knee: true }), P('k4', -7.5, 4, -6, 2.2, 55, { weak: true, knee: true }),
       P('cannon', 0, 12, 3.5, 1.7, 90, { gun: true }),
       P('core', 0, 5.6, 0, 2.5, 260, { weak: true, core: true, shielded: true }),
     ],
@@ -100,7 +100,22 @@ export function bodyHit(e, x, y, z) {
   let y0 = e.y + b.y0;
   if (e.boss === 'walker') y0 -= e.lower * 3.2;
   if (e.boss === 'dredger') y0 -= e.sub * 7;
-  return Math.abs(lx) < b.w / 2 && Math.abs(lz) < b.d / 2 && y > y0 && y < y0 + b.h;
+  if (y <= y0 || y >= y0 + b.h) return false;
+  // 多脚の胴体は六角柱なので、四角の角で弾を止めないよう円で判定する
+  if (e.boss === 'walker') return lx * lx + lz * lz < (b.w / 2) * (b.w / 2);
+  return Math.abs(lx) < b.w / 2 && Math.abs(lz) < b.d / 2;
+}
+
+// 砲口(o)から部位(pp、半径 r)へまっすぐ撃ったとき、手前で胴体に当たるか
+export function bodyBlocks(e, o, pp, r) {
+  const dx = pp.x - o.x, dy = pp.y - o.y, dz = pp.z - o.z;
+  const len = Math.hypot(dx, dy, dz);
+  const end = len - r;
+  for (let t = 0; t < end; t += 0.5) {
+    const k = t / len;
+    if (bodyHit(e, o.x + dx * k, o.y + dy * k, o.z + dz * k)) return true;
+  }
+  return false;
 }
 
 // 車両を胴体の外へ押し出す(移動する障害物)
