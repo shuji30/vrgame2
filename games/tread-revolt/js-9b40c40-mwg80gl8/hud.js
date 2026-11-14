@@ -59,6 +59,17 @@ export class Hud {
     this.hitT = 0.8;
   }
 
+  // 短い表示(弾かれた・命中など)。同じ表示は重ねない
+  pop(text, cls = '') {
+    const box = this.$('.hud-pop');
+    for (const q of box.children) if (q.textContent === text) q.remove();
+    const p = document.createElement('div');
+    p.textContent = text;
+    p.className = cls;
+    box.appendChild(p);
+    setTimeout(() => p.remove(), 700);
+  }
+
   killPop(type, score) {
     const p = document.createElement('div');
     p.textContent = type === 'bonus' ? `BONUS +${score}` : '撃破';
