@@ -5,7 +5,7 @@
 //   - FFB はネットワークに流さない(各自のイベントからローカルで作る)
 //   - ホストが落ちたら試合を終えてメニューへ戻る
 import { addBossWreck } from '../core/boss.js';
-import { getIceServers, hasTurn } from './ice.js';
+import { getIceServers, hasTurn, testRelay } from './ice.js';
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const PREFIX = 'treadrevolt-v1-';
 const TICK = 1 / 15;
@@ -53,7 +53,7 @@ class PeerLink {
         conn.on('close', () => { this.conns.delete(conn.peer); this.onState('leave', conn.peer); });
         conn.on('error', () => {});
       });
-      peer.on('call', (call) => this.onCall?.(call));
+      peer.on('call', (call) => call.close()); // 通話(ボイスチャット)は使わない
       this.ready = true;
     });
   }
@@ -73,7 +73,7 @@ class PeerLink {
         conn.on('error', () => {});
       });
       peer.on('error', (e) => { clearTimeout(timer); if (e.type === 'peer-unavailable') ng(new Error('そのルームコードは見つかりません')); else ng(e); });
-      peer.on('call', (call) => this.onCall?.(call));
+      peer.on('call', (call) => call.close()); // 通話(ボイスチャット)は使わない
     });
   }
 
@@ -130,7 +130,6 @@ export class Online {
     this.code = '';
     this.myId = null;
     this.local = false;
-    this.voice = null;
   }
 
   // ------------------------------------------------------------ 画面
@@ -140,18 +139,24 @@ export class Online {
     if (this.state === 'idle') {
       el.innerHTML = `<h2>オンライン(ルームコード)</h2>
         <p class="note">ホストがルームを作り、4文字のコードを仲間に伝える。仲間はコードを入れて参加する。協力ミッションは2〜4人、対戦は1vs1〜4vs4(空いた席はボット)。<br>
-        つなぎ方は WebRTC(接続の仲介だけ PeerJS の公開サーバーを使う)。${hasTurn() ? '直接つながらない回線では Cloudflare の TURN で中継する。' : '回線によってはつながらないことがある。'}<br>
+        つなぎ方は WebRTC(接続の仲介だけ PeerJS の公開サーバーを使う)。${hasTurn() ? '直接つながらない回線では TURN(Metered の Open Relay)で中継する。' : '回線によってはつながらないことがある。'}<br>
         「同じPCで試す」をオンにすると、同じブラウザのタブ同士でつながる(1台で確かめる用)。</p>
         <label class="field"><span>名前</span><input type="text" id="on-name" value="${esc(settings.name)}" maxlength="12"><span></span></label>
         <label class="field"><span>同じPCで試す(タブ同士)</span><input type="checkbox" id="on-local" ${this.local ? 'checked' : ''}><span></span></label>
         <div class="row"><button class="primary" id="on-host">ルームを作る</button></div>
         <div class="row"><input type="text" id="on-code" placeholder="コード(例 AB3K)" maxlength="4" style="text-transform:uppercase;width:140px"><button id="on-join">参加する</button></div>
+        ${hasTurn() ? '<div class="row"><button id="on-turntest">中継(TURN)を試す</button></div>' : ''}
         <p class="status" id="on-status"></p>
         <div class="row"><button data-go="title">◀ 戻る</button></div>`;
       el.querySelector('#on-host').onclick = () => this.hostRoom();
       el.querySelector('#on-join').onclick = () => this.joinRoom(el.querySelector('#on-code').value);
       el.querySelector('#on-name').oninput = (e) => { settings.name = e.target.value || 'PLAYER'; };
       el.querySelector('#on-local').onchange = (e) => { this.local = e.target.checked; };
+      el.querySelector('#on-turntest')?.addEventListener('click', async () => {
+        this.status('中継サーバーを試しています…');
+        const r = await testRelay();
+        this.status(r.ok ? `中継サーバーにつながりました(${r.via})。直接つながらない回線でも対戦できます` : `中継サーバーにつながりませんでした${r.why ? `(${r.why})` : ''}`);
+      });
       return;
     }
     // ロビー(格納庫)
@@ -175,7 +180,6 @@ export class Online {
       <div class="row">
         <button id="lb-ready">${me?.ready ? '準備OKを取り消す' : '準備OK'}</button>
         ${this.isHost ? '<button class="primary" id="lb-start">出撃 ▶</button>' : ''}
-        <button id="lb-voice">${this.voice ? 'ボイスチャットを切る' : 'ボイスチャットを使う'}</button>
         <button id="lb-leave">ルームを出る</button>
       </div>
       <p class="status" id="on-status"></p>`;
@@ -183,7 +187,6 @@ export class Online {
     el.querySelector('#lb-team')?.addEventListener('click', () => this.pick({ team: me.team ? 0 : 1 }));
     el.querySelector('#lb-ready').onclick = () => this.pick({ ready: !me?.ready });
     el.querySelector('#lb-leave').onclick = () => this.leave(true);
-    el.querySelector('#lb-voice').onclick = () => this.toggleVoice();
     if (this.isHost) {
       el.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => { c.mode = b.dataset.mode; this.assignTeams(); this.broadcastLobby(); }));
       el.querySelector('#lb-stage')?.addEventListener('change', (e) => { c.stageIndex = Number(e.target.value); this.broadcastLobby(); });
@@ -224,7 +227,6 @@ export class Online {
         if (tries === 2) { this.status(`ルームを作れませんでした: ${e.message || e.type}`); return; }
       }
     }
-    if (this.link.onCall !== undefined || true) this.link.onCall = (call) => this.answerCall(call);
     this.isHost = true;
     this.myId = 'h';
     this.players = [{ id: 'h', peer: 'host', name: this.ctx.settings.name, vehicle: this.ctx.settings.vehicle, team: 0, ready: true }];
@@ -238,7 +240,6 @@ export class Online {
     if (code.length !== 4) { this.status('4文字のコードを入れてください'); return; }
     this.status('ルームに入っています…');
     this.link = this.makeLink();
-    this.link.onCall = (call) => this.answerCall(call);
     try {
       await this.link.join(code);
     } catch (e) {
@@ -250,7 +251,7 @@ export class Online {
     this.code = code;
     this.isHost = false;
     this.state = 'lobby';
-    this.link.send('host', { t: 'hello', name: this.ctx.settings.name, vehicle: this.ctx.settings.vehicle, peer: this.link.myPeerId });
+    this.link.send('host', { t: 'hello', name: this.ctx.settings.name, vehicle: this.ctx.settings.vehicle });
     this.ctx.app.net = this.hooks();
     this.status('ホストの返事を待っています…');
   }
@@ -261,7 +262,6 @@ export class Online {
       else this.link.send(null, { t: 'closed' });
       this.link.close();
     }
-    this.stopVoice();
     this.link = null;
     this.state = 'idle';
     this.players = [];
@@ -334,7 +334,7 @@ export class Online {
           const used = new Set(this.players.map((q) => q.id));
           let n = 1;
           while (used.has(`c${n}`)) n++;
-          this.players.push({ id: `c${n}`, peer: from, name: String(m.name || 'PLAYER').slice(0, 12), vehicle: m.vehicle || 'medium', team: null, ready: false, voicePeer: m.peer });
+          this.players.push({ id: `c${n}`, peer: from, name: String(m.name || 'PLAYER').slice(0, 12), vehicle: m.vehicle || 'medium', team: null, ready: false });
           this.assignTeams();
           this.link.send(from, { t: 'welcome', id: `c${n}` });
           this.broadcastLobby();
@@ -455,47 +455,6 @@ export class Online {
       },
       leave() { self.leave(); },
     };
-  }
-
-  // ------------------------------------------------------------ ボイスチャット(PeerJS の音声通話。同じPCのときは使えない)
-  async toggleVoice() {
-    if (this.voice) { this.stopVoice(); this.rerender(); return; }
-    if (this.local || !this.link?.peer) { this.status('ボイスチャットは「同じPCで試す」では使えません'); return; }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-      this.voice = { stream, calls: [] };
-      // ホストは全員へ、クライアントはホストへかける(ホストが全員の声を中継はしないので、クライアント同士もかけ合う)
-      const targets = this.isHost ? this.players.filter((p) => p.peer !== 'host').map((p) => p.peer) : [this.link.conns.get('host')?.peer, ...this.players.filter((p) => p.voicePeer && p.id !== this.myId && p.id !== 'h' && p.id > this.myId).map((p) => p.voicePeer)];
-      for (const t of targets.filter(Boolean)) this.handleCall(this.link.peer.call(t, stream));
-      this.status('ボイスチャット:オン');
-    } catch (e) {
-      this.status(`マイクを使えませんでした: ${e.message}`);
-    }
-    this.rerender();
-  }
-
-  answerCall(call) {
-    if (!this.voice) { call.close(); return; }
-    call.answer(this.voice.stream);
-    this.handleCall(call);
-  }
-
-  handleCall(call) {
-    this.voice.calls.push(call);
-    call.on('stream', (remote) => {
-      const a = new Audio();
-      a.srcObject = remote;
-      a.volume = 1;
-      a.play().catch(() => {});
-      call._audio = a;
-    });
-  }
-
-  stopVoice() {
-    if (!this.voice) return;
-    for (const c of this.voice.calls) { c.close(); c._audio?.pause(); }
-    for (const t of this.voice.stream.getTracks()) t.stop();
-    this.voice = null;
   }
 }
 
