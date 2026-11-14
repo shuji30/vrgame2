@@ -97,6 +97,7 @@ export class Game {
     this.running = true;
     this.ended = false;
     this.time = 0;
+    this.pendingEdges = null;
     this.radioQ = [];
     this.radioT = 0;
     this.app.hud.reset();
@@ -145,6 +146,15 @@ export class Game {
     } else this.app.input.xr = null;
 
     const cmd = this.makeCommand(a);
+    // 押した瞬間の値は、物理を 1 歩も進めないフレーム(画面の書き換えが 60Hz より速い端末)で捨てずに次へ持ち越す
+    const pend = this.pendingEdges;
+    if (pend) {
+      if (pend.fire && !cmd.fire) { cmd.fire = true; cmd.fireStrength = pend.fireStrength; }
+      if (pend.quickTurn && !cmd.quickTurn) { cmd.quickTurn = true; cmd.quickDir = pend.quickDir; }
+      for (const k of ['subPress', 'subSelect', 'weaponSwap']) cmd[k] = cmd[k] || pend[k];
+      cmd.pitchStep = (cmd.pitchStep || 0) + (pend.pitchStep || 0);
+      this.pendingEdges = null;
+    }
     this.time += dt;
     this.acc += dt;
     let steps = 0;
@@ -157,6 +167,10 @@ export class Game {
       this.processEvents();
     }
     if (steps === 4) this.acc = 0;
+    if (steps === 0) {
+      const { fire, fireStrength, subPress, subSelect, pitchStep, quickTurn, quickDir, weaponSwap } = cmd;
+      if (fire || subPress || subSelect || pitchStep || quickTurn || weaponSwap) this.pendingEdges = { fire, fireStrength, subPress, subSelect, pitchStep, quickTurn, quickDir, weaponSwap };
+    }
     if (this.renderer.xr.isPresenting) {
       if (this.recenterT > 0 && (this.recenterT -= dt) <= 0) this.recenter();
       if (this.recenterAtPlay && this.sim.mission.state === 'play') { this.recenterAtPlay = false; this.recenter(); }

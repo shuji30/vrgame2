@@ -3,8 +3,9 @@
 // 簡易操作:左ゲージ = 前後、右ゲージ(横向き)= 旋回
 // 砲塔は画面の中ほどを左右になぞる。指を離すと履帯は 0 に戻る。値は InputManager.poll で共通アクションにまとめる
 //
-// 指が離れた知らせ(pointerup)が届かないと、そのゲージやボタンが効かなくなる。
-// そうならないよう、lostpointercapture・画面を隠したとき・アプリの切り替え・ポーズでも必ず状態を戻す
+// 指が離れた知らせ(pointerup)が届かないと、そのゲージやボタンが効かなくなる(なぞりが残ると砲塔が回り続ける)。
+// そうならないよう、lostpointercapture・画面を隠したとき・アプリの切り替え・ポーズでも必ず状態を戻す。
+// 同じゲージやボタンに新しい指が触れたら、前の指は捨てて新しい指を追う。画面から指がすべて離れたら、すべてを戻す
 
 import { arcadeToTracks } from '../core/tankmap.js';
 
@@ -82,6 +83,10 @@ export class TouchControls {
     // アプリの切り替えや通知で指の知らせが途切れても、戻ったときに効くようにする
     window.addEventListener('blur', () => this._reset());
     document.addEventListener('visibilitychange', () => { if (document.hidden) this._reset(); });
+    // 画面に触れている指が 1 本もなくなったら、知らせが途切れた指も含めてすべて離す(押した瞬間の値は残す)
+    const allUp = (e) => { if (e.touches && e.touches.length === 0) this._releaseAll(); };
+    document.addEventListener('touchend', allUp, true);
+    document.addEventListener('touchcancel', allUp, true);
   }
 
   setScheme(s) {
@@ -101,15 +106,21 @@ export class TouchControls {
     this._reset();
   }
 
+  // 追っている指をすべて離す
+  _releaseAll() {
+    for (const release of this.releasers) release();
+  }
+
   // すべてを指を離した状態に戻す(ポーズ・非表示・アプリの切り替え)
   _reset() {
-    for (const release of this.releasers) release();
+    this._releaseAll();
     this.state = { l: 0, r: 0, swipe: 0 };
     this.held = {};
     this.edges = {};
   }
 
-  // 1 本の指だけを追う。古い指の知らせが途切れていたら、新しい指で上書きする
+  // 1 本の指だけを追う。新しい指が触れたら、前の指は捨てて新しい指を追う
+  // (前の指の知らせが途切れていても、捕まえたままに見えることがあるので、捕まえているかどうかでは決めない)
   _track(el, { down, move, up }) {
     let id = null;
     const release = () => {
@@ -121,11 +132,7 @@ export class TouchControls {
     };
     this.releasers.push(release);
     el.addEventListener('pointerdown', (e) => {
-      if (id != null && e.pointerId !== id) {
-        // 前の指がまだ触れているなら無視。捕まえていない(知らせが途切れた)なら、前の指を捨てる
-        if (el.hasPointerCapture?.(id)) return;
-        release();
-      }
+      if (id != null) release();
       e.preventDefault();
       id = e.pointerId;
       try { el.setPointerCapture?.(id); } catch (_) { /* 捕まえられなくても動かす */ }
@@ -136,6 +143,9 @@ export class TouchControls {
     el.addEventListener('pointerup', end);
     el.addEventListener('pointercancel', end);
     el.addEventListener('lostpointercapture', end);
+    // 別の要素に届いた知らせも拾う
+    window.addEventListener('pointerup', end, true);
+    window.addEventListener('pointercancel', end, true);
   }
 
   // 履帯のゲージ:触った位置がそのまま出力。指を離すと 0
@@ -174,13 +184,17 @@ export class TouchControls {
     });
   }
 
-  // 画面の中ほどを左右になぞって砲塔を回す
+  // 画面の中ほどを左右になぞって砲塔を回す(触った位置からのずれで回す速さが決まる)
+  // 指を置いただけのわずかなずれでは回らないよう、D px までは 0
   _swipe(zone) {
-    const R = 90;
+    const R = 90, D = 12;
     let ox = 0;
     this._track(zone, {
       down: (e) => { ox = e.clientX; this.state.swipe = 0; },
-      move: (e) => { this.state.swipe = clamp(-(e.clientX - ox) / R, -1, 1); },
+      move: (e) => {
+        const d = e.clientX - ox;
+        this.state.swipe = Math.abs(d) <= D ? 0 : clamp(-(d - Math.sign(d) * D) / R, -1, 1);
+      },
       up: () => { this.state.swipe = 0; },
     });
   }
