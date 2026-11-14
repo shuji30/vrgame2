@@ -88,6 +88,17 @@
     .card.soon .num { background: none; color: var(--muted); }
     .card.soon .play { background: none; box-shadow: none; border: 1px solid var(--line); color: var(--muted); }
 
+    .tool {
+      display: grid; grid-template-columns: 1fr auto; gap: 16px 20px; align-items: center;
+      padding: 20px 24px; border-radius: 20px; background: var(--panel); border: 1px solid var(--line);
+    }
+    .tool .title { font-size: 20px; }
+    .tool .desc { margin-bottom: 0; }
+    .tool .desc b { color: #e8eaf6; }
+    .tool a.play { color: inherit; text-decoration: none; }
+    .tool a.play:hover, .tool a.play:focus-visible { filter: brightness(1.15); outline: none; }
+    @media (max-width: 600px) { .tool { grid-template-columns: 1fr; padding: 18px 16px; } .tool a.play { text-align: center; } }
+
     footer { margin-top: 36px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.7; }
     footer a { color: #9fd0ff; }
 
@@ -110,6 +121,16 @@
 
     <h2>SELECT GAME</h2>
     <ol class="games" id="games"></ol>
+
+    <h2>DOWNLOAD</h2>
+    <div class="tool">
+      <div>
+        <p class="title">デバイスブリッジ（ffb-bridge）</p>
+        <p class="desc">ハンコン・ペダル・シフター・ハンドブレーキを読み、FFB（力の手ごたえ・振動）を出すための Windows のプログラムです。TREAD REVOLT・SKY RUNNER・TURBO KART で使えます。VR の最中も動き、SimHub へもテレメトリを送れます。<br>
+          ZIP を展開して <b>start.bat</b>（使うときに起動）か <b>install-autostart.bat</b>（ログオン時に自動で起動）を実行してください。止めるときは uninstall-autostart.bat。割り当てと FFB の強さは、各ゲームのハンコンの設定で行います。</p>
+      </div>
+      <a class="play" href="downloads/ffb-bridge.zip" download>⬇ ZIP をダウンロード<br><small id="bridge-size" style="font-weight:600;font-size:12px;opacity:.85">Windows</small></a>
+    </div>
 
     <footer>
       VR で遊ぶには Meta Quest などのブラウザでこのページを開き、ゲームを選んでから「ENTER VR」を押してください。
