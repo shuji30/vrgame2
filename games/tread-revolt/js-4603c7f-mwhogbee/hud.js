@@ -140,6 +140,9 @@ export class Hud {
     this.$('.hp i').style.width = `${Math.max(0, s.hp01) * 100}%`;
     this.$('.rl i').style.width = `${Math.min(1, Math.max(0, s.reload01)) * 100}%`;
     this.$('.rl').classList.toggle('ready', s.reload01 >= 1);
+    // 戦車は真ん中(1 発ぶん)に目盛り。半分を超えたら撃てる色に
+    this.$('.rl').classList.toggle('twin', !!s.twin);
+    this.$('.rl').classList.toggle('half', !!s.twin && s.reload01 >= 0.5 && s.reload01 < 1);
     this.$('.gear').textContent = `ギア ${s.gear}`;
     this.$('.still').textContent = s.still ? '停車射撃' : '';
     this.$('.obj').textContent = s.objText || '';

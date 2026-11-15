@@ -247,8 +247,10 @@ export class Cockpit {
     g.fillText('装填', 110, 50);
     g.fillStyle = '#0a0a08';
     g.fillRect(190, 36, 260, 28);
-    g.fillStyle = s.reload01 >= 1 ? green : amber;
+    g.fillStyle = s.reload01 >= 1 ? green : s.reload01 >= 0.5 && s.twin ? '#c8e86a' : amber;
     g.fillRect(193, 39, 254 * clamp(s.reload01, 0, 1), 22);
+    // 戦車は真ん中まで装填すると 1 発撃てる(目盛り)
+    if (s.twin) { g.fillStyle = '#000'; g.fillRect(193 + 127 - 2, 37, 4, 26); }
     if (s.reload01 >= 1) { g.fillStyle = '#000'; g.fillText('完了', 290, 51); }
     // 耐久
     g.fillStyle = '#ddd';

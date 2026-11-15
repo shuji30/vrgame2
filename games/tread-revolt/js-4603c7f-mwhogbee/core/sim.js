@@ -8,6 +8,14 @@ import { Obstacles } from './collide.js';
 import { VEHICLES, UNITS, DIFFICULTY } from './vehicles.js';
 import { initMotion, stepMotion, separate } from './tankphys.js';
 import { G, LOB_G, LOB_ANGLE, lobSpeed, lobRange, LOB_MIN, LOB_MAX, solvePitch, spreadDeg, gaussPair, GUN_MIN, GUN_MAX } from './ballistics.js';
+
+const LOB_YAW_ASSIST = 10 * DEG; // 曲射の向きを目標へ吸いつける角度
+// 戦車の主砲の 1 発ぶんの装填時間(2 発で reload×1.4。以前の「撃ち切ってから 2 発まとめて」と同じ)
+const shellReload = (e) => e.spec.reload * 0.7;
+// 歩行メカの炸薬パンチ:届く距離(自分と相手の半径の外側)・威力・次に殴れるまで
+const PUNCH_REACH = 2.6;
+const PUNCH_DMG = 75;
+const PUNCH_CD = 1.0;
 import { thinkTank, steerTo } from './ai.js';
 import { initBoss, updateBoss, partPos, partVulnerable, bodyHit, bodyBlocks, pushVehicle, onPartDestroyed, addBossWreck } from './boss.js';
 
@@ -267,9 +275,18 @@ export class Sim {
     }
     // 曲射の着弾予想
     e.lobSnap = false;
+    e.lobTarget = null;
     const r = e.lobAnalog ? this.snapLobRange(e, lobRange(e.lobAmt)) : this.autoLobRange(e);
     e.lobRangeNow = r;
-    const lx = e.x + Math.sin(o.yaw) * r, lz = e.z + Math.cos(o.yaw) * r;
+    // 向きの吸いつけ:選んだ目標が砲塔の向きから LOB_YAW_ASSIST 以内なら、その目標へ向けて撃つ
+    // (VR は頭の向きで砲塔を回すので、少しのずれで外れやすい)
+    e.lobYaw = o.yaw;
+    const lt = e.lobTarget;
+    if (lt) {
+      const ly = yawTo(e.x, e.z, lt.x, lt.z);
+      if (Math.abs(wrapAngle(ly - o.yaw)) < LOB_YAW_ASSIST) e.lobYaw = ly;
+    }
+    const lx = e.x + Math.sin(e.lobYaw) * r, lz = e.z + Math.cos(e.lobYaw) * r;
     e.lobAim = { x: lx, z: lz, y: this.terrain.height(lx, lz), r };
   }
 
@@ -281,7 +298,7 @@ export class Sim {
     if (lock && lock.alive) {
       // ボスは照準が合っている部位(脚の関節など)の距離に落とす
       const d = lock.type === 'boss' ? dist(e.x, e.z, e.aim.x, e.aim.z) : dist(e.x, e.z, lock.x, lock.z);
-      if (d >= LOB_MIN && d <= LOB_MAX) { e.lobSnap = true; return d; }
+      if (d >= LOB_MIN && d <= LOB_MAX) { e.lobSnap = true; if (lock.type !== 'boss') e.lobTarget = lock; return d; }
     }
     let best = null, bd = 1e9;
     for (const t of this.ents) {
@@ -294,7 +311,10 @@ export class Sim {
       const score = (da * 400 + d * 0.3) * (t.spec?.lobOnly ? 0.4 : t.objective || t.type === 'skyFortress' ? 0.7 : 1);
       if (score < bd) { bd = score; best = t; }
     }
-    return best ? dist(e.x, e.z, best.x, best.z) : 90;
+    if (!best) return 90;
+    e.lobSnap = true;
+    e.lobTarget = best;
+    return dist(e.x, e.z, best.x, best.z);
   }
 
   // ハンドブレーキで距離を決めるとき:引いた量の距離の近く(±12m)に、砲塔の向きの先の敵がいれば、その距離に吸いつける
@@ -302,16 +322,18 @@ export class Sim {
     const ty = e.yaw + e.turret;
     const lock = e.aim?.lock && this.byId.get(e.aim.lock);
     let best = null, bd = 12;
-    const consider = (d) => { const dd = Math.abs(d - r); if (d >= LOB_MIN && d <= LOB_MAX && dd < bd) { bd = dd; best = d; } };
-    if (lock && lock.alive) consider(lock.type === 'boss' ? dist(e.x, e.z, e.aim.x, e.aim.z) : dist(e.x, e.z, lock.x, lock.z));
+    let target = null;
+    const consider = (d, t) => { const dd = Math.abs(d - r); if (d >= LOB_MIN && d <= LOB_MAX && dd < bd) { bd = dd; best = d; target = t; } };
+    if (lock && lock.alive) consider(lock.type === 'boss' ? dist(e.x, e.z, e.aim.x, e.aim.z) : dist(e.x, e.z, lock.x, lock.z), lock.type === 'boss' ? null : lock);
     for (const t of this.ents) {
       if (!t.alive || t.team === e.team || t.hidden || t === lock || t.type === 'boss') continue;
       const d = dist(e.x, e.z, t.x, t.z);
       if (Math.abs(wrapAngle(yawTo(e.x, e.z, t.x, t.z) - ty)) > Math.max(4 * DEG, Math.atan2((t.radius || 2) + 2, d))) continue;
-      consider(d);
+      consider(d, t);
     }
     if (best == null) return r;
     e.lobSnap = true;
+    e.lobTarget = target;
     return best;
   }
 
@@ -450,8 +472,19 @@ export class Sim {
     e.spread = spreadDeg(e.v, e.spec.speed, e.w, !!e.air);
 
     // 装填
-    // 装填:砲身2本。撃ち切ったら2本まとめて装填する。2発目までの間隔は cycle
-    if (e.reload > 0) {
+    const twin = !isMech;
+    if (twin) {
+      // 砲身2本:1 発ずつ装填する(装填のゲージが半分で 1 発、満タンで 2 発)。2 発の装填にかかる時間は reload×1.4
+      if (e.ammo < 2) {
+        if (!(e.reload > 0)) e.reload = shellReload(e);
+        e.reload -= dt;
+        if (e.reload <= 0) {
+          e.ammo = Math.min(2, e.ammo + 1);
+          e.reload = e.ammo < 2 ? shellReload(e) : 0;
+          this.emit({ t: 'reload', id: e.id });
+        }
+      } else e.reload = 0;
+    } else if (e.reload > 0) {
       e.reload -= dt;
       if (e.reload <= 0) { e.reload = 0; e.ammo = 2; this.emit({ t: 'reload', id: e.id }); }
     }
@@ -459,10 +492,18 @@ export class Sim {
     if (e.recoilT) for (let k = 0; k < 2; k++) e.recoilT[k] = Math.max(0, e.recoilT[k] - dt * 2.2);
     e.mgCd -= dt;
     e.fireT = Math.max(0, e.fireT - dt);
+    // 炸薬パンチ(歩行メカ):主砲のボタンで、拳の届く所に敵がいれば左腕で殴る(主砲は撃たない)
+    let punched = false;
+    if (isMech) {
+      e.punchCd = Math.max(0, (e.punchCd || 0) - dt);
+      if (cmd.fire && e.punchCd <= 0 && this.mission.state !== 'drop' && this.mission.state !== 'over' && !e.air) {
+        const t = this.meleeTarget(e);
+        if (t) { this.punch(e, t); punched = true; }
+      }
+    }
     // 主砲
-    const twin = !isMech;
     const canFire = this.mission.state !== 'drop' && this.mission.state !== 'over' && e.cycle <= 0 && (twin ? e.ammo > 0 : e.reload <= 0);
-    if (cmd.fire && canFire) {
+    if (cmd.fire && canFire && !punched) {
       if (e.wheelie > 0.55 && !isMech) this.fireLob(e);
       else if (e.wheelie < 0.08) this.fireMain(e, cmd.fireStrength ?? 1);
     }
@@ -486,6 +527,38 @@ export class Sim {
     }
   }
 
+  // 拳の届く所(正面 ±45°)にいる敵。いなければ null
+  meleeTarget(e) {
+    const fy = e.yaw + e.turret;
+    let best = null, bd = 1e9;
+    for (const t of this.ents) {
+      if (!t.alive || t === e || t.hidden || t.air || t.team === e.team || t.harmless) continue;
+      const d = dist(e.x, e.z, t.x, t.z);
+      const reach = e.spec.radius + (t.type === 'boss' ? t.radius : t.radius || t.spec?.radius || 2) + PUNCH_REACH;
+      if (d > reach) continue;
+      if (Math.abs(wrapAngle(yawTo(e.x, e.z, t.x, t.z) - fy)) > 45 * DEG && d > (t.radius || 2) + e.spec.radius) continue;
+      if (d < bd) { bd = d; best = t; }
+    }
+    return best;
+  }
+
+  // 炸薬パンチ:拳の先へ、ごく短い距離だけ飛ぶ見えない弾を出す
+  // (命中・ボスの部位・装甲に弾かれる・オンラインでホストへ送る、を主砲の弾と同じ仕組みで扱う)
+  punch(e, t) {
+    const fy = e.yaw + e.turret;
+    const fistY = e.y + 3.4 - (e.crouch || 0) * 1.4;
+    const ox = e.x + Math.sin(fy) * (e.spec.radius + 0.4), oz = e.z + Math.cos(fy) * (e.spec.radius + 0.4);
+    // 当たり判定は相手の胴の高さで水平に出す(背の低い戦車の上を通り過ぎないように)。ボスは拳の高さ
+    const y = t.type === 'boss' ? fistY : t.y + (t.spec?.height || 2) * 0.5;
+    const yaw = t.type === 'boss' ? fy : yawTo(ox, oz, t.x, t.z);
+    const pitch = 0;
+    const sp = 70, cp = Math.cos(pitch);
+    this.spawnShot({ kind: 'punch', x: ox, y, z: oz, vx: Math.sin(yaw) * cp * sp, vy: Math.sin(pitch) * sp, vz: Math.cos(yaw) * cp * sp, g: 0, team: e.team, owner: e.id, dmg: PUNCH_DMG, splash: 0, life: (PUNCH_REACH + (t.radius || 2) + 3) / sp });
+    e.punchCd = PUNCH_CD;
+    e.fireT = 0.35;
+    this.emit({ t: 'punch', id: e.id, x: ox, y: fistY, z: oz, yaw: fy });
+  }
+
   fireMain(e, strength = 1) {
     const o = this.gunOrigin(e);
     const sp = e.spec.shellSpeed || 95;
@@ -506,7 +579,7 @@ export class Sim {
       const pitch = e.gunPitch + b * spreadR * 0.5;
       const cp = Math.cos(pitch);
       if (e.spec.body === 'tank') {
-        // 砲身2本を左右交互に。撃ち切ったら2本まとめて装填
+        // 砲身2本を左右交互に。撃った分は 1 発ずつ装填する(上の「装填」)
         const k = e.barrel || 0;
         const side = k === 0 ? 0.24 : -0.24; // 0 = 左(+X)
         o.x += Math.cos(o.yaw) * side;
@@ -515,7 +588,6 @@ export class Sim {
         e.recoilT[k] = 1;
         e.ammo = Math.max(0, e.ammo - 1);
         e.cycle = 0.2;
-        if (e.ammo === 0) e.reload = e.spec.reload * 1.4;
       } else {
         e.reload = e.spec.reload;
       }
@@ -531,10 +603,11 @@ export class Sim {
     const r = e.lobRangeNow || 90;
     const v = lobSpeed(r);
     const c = Math.cos(LOB_ANGLE), s = Math.sin(LOB_ANGLE);
-    const yaw = o.yaw + (this.rnd() - 0.5) * 0.02;
+    const yaw = (e.lobYaw ?? o.yaw) + (this.rnd() - 0.5) * 0.02;
     const vv = v * (1 + (this.rnd() - 0.5) * 0.02);
     this.spawnShot({ kind: 'lob', x: e.x, y: e.y + 3, z: e.z, vx: Math.sin(yaw) * c * vv, vy: s * vv, vz: Math.cos(yaw) * c * vv, g: LOB_G / G, team: e.team, owner: e.id, dmg: e.spec.dmg * 1.1, splash: 6, lob: true, life: 10, prox: true });
-    e.reload = e.spec.reload * 1.4;
+    // 曲射は 2 発ぶんを使う(2 発とも装填し直す)
+    e.reload = shellReload(e);
     e.ammo = 0;
     e.recoilT = [1, 1];
     e.fireT = 0.35;

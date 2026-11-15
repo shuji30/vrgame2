@@ -10,7 +10,7 @@ const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const PREFIX = 'treadrevolt-v1-';
 const TICK = 1 / 15;
 // クライアントへ転送するイベント(爆発などは各自の弾から作るので送らない)
-const FORWARD = new Set(['fire', 'hit', 'kill', 'objective', 'mission', 'gate', 'rise', 'radio', 'wake', 'partDown', 'bonus', 'trackBreak', 'repair', 'capture', 'flag', 'flagDrop', 'flagReturn', 'danger', 'boss', 'stomp', 'drill', 'quake', 'drop', 'elevator', 'land', 'smoke']);
+const FORWARD = new Set(['fire', 'hit', 'kill', 'objective', 'mission', 'gate', 'rise', 'radio', 'wake', 'partDown', 'bonus', 'trackBreak', 'repair', 'capture', 'flag', 'flagDrop', 'flagReturn', 'danger', 'boss', 'stomp', 'drill', 'quake', 'drop', 'elevator', 'land', 'smoke', 'punch']);
 
 function loadPeerJs() {
   if (window.Peer) return Promise.resolve();
@@ -388,7 +388,7 @@ export class Online {
         if (sim && m.s.owner !== this.myId) sim.spawnShot({ ...m.s, remote: true, id: `n${m.s.id}` });
         break;
       case 'ev':
-        if (sim && !(m.ev.t === 'fire' && m.ev.id === this.myId)) applyEvent(sim, m.ev, this.myId, game);
+        if (sim && !((m.ev.t === 'fire' || m.ev.t === 'punch') && m.ev.id === this.myId)) applyEvent(sim, m.ev, this.myId, game);
         break;
       default: break;
     }
@@ -431,7 +431,7 @@ export class Online {
         } else {
           // クライアント:自分の弾・発射・エレベーターだけホストへ
           if (ev.t === 'shot' && !ev.s.remote && ev.s.owner === self.myId) self.link.send('host', { t: 'shot', s: packShot(ev.s) });
-          if (ev.t === 'fire' && ev.id === self.myId) self.link.send('host', { t: 'fire', ev });
+          if ((ev.t === 'fire' || ev.t === 'punch') && ev.id === self.myId) self.link.send('host', { t: 'fire', ev });
           if (ev.t === 'elevator' && ev.id === self.myId) self.link.send('host', { t: 'elevator' });
         }
         void sim;
