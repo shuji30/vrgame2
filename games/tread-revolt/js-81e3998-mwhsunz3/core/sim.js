@@ -12,6 +12,8 @@ import { G, LOB_G, LOB_ANGLE, lobSpeed, lobRange, LOB_MIN, LOB_MAX, solvePitch, 
 const LOB_YAW_ASSIST = 10 * DEG; // 曲射の向きを目標へ吸いつける角度
 // 戦車の主砲の 1 発ぶんの装填時間(2 発で reload×1.4。以前の「撃ち切ってから 2 発まとめて」と同じ)
 const shellReload = (e) => e.spec.reload * 0.7;
+// 曲射の威力(主砲 1 発の何倍か)。2 発ぶんを使うので、2 発分を少し上回る
+const LOB_DMG_MUL = 2.2;
 // 歩行メカの炸薬パンチ:届く距離(自分と相手の半径の外側)・威力・次に殴れるまで
 const PUNCH_REACH = 2.6;
 const PUNCH_DMG = 75;
@@ -328,7 +330,8 @@ export class Sim {
     for (const t of this.ents) {
       if (!t.alive || t.team === e.team || t.hidden || t === lock || t.type === 'boss') continue;
       const d = dist(e.x, e.z, t.x, t.z);
-      if (Math.abs(wrapAngle(yawTo(e.x, e.z, t.x, t.z) - ty)) > Math.max(4 * DEG, Math.atan2((t.radius || 2) + 2, d))) continue;
+      // 向きは、自動の距離のときと同じく LOB_YAW_ASSIST 以内なら吸いつける(手で距離を決めるときも狙いやすく)
+      if (Math.abs(wrapAngle(yawTo(e.x, e.z, t.x, t.z) - ty)) > Math.max(LOB_YAW_ASSIST, Math.atan2((t.radius || 2) + 2, d))) continue;
       consider(d, t);
     }
     if (best == null) return r;
@@ -503,9 +506,18 @@ export class Sim {
     }
     // 主砲
     const canFire = this.mission.state !== 'drop' && this.mission.state !== 'over' && e.cycle <= 0 && (twin ? e.ammo > 0 : e.reload <= 0);
-    if (cmd.fire && canFire && !punched) {
+    // 曲射:車体が立ち上がる前(・装填が済む前)に押されたら、1.5 秒まで待って、立った(装填した)時点で撃つ
+    if (!isMech && cmd.lob && cmd.fire && !punched && !(canFire && e.wheelie > 0.55)) e.lobQueued = 1.5;
+    if (!cmd.lob || isMech) e.lobQueued = 0;
+    if (e.lobQueued > 0) {
+      e.lobQueued -= dt;
+      if (canFire && e.wheelie > 0.55) { this.fireLob(e); e.lobQueued = 0; }
+    } else if (cmd.fire && canFire && !punched) {
       if (e.wheelie > 0.55 && !isMech) this.fireLob(e);
       else if (e.wheelie < 0.08) this.fireMain(e, cmd.fireStrength ?? 1);
+    } else if (cmd.fire && !punched && !canFire && e.isPlayer && this.mission.state === 'play' && (isMech ? e.reload > 0 : e.ammo <= 0)) {
+      // 撃てない(装填中):押したことが分かるように知らせる
+      this.emit({ t: 'dryfire', id: e.id });
     }
     // 副武装:機銃(押している間)/スモーク(押した瞬間)
     if (cmd.subSelect) { e.sub = e.sub === 'mg' ? 'smoke' : 'mg'; this.emit({ t: 'sub', id: e.id, sub: e.sub }); }
@@ -607,7 +619,7 @@ export class Sim {
     const c = Math.cos(LOB_ANGLE), s = Math.sin(LOB_ANGLE);
     const yaw = (e.lobYaw ?? o.yaw) + (this.rnd() - 0.5) * 0.02;
     const vv = v * (1 + (this.rnd() - 0.5) * 0.02);
-    this.spawnShot({ kind: 'lob', x: e.x, y: e.y + 3, z: e.z, vx: Math.sin(yaw) * c * vv, vy: s * vv, vz: Math.cos(yaw) * c * vv, g: LOB_G / G, team: e.team, owner: e.id, dmg: e.spec.dmg * 1.1, splash: 6, lob: true, life: 10, prox: true });
+    this.spawnShot({ kind: 'lob', x: e.x, y: e.y + 3, z: e.z, vx: Math.sin(yaw) * c * vv, vy: s * vv, vz: Math.cos(yaw) * c * vv, g: LOB_G / G, team: e.team, owner: e.id, dmg: e.spec.dmg * LOB_DMG_MUL, splash: 6, lob: true, life: 10, prox: true });
     // 曲射は 2 発ぶんを使う(2 発とも装填し直す)
     e.reload = shellReload(e);
     e.ammo = 0;

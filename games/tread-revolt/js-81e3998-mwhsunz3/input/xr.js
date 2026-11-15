@@ -60,8 +60,8 @@ export class XrControls {
       out.right = -ry;
       // 逆立ち曲射:両スティックを外に倒す(倒した量で距離)
       const open = Math.min(-lx, rx);
-      // 距離は自動(頭を向けた先の目標に合わせる)。倒した量で距離を合わせるのは VR では難しかった
-      if (open > 0.35 && Math.abs(ly) < 0.5 && Math.abs(ry) < 0.5) { out.lob = true; out.lobAmount = clamp((open - 0.35) / 0.6, 0, 1); out.lobAnalog = false; out.left = out.right = 0; }
+      // 倒した量で曲射の距離(立てる角度)を決める。視界の下の曲射メーターで目標の距離に合わせる(±12m で吸いつく)
+      if (open > 0.35 && Math.abs(ly) < 0.5 && Math.abs(ry) < 0.5) { out.lob = true; out.lobAmount = clamp((open - 0.35) / 0.6, 0, 1); out.lobAnalog = true; out.left = out.right = 0; }
       else if (!this.turretHead) out.turret = -rx;
     } else if (cockpit) {
       // 仮想レバー:握る(グリップ)と掴み、前後に倒した量が履帯の出力
@@ -88,7 +88,7 @@ export class XrControls {
       out.left = cockpit.levers.find((l) => l.side < 0).value;
       out.right = cockpit.levers.find((l) => l.side > 0).value;
       const open = Math.min(...cockpit.levers.map((l) => l.open));
-      if (open > 0.3) { out.lob = true; out.lobAmount = clamp((open - 0.3) / 0.7, 0, 1); out.lobAnalog = false; out.left = out.right = 0; }
+      if (open > 0.3) { out.lob = true; out.lobAmount = clamp((open - 0.3) / 0.7, 0, 1); out.lobAnalog = true; out.left = out.right = 0; }
       if (!this.turretHead) out.turret = -rx - lx;
     }
     if (this.turretHead && headYawLocal != null) out.turretYaw = headYawLocal;

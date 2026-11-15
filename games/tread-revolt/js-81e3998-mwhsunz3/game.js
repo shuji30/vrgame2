@@ -9,14 +9,20 @@ import { buildBoss } from './scene/bossmodels.js';
 import { FfbModel } from './core/ffbmodel.js';
 import { clamp, damp, wrapAngle, yawTo, fmtTime, DEG } from './core/util.js';
 import { bossProgress, BOSS_HINTS } from './core/boss.js';
-import { isStill, LOB_MIN, LOB_MAX } from './core/ballistics.js';
+import { isStill, LOB_MIN, LOB_MAX, lobRange, lobAmountFor } from './core/ballistics.js';
 import { LIBERATION } from './core/stages.js';
 import { Vignette } from './scene/comfort.js';
 import { TankTelemetry } from './core/telemetry.js';
 
 const STEP = 1 / 60;
-// 曲射の照準の手がかり:砲塔の向きと、狙えそうな目標(曲射の距離に入っていて、向きのずれが 60° 以内。
-// 曲射でしか壊せない発射台・目標を優先)。off は目標が左なら +(度)。snap は着弾の印が目標に吸いついている
+// 曲射の照準の手がかり:いまの曲射の距離(立てる角度で決まる)と、狙えそうな目標(曲射の距離に入っていて、
+// 向きのずれが 60° 以内。曲射でしか壊せない発射台・目標を優先)の距離・左右のずれ。
+// 距離は目標の ±12m 以内、向きは ±10° 以内なら着弾の印が目標に吸いつく(sim の snapLobRange・LOB_YAW_ASSIST)
+const LOB_SNAP_M = 12, LOB_SNAP_DEG = 10;
+// 車体を立てる角度(度)。曲射の距離は立てる量で決まる(sim:wheelie = 0.35 + 0.65 × 量、見た目の傾き = wheelie × 0.66 rad)
+const lobTilt = (amt) => ((0.35 + 0.65 * clamp(amt, 0, 1)) * 0.66 * 180) / Math.PI;
+const tiltForRange = (m) => lobTilt(lobAmountFor(m));
+const TILT_MIN = lobTilt(0), TILT_MAX = lobTilt(1);
 function lobGuide(sim, me) {
   const ty = me.yaw + me.turret;
   let best = null, bs = 1e9;
@@ -29,57 +35,94 @@ function lobGuide(sim, me) {
     const score = Math.abs(off) * (t.spec?.lobOnly ? 0.4 : t.objective ? 0.7 : 1);
     if (score < bs) { bs = score; best = { t, d, off }; }
   }
+  // 手で決めている距離(VR の開く量・ハンドブレーキ)と、いま実際に飛ぶ距離(吸いついたあと)
+  const set = me.lobAnalog ? lobRange(me.lobAmt || 0) : null;
   const r = Math.round(me.lobRangeNow || 0);
-  if (!best) return { r, text: '目標なし' };
+  // 角度:手で決めているときはその角度、自動のときは今の距離に当たる角度
+  const ang = me.lobAnalog ? lobTilt(me.lobAmt || 0) : tiltForRange(r);
+  const info = { r, set: set != null ? Math.round(set) : null, analog: !!me.lobAnalog, ang: Math.round(ang * 10) / 10 };
+  if (!best) return { ...info, text: '目標なし' };
   const deg = Math.round(best.off / DEG);
-  // 着弾の印が目標に吸いつくのは、向きのずれが 10° 以内のとき(sim の LOB_YAW_ASSIST)
-  const snap = Math.abs(deg) <= 10 && !!me.lobSnap && me.lobTarget === best.t;
+  const d = Math.round(best.d);
+  const snap = Math.abs(deg) <= LOB_SNAP_DEG && !!me.lobSnap && me.lobTarget === best.t;
   const name = best.t.spec?.lobOnly ? '発射台' : best.t.objective ? '目標' : '敵';
-  return { r, d: Math.round(best.d), deg, snap, name, text: snap ? '● 合っている ― 撃て' : deg > 0 ? `◀ 左へ ${deg}°` : `右へ ${-deg}° ▶` };
+  const want = tiltForRange(d); // 目標に届く角度
+  const band = [tiltForRange(d - LOB_SNAP_M), tiltForRange(d + LOB_SNAP_M)]; // 吸いつく範囲
+  let text;
+  if (snap) text = '● 合っている ― 撃て';
+  else {
+    const parts = [];
+    const cur = set != null ? Math.round(set) : r;
+    const dAng = Math.round((want - ang) * 10) / 10;
+    if (Math.abs(d - cur) > LOB_SNAP_M) parts.push(dAng > 0 ? `あと ${Math.abs(dAng)}° 起こす ▲${me.lobAnalog ? '(もっと開く)' : ''}` : `${Math.abs(dAng)}° 寝かせる ▼${me.lobAnalog ? '(閉じぎみに)' : ''}`);
+    if (Math.abs(deg) > LOB_SNAP_DEG) parts.push(deg > 0 ? `◀ 左へ ${deg}°` : `右へ ${-deg}° ▶`);
+    text = parts.join('  ') || '● 合っている ― 撃て';
+  }
+  return { ...info, d, deg, snap, name, text, want: Math.round(want * 10) / 10, band: band.map((v) => Math.round(v * 10) / 10) };
 }
 
-// VR 用の曲射メーター(視界の下に浮かべる板)
+// 曲射メーター(VR では画面の表示がないので、視界の下に浮かべる板)
+// 上の段:車体を立てる角度の目盛り(約 13〜38°。角度で距離が決まる)。オレンジ = いまの角度、緑の線と帯 = 目標に届く角度と吸いつく範囲(±12m 分)
+// 下の段:左右のずれ(±30°)。緑の帯 = 吸いつく範囲(±10°)
 function makeLobPanel() {
   const cv = document.createElement('canvas');
-  cv.width = 512; cv.height = 160;
+  cv.width = 512; cv.height = 220;
   const g = cv.getContext('2d');
   const tex = new THREE.CanvasTexture(cv);
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.13), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.18), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
   mesh.position.set(0, -0.2, -0.9);
   mesh.renderOrder = 1001;
   mesh.visible = false;
   let last = '';
+  const X0 = 40, X1 = 472;
+  const xOf = (a) => X0 + ((clamp(a, TILT_MIN, TILT_MAX) - TILT_MIN) / (TILT_MAX - TILT_MIN)) * (X1 - X0);
   return {
     mesh,
+    canvas: cv,
     draw(info) {
       const key = JSON.stringify(info);
       if (key === last) return;
       last = key;
-      g.clearRect(0, 0, 512, 160);
-      g.fillStyle = 'rgba(10,8,4,0.72)';
-      g.fillRect(0, 0, 512, 160);
-      g.font = 'bold 40px system-ui, sans-serif';
+      g.clearRect(0, 0, 512, 220);
+      g.fillStyle = 'rgba(10,8,4,0.75)';
+      g.fillRect(0, 0, 512, 220);
+      g.font = 'bold 38px system-ui, sans-serif';
       g.textAlign = 'left';
       g.fillStyle = '#ffc24a';
-      g.fillText(`曲射 ${info.r}m`, 16, 48);
-      if (info.name) { g.textAlign = 'right'; g.fillStyle = '#ddd'; g.font = '30px system-ui, sans-serif'; g.fillText(`${info.name} ${info.d}m`, 496, 46); }
-      // 左右のずれのメーター(真ん中が砲塔の向き。±30° まで)
-      const cx = 256, w = 220;
-      // 合っている範囲(±10°)
+      const head = `曲射 ${Math.round(info.ang)}°`;
+      g.fillText(head, 16, 44);
+      const hw = g.measureText(head).width;
+      g.font = '24px system-ui, sans-serif'; g.fillStyle = '#c9a24a'; g.fillText(`(${info.r}m)`, 16 + hw + 8, 42);
+      if (info.name) { g.textAlign = 'right'; g.fillStyle = '#ddd'; g.font = '28px system-ui, sans-serif'; g.fillText(`${info.name} ${Math.round(info.want)}° (${info.d}m)`, 496, 42); }
+      // 角度の目盛り(車体を立てる角度)
+      const y = 82;
+      if (info.want != null) {
+        g.fillStyle = 'rgba(108,255,138,0.25)';
+        g.fillRect(xOf(info.band[0]), y - 14, Math.max(4, xOf(info.band[1]) - xOf(info.band[0])), 28);
+        g.fillStyle = '#6cff8a';
+        g.fillRect(xOf(info.want) - 2, y - 18, 4, 36);
+      }
+      g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = 3;
+      g.beginPath(); g.moveTo(X0, y); g.lineTo(X1, y); g.stroke();
+      g.font = '18px system-ui, sans-serif'; g.textAlign = 'center'; g.fillStyle = '#aaa';
+      for (let a = 15; a <= 35; a += 5) { const x = xOf(a); g.fillRect(x - 1, y + 8, 2, 8); g.fillText(`${a}°`, x, y + 34); }
+      g.fillStyle = info.snap ? '#6cff8a' : '#ff8a2a';
+      g.beginPath(); g.moveTo(xOf(info.ang), y + 4); g.lineTo(xOf(info.ang) - 12, y - 18); g.lineTo(xOf(info.ang) + 12, y - 18); g.fill();
+      // 左右のずれ(小さく)
+      const cx = 256, w = 150, y2 = 140;
       g.fillStyle = 'rgba(108,255,138,0.25)';
-      g.fillRect(cx - (10 / 30) * w, 80, (20 / 30) * w, 24);
-      g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 3;
-      g.beginPath(); g.moveTo(cx - w, 92); g.lineTo(cx + w, 92); g.stroke();
-      g.beginPath(); g.moveTo(cx, 76); g.lineTo(cx, 108); g.stroke();
+      g.fillRect(cx - (LOB_SNAP_DEG / 30) * w, y2 - 8, (2 * LOB_SNAP_DEG / 30) * w, 16);
+      g.strokeStyle = 'rgba(255,255,255,0.4)'; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(cx - w, y2); g.lineTo(cx + w, y2); g.moveTo(cx, y2 - 10); g.lineTo(cx, y2 + 10); g.stroke();
+      g.textAlign = 'right'; g.fillStyle = '#aaa'; g.fillText('左右', cx - w - 10, y2 + 6);
       if (info.deg != null) {
-        const x = cx - clamp(info.deg / 30, -1, 1) * w;
-        g.fillStyle = info.snap ? '#6cff8a' : '#ff8a2a';
-        g.beginPath(); g.arc(x, 92, 13, 0, 7); g.fill();
+        g.fillStyle = Math.abs(info.deg) <= LOB_SNAP_DEG ? '#6cff8a' : '#ff8a2a';
+        g.beginPath(); g.arc(cx - clamp(info.deg / 30, -1, 1) * w, y2, 9, 0, 7); g.fill();
       }
       g.textAlign = 'center';
-      g.font = 'bold 34px system-ui, sans-serif';
+      g.font = 'bold 30px system-ui, sans-serif';
       g.fillStyle = info.snap ? '#6cff8a' : '#f4ead8';
-      g.fillText(info.text, cx, 148);
+      g.fillText(info.text, 256, 200);
       tex.needsUpdate = true;
     },
   };
@@ -459,6 +502,7 @@ export class Game {
     // 曲射の照準メーター:距離と、いちばん近い目標が砲塔の向きから左右に何度ずれているか
     const lobOn = me.alive && (me.wheelie > 0.05 || !!this.actions?.lob);
     this.lobInfo = lobOn ? lobGuide(this.sim, me) : null;
+    // VR だけ視界の下に板を浮かべる(PC・スマホは画面の中央に「逆立ち曲射 …m」が出ている)
     this.lobPanel.mesh.visible = !!(this.lobInfo && this.renderer.xr.isPresenting);
     if (this.lobPanel.mesh.visible) this.lobPanel.draw(this.lobInfo);
     // コックピットの小物とレバー
@@ -697,6 +741,9 @@ export class Game {
           if (ev.by === me.id && ev.id !== me.id) this.app.hud.killPop(ev.type);
           break;
         }
+        case 'dryfire':
+          if (mine) { this.app.hud.pop('装填中', 'deflect'); au.play('click', { gain: 0.4 }); }
+          break;
         case 'punch': {
           // 炸薬パンチ:腕を振り、拳の先で炸薬が弾け、腕の後ろから空薬莢が飛び出す
           const m = this.models.get(ev.id);
@@ -860,7 +907,7 @@ export class Game {
     this.app.hud.update({
       ...state, view: this.activeView, reticle: true, mode: sim.mode, still: state.still, spread: me.spread,
       boss: boss ? { name: boss.name, hp: boss.alive ? bossProgress(boss) : 0 } : null,
-      respawn: !me.alive && me.respawnT > 0 ? me.respawnT : 0, lob: me.wheelie > 0.3 ? me.lobRangeNow : 0, lobGuide: this.lobInfo?.name ? `${this.lobInfo.name} ${this.lobInfo.d}m ${this.lobInfo.text}` : '',
+      respawn: !me.alive && me.respawnT > 0 ? me.respawnT : 0, lob: me.wheelie > 0.3 ? me.lobRangeNow : 0, lobGuide: '',
       teamScore: m.teamScore, rule: m.rule, target: m.target,
       timeText: m.timeLimit ? fmtTime(m.timeLeft) : '', inXR: this.renderer.xr.isPresenting,
     });
