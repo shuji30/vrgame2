@@ -61,6 +61,9 @@ export class Fx {
     this.lobMarker.visible = false;
     this.group.add(this.lobMarker);
     this.dangers = [];
+    this.casings = []; // 炸薬パンチの空薬莢 { m, vx, vy, vz, sx, sz, ground, life }
+    this.casingGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.42, 10);
+    this.casingMat = new THREE.MeshStandardMaterial({ color: 0xc9a043, metalness: 0.85, roughness: 0.3, emissive: 0x2a1a00 });
     // 照準(地面・目標に置く輪)
     const ringGeo = new THREE.RingGeometry(0.85, 1, 32);
     this.reticle = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0x66ff99, transparent: true, opacity: 0.85, depthTest: false, side: THREE.DoubleSide, toneMapped: false }));
@@ -128,6 +131,21 @@ export class Fx {
     this.flash(x, y, z, 50, 0xcfe0ff);
   }
 
+  // 炸薬パンチの空薬莢:腕の後ろから跳ね出して、回りながら落ち、地面で弾んで転がる
+  // (x, y, z) は排出口、(bx, bz) は後ろ向き、(sx, sz) は横向き、ground は地面の高さ
+  casing(x, y, z, bx, bz, sx, sz, ground) {
+    const m = new THREE.Mesh(this.casingGeo, this.casingMat);
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    this.group.add(m);
+    const side = 2.5 + Math.random() * 1.5, back = 1.5 + Math.random() * 1.5;
+    this.casings.push({ m, vx: sx * side + bx * back, vy: 4.5 + Math.random() * 2, vz: sz * side + bz * back, spin: [8 + Math.random() * 8, 4 + Math.random() * 6], ground, life: 4, bounced: 0 });
+    while (this.casings.length > 24) { const c = this.casings.shift(); this.group.remove(c.m); }
+    // 排出のときの小さな煙
+    this.spawn('smoke', x, y, z, { life: 0.6, size: 0.4, grow: 1.6, vx: sx * 1.5, vy: 0.8, vz: sz * 1.5, op: 0.45 });
+    this.spawn('spark', x, y, z, { life: 0.12, size: 0.35, grow: 0.1 });
+  }
+
   tiny(x, y, z, kind = 'ground') {
     this.spawn(kind === 'water' ? 'water' : 'dust', x, y, z, { life: 0.5, size: 0.4, grow: 1.2, vy: 2, op: 0.6 });
     this.spawn('spark', x, y, z, { life: 0.15, size: 0.5, grow: 0.2 });
@@ -163,7 +181,7 @@ export class Fx {
   syncShells(shots) {
     const seen = new Set();
     for (const s of shots) {
-      if (s.delay > 0) continue;
+      if (s.delay > 0 || s.kind === 'punch') continue; // パンチの当たり判定は見せない
       seen.add(s.id);
       let m = this.shells.get(s.id);
       if (!m) {
@@ -231,6 +249,24 @@ export class Fx {
       if (L.t <= 0) L.l.intensity = 0;
       else L.l.intensity *= 0.7;
     }
+    // 空薬莢
+    this.casings = this.casings.filter((c) => {
+      c.life -= dt;
+      if (c.life <= 0) { this.group.remove(c.m); return false; }
+      c.vy -= 16 * dt;
+      c.m.position.x += c.vx * dt; c.m.position.y += c.vy * dt; c.m.position.z += c.vz * dt;
+      c.m.rotation.x += c.spin[0] * dt; c.m.rotation.z += c.spin[1] * dt;
+      if (c.m.position.y < c.ground + 0.11) {
+        c.m.position.y = c.ground + 0.11;
+        if (c.vy < -1.5 && c.bounced < 3) {
+          c.bounced++;
+          c.vy = -c.vy * 0.35; c.vx *= 0.55; c.vz *= 0.55; c.spin[0] *= 0.5;
+          this.onCasingBounce?.(c.m.position, c.bounced);
+        } else { c.vy = 0; c.vx *= 0.9; c.vz *= 0.9; c.spin[0] *= 0.9; c.spin[1] *= 0.9; c.m.rotation.x = Math.PI / 2; }
+      }
+      if (c.life < 0.5) c.m.scale.setScalar(c.life / 0.5);
+      return true;
+    });
     this.dangers = this.dangers.filter((d) => {
       d.t -= dt;
       d.m.material.opacity = 0.5 + 0.5 * Math.sin(d.t * 18);

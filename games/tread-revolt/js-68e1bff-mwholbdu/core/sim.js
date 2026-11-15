@@ -12,6 +12,10 @@ import { G, LOB_G, LOB_ANGLE, lobSpeed, lobRange, LOB_MIN, LOB_MAX, solvePitch, 
 const LOB_YAW_ASSIST = 10 * DEG; // 曲射の向きを目標へ吸いつける角度
 // 戦車の主砲の 1 発ぶんの装填時間(2 発で reload×1.4。以前の「撃ち切ってから 2 発まとめて」と同じ)
 const shellReload = (e) => e.spec.reload * 0.7;
+// 歩行メカの炸薬パンチ:届く距離(自分と相手の半径の外側)・威力・次に殴れるまで
+const PUNCH_REACH = 2.6;
+const PUNCH_DMG = 75;
+const PUNCH_CD = 1.0;
 import { thinkTank, steerTo } from './ai.js';
 import { initBoss, updateBoss, partPos, partVulnerable, bodyHit, bodyBlocks, pushVehicle, onPartDestroyed, addBossWreck } from './boss.js';
 
@@ -488,9 +492,18 @@ export class Sim {
     if (e.recoilT) for (let k = 0; k < 2; k++) e.recoilT[k] = Math.max(0, e.recoilT[k] - dt * 2.2);
     e.mgCd -= dt;
     e.fireT = Math.max(0, e.fireT - dt);
+    // 炸薬パンチ(歩行メカ):主砲のボタンで、拳の届く所に敵がいれば左腕で殴る(主砲は撃たない)
+    let punched = false;
+    if (isMech) {
+      e.punchCd = Math.max(0, (e.punchCd || 0) - dt);
+      if (cmd.fire && e.punchCd <= 0 && this.mission.state !== 'drop' && this.mission.state !== 'over' && !e.air) {
+        const t = this.meleeTarget(e);
+        if (t) { this.punch(e, t); punched = true; }
+      }
+    }
     // 主砲
     const canFire = this.mission.state !== 'drop' && this.mission.state !== 'over' && e.cycle <= 0 && (twin ? e.ammo > 0 : e.reload <= 0);
-    if (cmd.fire && canFire) {
+    if (cmd.fire && canFire && !punched) {
       if (e.wheelie > 0.55 && !isMech) this.fireLob(e);
       else if (e.wheelie < 0.08) this.fireMain(e, cmd.fireStrength ?? 1);
     }
@@ -512,6 +525,38 @@ export class Sim {
       e.airH = 0;
       this.emit({ t: 'land', id: e.id, elevator: true });
     }
+  }
+
+  // 拳の届く所(正面 ±45°)にいる敵。いなければ null
+  meleeTarget(e) {
+    const fy = e.yaw + e.turret;
+    let best = null, bd = 1e9;
+    for (const t of this.ents) {
+      if (!t.alive || t === e || t.hidden || t.air || t.team === e.team || t.harmless) continue;
+      const d = dist(e.x, e.z, t.x, t.z);
+      const reach = e.spec.radius + (t.type === 'boss' ? t.radius : t.radius || t.spec?.radius || 2) + PUNCH_REACH;
+      if (d > reach) continue;
+      if (Math.abs(wrapAngle(yawTo(e.x, e.z, t.x, t.z) - fy)) > 45 * DEG && d > (t.radius || 2) + e.spec.radius) continue;
+      if (d < bd) { bd = d; best = t; }
+    }
+    return best;
+  }
+
+  // 炸薬パンチ:拳の先へ、ごく短い距離だけ飛ぶ見えない弾を出す
+  // (命中・ボスの部位・装甲に弾かれる・オンラインでホストへ送る、を主砲の弾と同じ仕組みで扱う)
+  punch(e, t) {
+    const fy = e.yaw + e.turret;
+    const fistY = e.y + 3.4 - (e.crouch || 0) * 1.4;
+    const ox = e.x + Math.sin(fy) * (e.spec.radius + 0.4), oz = e.z + Math.cos(fy) * (e.spec.radius + 0.4);
+    // 当たり判定は相手の胴の高さで水平に出す(背の低い戦車の上を通り過ぎないように)。ボスは拳の高さ
+    const y = t.type === 'boss' ? fistY : t.y + (t.spec?.height || 2) * 0.5;
+    const yaw = t.type === 'boss' ? fy : yawTo(ox, oz, t.x, t.z);
+    const pitch = 0;
+    const sp = 70, cp = Math.cos(pitch);
+    this.spawnShot({ kind: 'punch', x: ox, y, z: oz, vx: Math.sin(yaw) * cp * sp, vy: Math.sin(pitch) * sp, vz: Math.cos(yaw) * cp * sp, g: 0, team: e.team, owner: e.id, dmg: PUNCH_DMG, splash: 0, life: (PUNCH_REACH + (t.radius || 2) + 3) / sp });
+    e.punchCd = PUNCH_CD;
+    e.fireT = 0.35;
+    this.emit({ t: 'punch', id: e.id, x: ox, y: fistY, z: oz, yaw: fy });
   }
 
   fireMain(e, strength = 1) {
