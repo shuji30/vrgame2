@@ -328,7 +328,8 @@ export class Sim {
     for (const t of this.ents) {
       if (!t.alive || t.team === e.team || t.hidden || t === lock || t.type === 'boss') continue;
       const d = dist(e.x, e.z, t.x, t.z);
-      if (Math.abs(wrapAngle(yawTo(e.x, e.z, t.x, t.z) - ty)) > Math.max(4 * DEG, Math.atan2((t.radius || 2) + 2, d))) continue;
+      // 向きは、自動の距離のときと同じく LOB_YAW_ASSIST 以内なら吸いつける(手で距離を決めるときも狙いやすく)
+      if (Math.abs(wrapAngle(yawTo(e.x, e.z, t.x, t.z) - ty)) > Math.max(LOB_YAW_ASSIST, Math.atan2((t.radius || 2) + 2, d))) continue;
       consider(d, t);
     }
     if (best == null) return r;
@@ -503,9 +504,18 @@ export class Sim {
     }
     // 主砲
     const canFire = this.mission.state !== 'drop' && this.mission.state !== 'over' && e.cycle <= 0 && (twin ? e.ammo > 0 : e.reload <= 0);
-    if (cmd.fire && canFire && !punched) {
+    // 曲射:車体が立ち上がる前(・装填が済む前)に押されたら、1.5 秒まで待って、立った(装填した)時点で撃つ
+    if (!isMech && cmd.lob && cmd.fire && !punched && !(canFire && e.wheelie > 0.55)) e.lobQueued = 1.5;
+    if (!cmd.lob || isMech) e.lobQueued = 0;
+    if (e.lobQueued > 0) {
+      e.lobQueued -= dt;
+      if (canFire && e.wheelie > 0.55) { this.fireLob(e); e.lobQueued = 0; }
+    } else if (cmd.fire && canFire && !punched) {
       if (e.wheelie > 0.55 && !isMech) this.fireLob(e);
       else if (e.wheelie < 0.08) this.fireMain(e, cmd.fireStrength ?? 1);
+    } else if (cmd.fire && !punched && !canFire && e.isPlayer && this.mission.state === 'play' && (isMech ? e.reload > 0 : e.ammo <= 0)) {
+      // 撃てない(装填中):押したことが分かるように知らせる
+      this.emit({ t: 'dryfire', id: e.id });
     }
     // 副武装:機銃(押している間)/スモーク(押した瞬間)
     if (cmd.subSelect) { e.sub = e.sub === 'mg' ? 'smoke' : 'mg'; this.emit({ t: 'sub', id: e.id, sub: e.sub }); }
