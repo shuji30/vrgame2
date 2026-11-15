@@ -12,7 +12,7 @@ export function emptyActions() {
     turretCenter: false,
     fire: false, fireStrength: 1, sub: false, subPress: false, subSelect: false,
     lob: false, lobAmount: 0, lobAnalog: false, gear: null,
-    crouch: false, quickTurn: false, quickDir: 1, weaponSwap: false,
+    quickTurn: false, quickDir: 1, weaponSwap: false,
     view: false, hatch: false, pause: false, recenter: false,
     // メニュー操作
     up: false, down: false, ok: false, back: false, leftUi: false, rightUi: false,
@@ -141,11 +141,10 @@ export function wheelToActions(w, cfg, state, act = emptyActions()) {
     act.lob = !!w.lobButton;
     act.lobAnalog = false;
   }
-  // 歩行メカ:急旋回はハンドブレーキ、武器の持ち替えはHシフター(1速/3速の切り替えで)
+  // 歩行メカ:急旋回はハンドブレーキ、武器の持ち替えはHシフター(1速/3速の切り替えで)。R は戦車と同じく後退
   act.quickTurn = w.hasHandbrake ? w.handbrake > 0.6 && !(state.hb > 0.6) : edge('lobButton');
   act.quickDir = w.steer < 0 ? -1 : 1;
   act.weaponSwap = w.hasShifter && state.gear != null && act.gear !== state.gear && (act.gear === 1 || act.gear === 3);
-  act.crouch = !!w.gearR && w.hasShifter;
   // メニュー
   act.up = edge('menuUp');
   act.down = edge('menuDown');

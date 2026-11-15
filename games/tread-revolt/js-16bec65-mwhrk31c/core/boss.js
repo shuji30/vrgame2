@@ -252,11 +252,17 @@ export function updateBoss(e, sim, dt) {
       const d = dist(e.x, e.z, foe.x, foe.z);
       const want = yawTo(e.x, e.z, foe.x, foe.z);
       e.yaw = approachAngle(e.yaw, want, (down >= 2 ? 0.25 : 0.5) * dt);
-      const sp = down >= 2 ? 1.2 : 3.2;
+      // 遠い間は速く詰め寄る(脚を折られたら遅い)
+      const sp = down >= 2 ? 1.2 : d > 100 ? 4.8 : 3.2;
       if (d > 32) { e.v = sp; e.x += Math.sin(e.yaw) * sp * dt; e.z += Math.cos(e.yaw) * sp * dt; }
       if (e.v > 0 && e.cd.stomp <= 0) { e.cd.stomp = 0.8; sim.emit({ t: 'stomp', id: e.id, x: e.x, z: e.z }); }
       const gun = e.parts.find((p) => p.gun && p.alive);
-      if (gun && e.cd.gun <= 0 && d < 100) { e.cd.gun = 3.4 * sim.diff.reload; fireFrom(e, sim, gun, foe, { dmg: 14, spread: 1.6 }); }
+      if (gun && e.cd.gun <= 0 && d < 160) { e.cd.gun = 3.4 * sim.diff.reload; fireFrom(e, sim, gun, foe, { dmg: 14, spread: 1.6 }); }
+      // 遠い相手には追尾ミサイルを 3 発(機銃で撃ち落とせる)。遠くから一方的に撃たれないように
+      if (d > 55 && e.cd.missile <= 0) {
+        e.cd.missile = 7 * sim.diff.reload;
+        for (let i = 0; i < 3; i++) sim.spawnMissile(e, { x: e.x + Math.sin(e.yaw + (i - 1) * 0.8) * 4, y: e.y + 11 - e.lower * 3, z: e.z + Math.cos(e.yaw + (i - 1) * 0.8) * 4 }, foe, { delay: i * 0.4, dmg: 9 * sim.diff.dmg, turn: 1.2 });
+      }
       // 機銃の掃射(扇状)
       if (e.cd.sweep <= 0 && d < 70) {
         e.cd.sweep = 7 * sim.diff.reload;

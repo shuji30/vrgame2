@@ -217,7 +217,7 @@ export class Sim {
   gunOrigin(e) {
     const ty = e.yaw + e.turret;
     const spec = e.spec;
-    const h = spec.body === 'mech' ? 5.2 - e.crouch * 2 : spec.height * 0.72;
+    const h = spec.body === 'mech' ? 3.1 : spec.height * 0.72;
     const fwd = spec.radius + 1.2;
     return { x: e.x + Math.sin(ty) * fwd, y: e.y + h, z: e.z + Math.cos(ty) * fwd, yaw: ty };
   }
@@ -427,11 +427,11 @@ export class Sim {
         if (e.trackDmg[k] <= 0) { e.trackDmg[k] = 0; this.emit({ t: 'repair', id: e.id, side: k }); }
       }
     }
-    // 歩行メカ:しゃがみ・急旋回・武器の持ち替え
+    // 歩行メカ:急旋回・武器の持ち替え(しゃがみはなくした)
     if (isMech && cmd.weaponSwap) { e.weapon = e.weapon === 'cannon' ? 'rockets' : 'cannon'; this.emit({ t: 'weapon', id: e.id, weapon: e.weapon }); }
     // エレベーター
     if (e.air) this.updateAir(e, dt);
-    stepMotion(e, { left: cmd.left, right: cmd.right, wheelie, crouch: isMech && cmd.crouch, quickTurn: isMech && cmd.quickTurn, quickDir: cmd.quickDir }, env, dt);
+    stepMotion(e, { left: cmd.left, right: cmd.right, wheelie, crouch: false, quickTurn: isMech && cmd.quickTurn, quickDir: cmd.quickDir }, env, dt);
     if (e.air) e.y = this.terrain.height(e.x, e.z) + e.airH;
     if (e.onDebris && Math.abs(e.v) > 2 && this.rnd() < dt * 3) this.emit({ t: 'crunch', id: e.id });
 
@@ -546,7 +546,7 @@ export class Sim {
   // (命中・ボスの部位・装甲に弾かれる・オンラインでホストへ送る、を主砲の弾と同じ仕組みで扱う)
   punch(e, t) {
     const fy = e.yaw + e.turret;
-    const fistY = e.y + 3.4 - (e.crouch || 0) * 1.4;
+    const fistY = e.y + 2.05;
     const ox = e.x + Math.sin(fy) * (e.spec.radius + 0.4), oz = e.z + Math.cos(fy) * (e.spec.radius + 0.4);
     // 当たり判定は相手の胴の高さで水平に出す(背の低い戦車の上を通り過ぎないように)。ボスは拳の高さ
     const y = t.type === 'boss' ? fistY : t.y + (t.spec?.height || 2) * 0.5;
@@ -556,7 +556,9 @@ export class Sim {
     this.spawnShot({ kind: 'punch', x: ox, y, z: oz, vx: Math.sin(yaw) * cp * sp, vy: Math.sin(pitch) * sp, vz: Math.cos(yaw) * cp * sp, g: 0, team: e.team, owner: e.id, dmg: PUNCH_DMG, splash: 0, life: (PUNCH_REACH + (t.radius || 2) + 3) / sp });
     e.punchCd = PUNCH_CD;
     e.fireT = 0.35;
-    this.emit({ t: 'punch', id: e.id, x: ox, y: fistY, z: oz, yaw: fy });
+    // 見た目用:相手の胴の高さ(ty)と、拳から相手の手前までの水平距離(reach)。腕を打ち下ろす角度に使う
+    const reachD = Math.max(0.5, dist(ox, oz, t.x, t.z) - (t.radius || 2) * 0.6);
+    this.emit({ t: 'punch', id: e.id, x: ox, y: fistY, z: oz, yaw: fy, ty: y, reach: reachD });
   }
 
   fireMain(e, strength = 1) {
@@ -1034,6 +1036,8 @@ export class Sim {
     if (p.link) { const q = e.parts.find((x) => x.name === p.link); if (q && q.alive) { p = q; dmg *= 2.5; } }
     if (e.stunned) dmg *= 1.5;
     p.hp -= dmg;
+    // 撃たれたボスは目を覚ます(眠ったまま遠くから一方的に倒されないように)
+    if (e.ai?.state === 'sleep') this.wake(e, 'hit');
     this.emit({ t: 'hitPart', id: e.id, part: p.name, hp: p.hp / p.maxHp, x: s.x, y: s.y, z: s.z, by: s.owner, weak: !!p.weak || !!p.link });
     this.creditHit(s.owner);
     if (p.hp <= 0) {
