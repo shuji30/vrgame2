@@ -328,7 +328,8 @@ export class Sim {
     for (const t of this.ents) {
       if (!t.alive || t.team === e.team || t.hidden || t === lock || t.type === 'boss') continue;
       const d = dist(e.x, e.z, t.x, t.z);
-      if (Math.abs(wrapAngle(yawTo(e.x, e.z, t.x, t.z) - ty)) > Math.max(4 * DEG, Math.atan2((t.radius || 2) + 2, d))) continue;
+      // 向きは、自動の距離のときと同じく LOB_YAW_ASSIST 以内なら吸いつける(手で距離を決めるときも狙いやすく)
+      if (Math.abs(wrapAngle(yawTo(e.x, e.z, t.x, t.z) - ty)) > Math.max(LOB_YAW_ASSIST, Math.atan2((t.radius || 2) + 2, d))) continue;
       consider(d, t);
     }
     if (best == null) return r;
