@@ -556,7 +556,9 @@ export class Sim {
     this.spawnShot({ kind: 'punch', x: ox, y, z: oz, vx: Math.sin(yaw) * cp * sp, vy: Math.sin(pitch) * sp, vz: Math.cos(yaw) * cp * sp, g: 0, team: e.team, owner: e.id, dmg: PUNCH_DMG, splash: 0, life: (PUNCH_REACH + (t.radius || 2) + 3) / sp });
     e.punchCd = PUNCH_CD;
     e.fireT = 0.35;
-    this.emit({ t: 'punch', id: e.id, x: ox, y: fistY, z: oz, yaw: fy });
+    // 見た目用:相手の胴の高さ(ty)と、拳から相手の手前までの水平距離(reach)。腕を打ち下ろす角度に使う
+    const reachD = Math.max(0.5, dist(ox, oz, t.x, t.z) - (t.radius || 2) * 0.6);
+    this.emit({ t: 'punch', id: e.id, x: ox, y: fistY, z: oz, yaw: fy, ty: y, reach: reachD });
   }
 
   fireMain(e, strength = 1) {

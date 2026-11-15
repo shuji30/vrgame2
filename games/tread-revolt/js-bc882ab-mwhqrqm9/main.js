@@ -391,10 +391,21 @@ function renderSettings() {
     ${sel('pedals', 'ペダル', [['3', '3ペダル(クラッチ=左履帯、アクセル=右履帯、ブレーキ=主砲)'], ['2', '2ペダル(ブレーキ=左履帯、アクセル=右履帯)']], W)}
     ${check('swap', '左右を入れ替える(パドルも連動)', W)}
     ${slider('brakeFire', 'ブレーキで撃つ踏み込み', 0.2, 0.95, 0.05, W)}
-    ${slider('lockDeg', 'ハンドルの効く角度(°)', 90, 900, 10, W.steer)}
+    <h3 class="sub">ハンドル(砲塔の旋回)の設定のしかた</h3>
+    <ol class="note steps">
+      <li><b>回転角をそろえる</b>:ハンコンのドライバー(メーカーのソフト)に設定している回転角(例 900°)を、下の「ハンドルの回転角」に入れる。違っていると、効く角度やソフトロックの位置がずれる</li>
+      <li><b>割り当てる</b>:下の表の「ハンドル(砲塔旋回)」の「割り当て」を押し、表示に合わせて <b>①左いっぱいに切る → ②右いっぱいに切る → ③まっすぐ(中央)に戻して手を止める</b>。止めた位置が中央になり、向きも自動で決まる(20 秒で取り消し)</li>
+      <li><b>向きを確かめる</b>:右に切ると砲塔が右へ回れば OK。逆なら「ハンドルの向きを反転」を切り替える</li>
+      <li><b>中央がずれたら</b>:ハンドルをまっすぐにして「今の位置を中央にする」を押す(割り当てはそのまま)</li>
+    </ol>
+    <p class="note">ハンドルは砲塔の<b>回る速さ</b>です(切った角度に砲塔の向きが合うのではありません)。中央で止まり、切るほど速く回り、「効く角度」の端で最も速くなります。</p>
     ${slider('wheelDeg', 'ハンドルの回転角(ドライバー設定、°)', 180, 1080, 10, W.steer)}
-    <p class="note">効く角度の既定は 180°(左右に 90° ずつ)。超えて回すと FFB のソフトロックで押し返す。ハンドルを物理的に止めたいときは、ドライバー側の回転角も同じ角度にし、「ハンドルの回転角」も合わせる。</p>
+    ${slider('lockDeg', 'ハンドルの効く角度(°)', 90, 900, 10, W.steer)}
+    <p class="note">効く角度:左右合わせた角度。既定 180°(左右に 90° ずつ)。小さいほど少し切っただけで速く回る。超えて回すと FFB のソフトロックで中央へ押し返す(強さは下の FFB の「ソフトロック」)。ハンドルを物理的に止めたいときは、ドライバー側の回転角も効く角度と同じにし、「ハンドルの回転角」も合わせる。</p>
     ${slider('deadzone', 'ハンドルの不感帯', 0, 0.2, 0.01, W.steer)}
+    <p class="note">不感帯:中央付近の遊び。ハンドルから手を離しても砲塔がじわじわ回るときは大きくする(0.04〜0.08 くらい)。</p>
+    ${check('invert', 'ハンドルの向きを反転(右に切って砲塔が左へ回るとき)', W.steer)}
+    <div class="row"><button id="w-center">今の位置を中央にする</button><span class="note" id="w-center-msg"></span></div>
     ${check('wheelAutoCenter', 'ハンドルを中央にすると砲塔が正面へ戻る(1 秒後から。敵に照準が合っている間と、撃った直後は戻らない)')}
     <table class="keys" id="wheel-rows">${WHEEL_ACTIONS.map((a) => `<tr data-act="${a.key}"><th>${a.label}${a.optional ? ' <span class="muted">(任意)</span>' : ''}</th><td class="bind"></td><td><div class="meter"><i></i></div></td><td><button data-learn="${a.key}">割り当て</button> <button data-clear="${a.key}">消す</button></td></tr>`).join('')}</table>
     <div class="row"><button id="w-reset">割り当てを初期化</button><button id="w-scan">デバイスを探し直す</button></div>
@@ -416,7 +427,7 @@ function renderSettings() {
       const key = el.dataset.set;
       const objName = el.dataset.obj;
       let obj = objName === 's' ? S : W;
-      if (['lockDeg', 'wheelDeg', 'deadzone'].includes(key)) obj = W.steer;
+      if (['lockDeg', 'wheelDeg', 'deadzone', 'invert'].includes(key)) obj = W.steer;
       if (['x', 'y', 'z'].includes(key)) obj = S.wheelOffset;
       let v = el.type === 'checkbox' ? el.checked : el.type === 'range' ? Number(el.value) : el.value;
       if (key === 'pedals' || key === 'vrScale' || key === 'turretRange') v = Number(v);
@@ -437,6 +448,19 @@ function renderSettings() {
   }));
   $('#w-reset').addEventListener('click', () => { if (confirm('ハンコンの割り当てを初期化しますか?')) { input.wheelCfg = defaultWheelConfig(); input.saveWheel(); renderSettings(); } });
   $('#w-scan').addEventListener('click', () => bridge.rescan());
+  // ハンドルの中央を合わせ直す:割り当てたハンドルの軸の、いまの値を中央にする
+  $('#w-center').addEventListener('click', () => {
+    const b = W.bindings.steer;
+    const msg = $('#w-center-msg');
+    if (!b) { msg.textContent = '先にハンドルを割り当ててください'; return; }
+    const pad = bridge.pads.find((p) => p.id === b.pad && (b.index == null || p.index === b.index)) || bridge.pads.find((p) => p.id === b.pad);
+    const v = pad?.axes[b.control];
+    if (v == null) { msg.textContent = 'ハンドルが見つかりません(ffb-bridge を起動して、ハンコンをつないでください)'; return; }
+    W.steer.center = v;
+    input.saveWheel();
+    msg.textContent = '中央を合わせました';
+    audio.play('uiOk');
+  });
   $('#reset-progress').addEventListener('click', () => { if (confirm('クリアの記録とベストスコアを消しますか?')) { progress.cleared = -1; progress.best = {}; save(PROGRESS_KEY, progress); } });
   renderBindings();
   renderBridgeStatus();
@@ -446,7 +470,7 @@ function renderBindings() {
   const W = input.wheelCfg;
   for (const tr of document.querySelectorAll('#wheel-rows tr')) {
     const b = W.bindings[tr.dataset.act];
-    tr.querySelector('.bind').innerHTML = learning?.key === tr.dataset.act ? '<span style="color:var(--accent2)">操作してください…</span>' : b ? `${b.kind === 'axis' ? '軸' : 'ボタン'} ${b.control} <small class="muted">${esc(b.pad.slice(0, 28))}</small>` : '<span class="muted">未割り当て</span>';
+    tr.querySelector('.bind').innerHTML = learning?.key === tr.dataset.act ? `<span style="color:var(--accent2)">${learning.msg || '操作してください…'}</span>` : b ? `${b.kind === 'axis' ? '軸' : 'ボタン'} ${b.control} <small class="muted">${esc(b.pad.slice(0, 28))}</small>` : '<span class="muted">未割り当て</span>';
   }
 }
 
@@ -465,6 +489,8 @@ bridge.onChange(() => renderBridgeStatus());
 function startLearn(key) {
   const act = WHEEL_ACTIONS.find((a) => a.key === key);
   learning = { key, act, base: snapshot(), t: 0, found: null };
+  // ハンドルは ①左いっぱい → ②右いっぱい → ③まっすぐに戻して止める、の順に案内する
+  if (key === 'steer') { learning.stage = 'left'; learning.msg = '① ハンドルを<b>左いっぱい</b>に切ってください'; }
   renderBindings();
 }
 function snapshot() {
@@ -475,6 +501,7 @@ function learnTick(dt) {
   const L = learning;
   L.t += dt;
   const snap = snapshot();
+  if (L.act.key === 'steer') { steerLearnTick(L, snap, dt); return; }
   if (!L.found) {
     const ch = detectChange(L.base, snap);
     if (ch && ch.kind === L.act.kind) {
@@ -492,6 +519,59 @@ function learnTick(dt) {
     if (L.t > 6) finishLearn();
   }
 }
+// ハンドルの割り当て:①左いっぱい(軸を見つけ、左がどちら向きかを覚える)→ ②右いっぱい → ③まっすぐに戻して止めた位置を中央にする
+function steerLearnTick(L, snap, dt) {
+  const say = (msg) => { if (L.msg !== msg) { L.msg = msg; renderBindings(); } };
+  if (L.stage === 'left') {
+    const ch = detectChange(L.base, snap);
+    if (ch && ch.kind === 'axis') {
+      const base = L.base.find((b) => b.id === ch.id && b.index === ch.index);
+      const v = snap.find((p) => p.id === ch.id && p.index === ch.index)?.axes[ch.control] ?? 0;
+      L.found = { kind: 'axis', pad: ch.id, index: ch.index, control: ch.control };
+      L.base0 = base?.axes[ch.control] ?? 0;
+      L.leftSign = Math.sign(v - L.base0) || -1; // 左へ切ったときに軸が動く向き
+      L.stage = 'right';
+      L.t = 0;
+      audio.play('ui');
+      say('② 次に<b>右いっぱい</b>に切ってください');
+    } else if (L.t > 20) { learning = null; renderBindings(); }
+    return;
+  }
+  const pad = snap.find((p) => p.id === L.found.pad && (L.found.index == null || p.index === L.found.index)) || snap.find((p) => p.id === L.found.pad);
+  const v = pad?.axes[L.found.control];
+  if (v == null) return;
+  if (L.stage === 'right') {
+    // 中央を越えて、反対側へ大きく切った
+    if ((v - L.base0) * -L.leftSign > 0.35) {
+      L.stage = 'center';
+      L.t = 0;
+      L.still = 0;
+      L.last = v;
+      audio.play('ui');
+      say('③ <b>まっすぐ(中央)</b>に戻して、手を止めてください');
+    } else if (L.t > 20) { learning = null; renderBindings(); }
+    return;
+  }
+  // まっすぐに戻して止まったら(0.8 秒ほとんど動かない)、その位置を中央にする
+  const near = Math.abs(v - L.base0) < 0.3;
+  L.still = near && Math.abs(v - L.last) < 0.004 ? L.still + dt : 0;
+  L.last = v;
+  if (L.still > 0.8) {
+    const W = input.wheelCfg;
+    W.steer.center = v;
+    W.steer.invert = L.leftSign > 0; // 左へ切って軸が増える機器は反転(左 = 負にそろえる)
+    W.bindings.steer = L.found;
+    input.saveWheel();
+    learning = null;
+    audio.play('uiOk');
+    renderBindings();
+    const inv = document.querySelector('[data-set="invert"]');
+    if (inv) inv.checked = !!W.steer.invert;
+    return;
+  }
+  if (L.t > 20) { learning = null; renderBindings(); }
+}
+
 function finishLearn() {
   const L = learning;
   const W = input.wheelCfg;
