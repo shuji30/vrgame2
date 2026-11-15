@@ -330,7 +330,6 @@ export class Game {
       this.dioramaPos = null;
       this.seat.scale.setScalar(1);
       let eye = spec.eye;
-      if (spec.body === 'mech') eye -= me.crouch * 2.2;
       if (view === 'hatch') eye = spec.height + 1.25;
       // VR のコックピット:砲塔の付け根より少し下(車内)。砲身が目線の上で回る
       if (inXR && view === 'cockpit' && ownModel?.turretBase && spec.body === 'tank') eye = ownModel.turretBase - 0.2;
@@ -555,6 +554,8 @@ export class Game {
     const au = this.app.audio;
     const me = this.me;
     for (const ev of sim.events) {
+      // 1 つの出来事の処理でエラーが出ても、ほかの出来事とゲームは止めない(描画ループが止まって固まるため)
+      try {
       this.app.net?.onEvent?.(ev, this);
       if (this.tutorial) (this.tutorialEvents ||= []).push(ev);
       const mine = ev.id === me.id;
@@ -690,6 +691,7 @@ export class Game {
           break;
         default: break;
       }
+      } catch (err) { this.app.reportError?.(err, `出来事 ${ev.t}`); }
     }
     sim.events.length = 0;
   }

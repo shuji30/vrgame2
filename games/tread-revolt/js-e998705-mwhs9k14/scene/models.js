@@ -356,6 +356,7 @@ function buildTank(sp, o, f = {}) {
 }
 
 // ---------- 歩行メカ(足裏の車輪で滑走) ----------
+const MECH_SCALE = 0.6;
 function buildMech(o) {
   const k = kit(o), { G } = k, own = [];
   const root = new THREE.Group(), tilt = grp(root), body = grp(tilt);
@@ -447,7 +448,7 @@ function buildMech(o) {
     const moving = Math.abs(v) > 0.4 || Math.abs(turn) > 0.4;
     ph += dt * 2 * PI * (moving ? 0.45 + 0.6 * spd : 0);
     const stride = moving ? Math.max(spd, Math.min(1, Math.abs(turn) / 6) * 0.5) : 0;
-    const cr = Math.max(s.crouch || 0, 0.9 * dn * up);
+    const cr = 0.9 * dn * up; // パンチで打ち下ろすときだけ腰を落とす
     const squat = 0.12 + 0.4 * spd; // 膝を曲げる量(m)
     pelvis.position.y = HIP * (1 - 0.4 * cr) - squat * (1 - cr);
     const hipY = pelvis.position.y - 0.2;
@@ -479,6 +480,8 @@ function buildMech(o) {
     tilt.rotation.x = -(s.pitch || 0); tilt.rotation.z = s.roll || 0;
   };
   upd({});
+  // 小さめにする(戦車より少し背が高いくらい。sim の height・eye・砲と拳の高さも 0.6 倍にそろえてある)
+  root.scale.setScalar(MECH_SCALE);
   return { root, muzzle, muzzle2, eye, hatch, weak, ejector, update: upd, dispose: () => own.forEach((x) => x.dispose()) };
 }
 

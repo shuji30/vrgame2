@@ -283,7 +283,7 @@ app.onPause = (on) => {
   if (on) {
     // ポーズした瞬間の入力の状態(勝手に動く原因を確かめるため)。タッチの状態はこのあと離した状態に戻る
     const info = $('#pause-input');
-    if (info) info.textContent = `v${VERSION}\n${input.describe()}`;
+    if (info) info.textContent = `v${VERSION}\n${input.describe()}${app.lastError ? `\n最後のエラー: ${app.lastError}` : ''}`;
     show('pause', false); document.exitPointerLock?.(); bridge.stopForces();
   }
   else resume();
@@ -800,7 +800,30 @@ try {
   };
 } catch { /* Worker が使えない環境 */ }
 renderer.setAnimationLoop(loop);
+// 描画ループでエラーが出ると、three.js は次のフレームを予約しないので画面が固まる。
+// エラーはここで受け止めて続け、内容を画面の左下とポーズ画面に出す(原因を突き止めるため)
+const errBox = document.createElement('div');
+errBox.style.cssText = 'position:fixed;left:6px;bottom:6px;z-index:50;max-width:60vw;font:11px/1.4 monospace;color:#ffb0a0;background:rgba(40,0,0,.7);padding:4px 6px;border-radius:4px;pointer-events:none;white-space:pre-wrap';
+errBox.hidden = true;
+document.body.appendChild(errBox);
+let errHideT = 0, errCount = 0;
+app.reportError = (err, where = '') => {
+  errCount++;
+  const where1 = (err?.stack || '').split('\n').slice(1, 3).map((l) => l.trim().replace(/^at /, '').replace(/https?:\/\/[^ )]*\//g, '')).join(' ← ');
+  app.lastError = `v${VERSION} ${where} ${err?.message || err} (${where1}) ×${errCount}`;
+  console.error('[TREAD REVOLT]', where, err);
+  errBox.textContent = app.lastError;
+  errBox.hidden = false;
+  clearTimeout(errHideT);
+  errHideT = setTimeout(() => { errBox.hidden = true; }, 15000);
+};
+window.addEventListener('error', (e) => app.reportError(e.error || e.message, 'window'));
+window.addEventListener('unhandledrejection', (e) => app.reportError(e.reason, 'promise'));
+
 function loop(t) {
+  try { loopBody(t); } catch (err) { app.reportError(err, 'loop'); }
+}
+function loopBody(t) {
   const now = t || performance.now();
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
