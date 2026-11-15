@@ -330,7 +330,6 @@ export class Game {
       this.dioramaPos = null;
       this.seat.scale.setScalar(1);
       let eye = spec.eye;
-      if (spec.body === 'mech') eye -= me.crouch * 2.2;
       if (view === 'hatch') eye = spec.height + 1.25;
       // VR のコックピット:砲塔の付け根より少し下(車内)。砲身が目線の上で回る
       if (inXR && view === 'cockpit' && ownModel?.turretBase && spec.body === 'tank') eye = ownModel.turretBase - 0.2;
@@ -521,7 +520,7 @@ export class Game {
       if (m.boss) { m.boss.update(e, dt, this.time); continue; }
       if (m.punchT > 0) m.punchT = Math.max(0, m.punchT - dt);
       m.update({
-        punch: m.punchT > 0 ? m.punchT / PUNCH_ANIM : 0,
+        punch: m.punchT > 0 ? m.punchT / PUNCH_ANIM : 0, punchDown: m.punchDown || 0,
         dt, tl: e.tl || 0, tr: e.tr || 0, turret: e.turret || 0, gunPitch: e.gunPitch || 0, pitch: e.pitch || 0, roll: e.roll || 0,
         wheelie: e.wheelie || 0, crouch: e.crouch || 0, rise: e.rise ?? 1, popped: e.popped || 0, recoil: (e.fireT || 0) / 0.35, recoils: e.recoilT,
         hp01: e.hp / (e.maxHp || 1), trackBrokenL: e.trackDmg?.[0] > 0, trackBrokenR: e.trackDmg?.[1] > 0, time: this.time, team: e.team,
@@ -621,7 +620,12 @@ export class Game {
         case 'punch': {
           // 炸薬パンチ:腕を振り、拳の先で炸薬が弾け、腕の後ろから空薬莢が飛び出す
           const m = this.models.get(ev.id);
-          if (m) m.punchT = PUNCH_ANIM;
+          if (m) {
+            m.punchT = PUNCH_ANIM;
+            // 背の低い相手には、しゃがんで前かがみになり、腕を斜め下へ打ち下ろす(0 = まっすぐ前、1 = いちばん下)
+            const drop = (ev.y ?? 0) - (ev.ty ?? ev.y ?? 0);
+            m.punchDown = clamp(Math.atan2(drop, ev.reach ?? 3) / 0.9, 0, 1);
+          }
           this.fx.flash(ev.x, ev.y, ev.z, 70, 0xffd080);
           for (let i = 0; i < 4; i++) this.fx.spawn('smoke', ev.x, ev.y, ev.z, { life: 0.5, size: 0.6, grow: 2, vx: Math.sin(ev.yaw) * 4 + (Math.random() - 0.5) * 2, vy: 1, vz: Math.cos(ev.yaw) * 4 + (Math.random() - 0.5) * 2, op: 0.5 });
           au.play('smallExplosion', { ...pos, strength: 0.7 });

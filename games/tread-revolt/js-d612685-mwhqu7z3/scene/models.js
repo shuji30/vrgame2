@@ -356,6 +356,7 @@ function buildTank(sp, o, f = {}) {
 }
 
 // ---------- 歩行メカ(足裏の車輪で滑走) ----------
+const MECH_SCALE = 0.6;
 function buildMech(o) {
   const k = kit(o), { G } = k, own = [];
   const root = new THREE.Group(), tilt = grp(root), body = grp(tilt);
@@ -379,6 +380,9 @@ function buildMech(o) {
     add(ank, B(1.1, 0.12, 0.3, 1, 1), k.metal, 0, -0.62, 1.1);
     const wheels = [];
     for (const wz of [0.75, -0.45]) { const w = add(ank, C(0.3, 0.3, 0.4, 10, 'x'), wheelMats(k), 0, -ANK + 0.3, wz); w.userData.r = 0.3; wheels.push(w); }
+    // 足の裏の履帯(転輪を包むベルト。これで滑る)
+    add(ank, B(0.5, 0.16, 1.9), k.black, 0, -ANK + 0.02, 0.15);
+    add(ank, B(0.5, 0.1, 1.5), k.black, 0, -ANK + 0.58, 0.15);
     legs.push({ hip, knee, ank, wheels });
   }
   // 上半身(砲塔として旋回)
@@ -433,35 +437,51 @@ function buildMech(o) {
   };
   const upd = (s) => {
     const dt = s.dt || 0, tl = s.tl || 0, tr = s.tr || 0, v = (tl + tr) / 2, turn = (tr - tl) / 2;
-    const amp = Math.min(1, Math.abs(v) / 5 + Math.abs(turn) / 5);
-    ph += dt * 2 * PI * (Math.abs(v) * 0.22 + Math.abs(turn) * 0.15);
-    const cr = s.crouch || 0, bob = Math.abs(Math.sin(ph)) * 0.12 * amp;
-    pelvis.position.y = HIP * (1 - 0.4 * cr) - bob;
-    const hipY = pelvis.position.y - 0.2, dir = v < -0.1 ? -1 : 1;
+    // 炸薬パンチ:punch は 1(殴った瞬間)→ 0。腕を前へ振り上げ、拳を打ち出して戻す。
+    // punchDown(0〜1):背の低い相手ほど、しゃがんで前かがみになり、腕を斜め下へ打ち下ろす
+    const pu = s.punch || 0, pp = 1 - pu;
+    const up = pu <= 0 ? 0 : pp < 0.12 ? pp / 0.12 : pp < 0.6 ? 1 : Math.max(0, 1 - (pp - 0.6) / 0.4);
+    const dn = clamp(s.punchDown || 0, 0, 1);
+    // スケート:足は地面から離さず、足の裏の履帯で滑る。速いほど膝を曲げて低く構えて前へ傾き、
+    // 曲がるときは曲がる向きへ体を倒す。左右の足で交互に斜め後ろへ軽く蹴り出す
+    const spd = clamp(Math.abs(v) / 14, 0, 1), dir = v < -0.1 ? -1 : 1;
+    const moving = Math.abs(v) > 0.4 || Math.abs(turn) > 0.4;
+    ph += dt * 2 * PI * (moving ? 0.45 + 0.6 * spd : 0);
+    const stride = moving ? Math.max(spd, Math.min(1, Math.abs(turn) / 6) * 0.5) : 0;
+    const cr = 0.9 * dn * up; // パンチで打ち下ろすときだけ腰を落とす
+    const squat = 0.12 + 0.4 * spd; // 膝を曲げる量(m)
+    pelvis.position.y = HIP * (1 - 0.4 * cr) - squat * (1 - cr);
+    const hipY = pelvis.position.y - 0.2;
     legs.forEach((L, i) => {
-      const p = ph + i * PI, sx = i ? -1 : 1;
-      const fz = Math.sin(p) * 0.55 * amp * dir - sx * clamp(turn * 0.08, -0.4, 0.4);
-      const lift = Math.max(0, Math.cos(p)) * 0.18 * amp;
-      ik(L, ANK + lift - hipY, fz);
+      const sx = i ? -1 : 1;
+      // 蹴り出しの足:斜め後ろ・外側へ滑らせて戻す(地面からは離さない)
+      const kick = Math.max(0, Math.sin(ph + i * PI)) * stride;
+      const fz = sx * 0.22 - kick * 0.6 * dir;
+      ik(L, ANK - hipY, fz);
+      L.hip.rotation.z = sx * kick * 0.18;
       const wv = i ? tr : tl;
       for (const w of L.wheels) w.rotation.x += wv * dt / 0.3;
     });
-    body.rotation.x = 0.06 * clamp(v / 8, -1, 1) - (s.wheelie || 0) * 0.22;
-    body.rotation.z = Math.sin(ph) * 0.03 * amp + clamp(turn * 0.01, -0.06, 0.06);
+    body.rotation.x = 0.16 * spd * dir - (s.wheelie || 0) * 0.22 + 0.12 * dn * up;
+    body.rotation.z = -clamp(turn * 0.025 * (0.4 + spd), -0.22, 0.22) + Math.sin(ph) * 0.025 * stride;
     torso.rotation.y = s.turret || 0;
     arm.rotation.x = -(s.gunPitch || 0);
     can.position.z = -(s.recoil || 0) * 0.35;
-    // 炸薬パンチ:punch は 1(殴った瞬間)→ 0。腕を前へ振り上げ、拳を打ち出して戻す
-    const pu = s.punch || 0;
     if (pu > 0) {
-      const p = 1 - pu; // 0 → 1
-      const up = p < 0.12 ? p / 0.12 : p < 0.6 ? 1 : Math.max(0, 1 - (p - 0.6) / 0.4);
-      larm.rotation.x = -1.45 * up;
-      fist.position.y = -2.1 - (p > 0.08 && p < 0.45 ? Math.sin(((p - 0.08) / 0.37) * PI) * 0.9 : 0);
-    } else { larm.rotation.x = 0; fist.position.y = -2.1; }
+      larm.rotation.x = -(1.5 - 0.75 * dn) * up;
+      torso.rotation.x = 0.32 * dn * up;
+      fist.position.y = -2.1 - (pp > 0.08 && pp < 0.45 ? Math.sin(((pp - 0.08) / 0.37) * PI) * 1.1 : 0);
+    } else {
+      // 滑っている間は腕を少し振ってバランスを取る
+      larm.rotation.x = Math.sin(ph) * 0.25 * stride;
+      torso.rotation.x = 0;
+      fist.position.y = -2.1;
+    }
     tilt.rotation.x = -(s.pitch || 0); tilt.rotation.z = s.roll || 0;
   };
   upd({});
+  // 小さめにする(戦車より少し背が高いくらい。sim の height・eye・砲と拳の高さも 0.6 倍にそろえてある)
+  root.scale.setScalar(MECH_SCALE);
   return { root, muzzle, muzzle2, eye, hatch, weak, ejector, update: upd, dispose: () => own.forEach((x) => x.dispose()) };
 }
 

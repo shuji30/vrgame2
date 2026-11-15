@@ -394,8 +394,8 @@ function renderSettings() {
     <h3 class="sub">ハンドル(砲塔の旋回)の設定のしかた</h3>
     <ol class="note steps">
       <li><b>回転角をそろえる</b>:ハンコンのドライバー(メーカーのソフト)に設定している回転角(例 900°)を、下の「ハンドルの回転角」に入れる。違っていると、効く角度やソフトロックの位置がずれる</li>
-      <li><b>割り当てる</b>:ハンドルを<b>まっすぐ(中央)</b>にしたまま、下の表の「ハンドル(砲塔旋回)」の「割り当て」を押し、ハンドルを右か左へ大きく回す。押した瞬間の位置が中央になる</li>
-      <li><b>向きを確かめる</b>:右に切ると砲塔が右へ回れば OK。逆なら「ハンドルの向きを反転」をオンにする</li>
+      <li><b>割り当てる</b>:下の表の「ハンドル(砲塔旋回)」の「割り当て」を押し、表示に合わせて <b>①左いっぱいに切る → ②右いっぱいに切る → ③まっすぐ(中央)に戻して手を止める</b>。止めた位置が中央になり、向きも自動で決まる(20 秒で取り消し)</li>
+      <li><b>向きを確かめる</b>:右に切ると砲塔が右へ回れば OK。逆なら「ハンドルの向きを反転」を切り替える</li>
       <li><b>中央がずれたら</b>:ハンドルをまっすぐにして「今の位置を中央にする」を押す(割り当てはそのまま)</li>
     </ol>
     <p class="note">ハンドルは砲塔の<b>回る速さ</b>です(切った角度に砲塔の向きが合うのではありません)。中央で止まり、切るほど速く回り、「効く角度」の端で最も速くなります。</p>
@@ -470,7 +470,7 @@ function renderBindings() {
   const W = input.wheelCfg;
   for (const tr of document.querySelectorAll('#wheel-rows tr')) {
     const b = W.bindings[tr.dataset.act];
-    tr.querySelector('.bind').innerHTML = learning?.key === tr.dataset.act ? '<span style="color:var(--accent2)">操作してください…</span>' : b ? `${b.kind === 'axis' ? '軸' : 'ボタン'} ${b.control} <small class="muted">${esc(b.pad.slice(0, 28))}</small>` : '<span class="muted">未割り当て</span>';
+    tr.querySelector('.bind').innerHTML = learning?.key === tr.dataset.act ? `<span style="color:var(--accent2)">${learning.msg || '操作してください…'}</span>` : b ? `${b.kind === 'axis' ? '軸' : 'ボタン'} ${b.control} <small class="muted">${esc(b.pad.slice(0, 28))}</small>` : '<span class="muted">未割り当て</span>';
   }
 }
 
@@ -489,6 +489,8 @@ bridge.onChange(() => renderBridgeStatus());
 function startLearn(key) {
   const act = WHEEL_ACTIONS.find((a) => a.key === key);
   learning = { key, act, base: snapshot(), t: 0, found: null };
+  // ハンドルは ①左いっぱい → ②右いっぱい → ③まっすぐに戻して止める、の順に案内する
+  if (key === 'steer') { learning.stage = 'left'; learning.msg = '① ハンドルを<b>左いっぱい</b>に切ってください'; }
   renderBindings();
 }
 function snapshot() {
@@ -499,6 +501,7 @@ function learnTick(dt) {
   const L = learning;
   L.t += dt;
   const snap = snapshot();
+  if (L.act.key === 'steer') { steerLearnTick(L, snap, dt); return; }
   if (!L.found) {
     const ch = detectChange(L.base, snap);
     if (ch && ch.kind === L.act.kind) {
@@ -516,6 +519,59 @@ function learnTick(dt) {
     if (L.t > 6) finishLearn();
   }
 }
+// ハンドルの割り当て:①左いっぱい(軸を見つけ、左がどちら向きかを覚える)→ ②右いっぱい → ③まっすぐに戻して止めた位置を中央にする
+function steerLearnTick(L, snap, dt) {
+  const say = (msg) => { if (L.msg !== msg) { L.msg = msg; renderBindings(); } };
+  if (L.stage === 'left') {
+    const ch = detectChange(L.base, snap);
+    if (ch && ch.kind === 'axis') {
+      const base = L.base.find((b) => b.id === ch.id && b.index === ch.index);
+      const v = snap.find((p) => p.id === ch.id && p.index === ch.index)?.axes[ch.control] ?? 0;
+      L.found = { kind: 'axis', pad: ch.id, index: ch.index, control: ch.control };
+      L.base0 = base?.axes[ch.control] ?? 0;
+      L.leftSign = Math.sign(v - L.base0) || -1; // 左へ切ったときに軸が動く向き
+      L.stage = 'right';
+      L.t = 0;
+      audio.play('ui');
+      say('② 次に<b>右いっぱい</b>に切ってください');
+    } else if (L.t > 20) { learning = null; renderBindings(); }
+    return;
+  }
+  const pad = snap.find((p) => p.id === L.found.pad && (L.found.index == null || p.index === L.found.index)) || snap.find((p) => p.id === L.found.pad);
+  const v = pad?.axes[L.found.control];
+  if (v == null) return;
+  if (L.stage === 'right') {
+    // 中央を越えて、反対側へ大きく切った
+    if ((v - L.base0) * -L.leftSign > 0.35) {
+      L.stage = 'center';
+      L.t = 0;
+      L.still = 0;
+      L.last = v;
+      audio.play('ui');
+      say('③ <b>まっすぐ(中央)</b>に戻して、手を止めてください');
+    } else if (L.t > 20) { learning = null; renderBindings(); }
+    return;
+  }
+  // まっすぐに戻して止まったら(0.8 秒ほとんど動かない)、その位置を中央にする
+  const near = Math.abs(v - L.base0) < 0.3;
+  L.still = near && Math.abs(v - L.last) < 0.004 ? L.still + dt : 0;
+  L.last = v;
+  if (L.still > 0.8) {
+    const W = input.wheelCfg;
+    W.steer.center = v;
+    W.steer.invert = L.leftSign > 0; // 左へ切って軸が増える機器は反転(左 = 負にそろえる)
+    W.bindings.steer = L.found;
+    input.saveWheel();
+    learning = null;
+    audio.play('uiOk');
+    renderBindings();
+    const inv = document.querySelector('[data-set="invert"]');
+    if (inv) inv.checked = !!W.steer.invert;
+    return;
+  }
+  if (L.t > 20) { learning = null; renderBindings(); }
+}
+
 function finishLearn() {
   const L = learning;
   const W = input.wheelCfg;
