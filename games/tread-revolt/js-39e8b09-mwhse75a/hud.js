@@ -160,7 +160,7 @@ export class Hud {
     tk('.tk.r', s.tr, s.brokenR);
     const c = this.$('.hud-center');
     if (s.respawn > 0) c.textContent = `再出撃まで ${Math.ceil(s.respawn)}`;
-    else if (s.lob) c.textContent = `逆立ち曲射 ${Math.round(s.lob)}m ― 主砲で発射`;
+    else if (s.lob) c.textContent = `逆立ち曲射 ${Math.round(s.lob)}m ― 主砲で発射${s.lobGuide ? `  [${s.lobGuide}]` : ''}`;
     else c.textContent = '';
   }
 }

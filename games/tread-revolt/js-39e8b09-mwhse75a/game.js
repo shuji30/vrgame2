@@ -9,12 +9,82 @@ import { buildBoss } from './scene/bossmodels.js';
 import { FfbModel } from './core/ffbmodel.js';
 import { clamp, damp, wrapAngle, yawTo, fmtTime, DEG } from './core/util.js';
 import { bossProgress, BOSS_HINTS } from './core/boss.js';
-import { isStill } from './core/ballistics.js';
+import { isStill, LOB_MIN, LOB_MAX } from './core/ballistics.js';
 import { LIBERATION } from './core/stages.js';
 import { Vignette } from './scene/comfort.js';
 import { TankTelemetry } from './core/telemetry.js';
 
 const STEP = 1 / 60;
+// 曲射の照準の手がかり:砲塔の向きと、狙えそうな目標(曲射の距離に入っていて、向きのずれが 60° 以内。
+// 曲射でしか壊せない発射台・目標を優先)。off は目標が左なら +(度)。snap は着弾の印が目標に吸いついている
+function lobGuide(sim, me) {
+  const ty = me.yaw + me.turret;
+  let best = null, bs = 1e9;
+  for (const t of sim.ents) {
+    if (!t.alive || t.team === me.team || t.hidden || t.harmless || t.type === 'mine') continue;
+    const d = Math.hypot(t.x - me.x, t.z - me.z);
+    if (d < LOB_MIN || d > LOB_MAX) continue;
+    const off = wrapAngle(yawTo(me.x, me.z, t.x, t.z) - ty);
+    if (Math.abs(off) > 60 * DEG) continue;
+    const score = Math.abs(off) * (t.spec?.lobOnly ? 0.4 : t.objective ? 0.7 : 1);
+    if (score < bs) { bs = score; best = { t, d, off }; }
+  }
+  const r = Math.round(me.lobRangeNow || 0);
+  if (!best) return { r, text: '目標なし' };
+  const deg = Math.round(best.off / DEG);
+  // 着弾の印が目標に吸いつくのは、向きのずれが 10° 以内のとき(sim の LOB_YAW_ASSIST)
+  const snap = Math.abs(deg) <= 10 && !!me.lobSnap && me.lobTarget === best.t;
+  const name = best.t.spec?.lobOnly ? '発射台' : best.t.objective ? '目標' : '敵';
+  return { r, d: Math.round(best.d), deg, snap, name, text: snap ? '● 合っている ― 撃て' : deg > 0 ? `◀ 左へ ${deg}°` : `右へ ${-deg}° ▶` };
+}
+
+// VR 用の曲射メーター(視界の下に浮かべる板)
+function makeLobPanel() {
+  const cv = document.createElement('canvas');
+  cv.width = 512; cv.height = 160;
+  const g = cv.getContext('2d');
+  const tex = new THREE.CanvasTexture(cv);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.13), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
+  mesh.position.set(0, -0.2, -0.9);
+  mesh.renderOrder = 1001;
+  mesh.visible = false;
+  let last = '';
+  return {
+    mesh,
+    draw(info) {
+      const key = JSON.stringify(info);
+      if (key === last) return;
+      last = key;
+      g.clearRect(0, 0, 512, 160);
+      g.fillStyle = 'rgba(10,8,4,0.72)';
+      g.fillRect(0, 0, 512, 160);
+      g.font = 'bold 40px system-ui, sans-serif';
+      g.textAlign = 'left';
+      g.fillStyle = '#ffc24a';
+      g.fillText(`曲射 ${info.r}m`, 16, 48);
+      if (info.name) { g.textAlign = 'right'; g.fillStyle = '#ddd'; g.font = '30px system-ui, sans-serif'; g.fillText(`${info.name} ${info.d}m`, 496, 46); }
+      // 左右のずれのメーター(真ん中が砲塔の向き。±30° まで)
+      const cx = 256, w = 220;
+      // 合っている範囲(±10°)
+      g.fillStyle = 'rgba(108,255,138,0.25)';
+      g.fillRect(cx - (10 / 30) * w, 80, (20 / 30) * w, 24);
+      g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 3;
+      g.beginPath(); g.moveTo(cx - w, 92); g.lineTo(cx + w, 92); g.stroke();
+      g.beginPath(); g.moveTo(cx, 76); g.lineTo(cx, 108); g.stroke();
+      if (info.deg != null) {
+        const x = cx - clamp(info.deg / 30, -1, 1) * w;
+        g.fillStyle = info.snap ? '#6cff8a' : '#ff8a2a';
+        g.beginPath(); g.arc(x, 92, 13, 0, 7); g.fill();
+      }
+      g.textAlign = 'center';
+      g.font = 'bold 34px system-ui, sans-serif';
+      g.fillStyle = info.snap ? '#6cff8a' : '#f4ead8';
+      g.fillText(info.text, cx, 148);
+      tex.needsUpdate = true;
+    },
+  };
+}
+
 const PUNCH_ANIM = 0.45; // 炸薬パンチの腕の動き(秒)
 const BOSS_DEATH_T = 2.8; // ボスが倒れてから大爆発するまで(秒)
 
@@ -77,6 +147,9 @@ export class Game {
   buildVignette() {
     // vrgame4 の球型ビネット:カメラを包む球に描くので、Pimax の広い視野でも周辺まで覆える。被弾は周りを赤く縁取る
     this.vig = new Vignette(this.camera);
+    // 曲射の照準メーター(VR では画面の表示がないので、視界の下に浮かべる)
+    this.lobPanel = makeLobPanel();
+    this.camera.add(this.lobPanel.mesh);
   }
 
   // 地平線の固定表示(酔い対策の設定)
@@ -383,6 +456,11 @@ export class Game {
     const showAim = me.alive && !(me.drop > 0) && me.wheelie < 0.3;
     this.fx.setReticle(this.camera, me.aim, !!me.aim.lock, me.spread, showAim && view !== 'diorama' || (showAim && view === 'diorama'));
     this.fx.setLob(me.lobAim, me.alive && (me.wheelie > 0.05 || this.actions?.lob), this.time, !!me.lobSnap);
+    // 曲射の照準メーター:距離と、いちばん近い目標が砲塔の向きから左右に何度ずれているか
+    const lobOn = me.alive && (me.wheelie > 0.05 || !!this.actions?.lob);
+    this.lobInfo = lobOn ? lobGuide(this.sim, me) : null;
+    this.lobPanel.mesh.visible = !!(this.lobInfo && this.renderer.xr.isPresenting);
+    if (this.lobPanel.mesh.visible) this.lobPanel.draw(this.lobInfo);
     // コックピットの小物とレバー
     const accel = (me.v - (this.lastV ?? me.v)) / Math.max(dt, 1e-3);
     this.lastV = me.v;
@@ -554,6 +632,8 @@ export class Game {
     const au = this.app.audio;
     const me = this.me;
     for (const ev of sim.events) {
+      // 1 つの出来事の処理でエラーが出ても、ほかの出来事とゲームは止めない(描画ループが止まって固まるため)
+      try {
       this.app.net?.onEvent?.(ev, this);
       if (this.tutorial) (this.tutorialEvents ||= []).push(ev);
       const mine = ev.id === me.id;
@@ -689,6 +769,7 @@ export class Game {
           break;
         default: break;
       }
+      } catch (err) { this.app.reportError?.(err, `出来事 ${ev.t}`); }
     }
     sim.events.length = 0;
   }
@@ -779,7 +860,7 @@ export class Game {
     this.app.hud.update({
       ...state, view: this.activeView, reticle: true, mode: sim.mode, still: state.still, spread: me.spread,
       boss: boss ? { name: boss.name, hp: boss.alive ? bossProgress(boss) : 0 } : null,
-      respawn: !me.alive && me.respawnT > 0 ? me.respawnT : 0, lob: me.wheelie > 0.3 ? me.lobRangeNow : 0,
+      respawn: !me.alive && me.respawnT > 0 ? me.respawnT : 0, lob: me.wheelie > 0.3 ? me.lobRangeNow : 0, lobGuide: this.lobInfo?.name ? `${this.lobInfo.name} ${this.lobInfo.d}m ${this.lobInfo.text}` : '',
       teamScore: m.teamScore, rule: m.rule, target: m.target,
       timeText: m.timeLimit ? fmtTime(m.timeLeft) : '', inXR: this.renderer.xr.isPresenting,
     });

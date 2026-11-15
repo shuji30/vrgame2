@@ -1036,6 +1036,8 @@ export class Sim {
     if (p.link) { const q = e.parts.find((x) => x.name === p.link); if (q && q.alive) { p = q; dmg *= 2.5; } }
     if (e.stunned) dmg *= 1.5;
     p.hp -= dmg;
+    // 撃たれたボスは目を覚ます(眠ったまま遠くから一方的に倒されないように)
+    if (e.ai?.state === 'sleep') this.wake(e, 'hit');
     this.emit({ t: 'hitPart', id: e.id, part: p.name, hp: p.hp / p.maxHp, x: s.x, y: s.y, z: s.z, by: s.owner, weak: !!p.weak || !!p.link });
     this.creditHit(s.owner);
     if (p.hp <= 0) {
