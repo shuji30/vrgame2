@@ -741,6 +741,9 @@ export class Game {
           if (ev.by === me.id && ev.id !== me.id) this.app.hud.killPop(ev.type);
           break;
         }
+        case 'dryfire':
+          if (mine) { this.app.hud.pop('装填中', 'deflect'); au.play('click', { gain: 0.4 }); }
+          break;
         case 'punch': {
           // 炸薬パンチ:腕を振り、拳の先で炸薬が弾け、腕の後ろから空薬莢が飛び出す
           const m = this.models.get(ev.id);

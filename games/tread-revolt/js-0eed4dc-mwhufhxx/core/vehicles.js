@@ -53,7 +53,7 @@ export const UNITS = {
   scout: { hp: 22, speed: 14, accel: 12, track: 2.2, turnMax: 1.6, turret: 120 * DEG, reload: 0.12, dmg: 1.2, shellSpeed: 120, radius: 1.9, height: 1.8, wake: 60, range: 40, score: 150, body: 'tank', kind: 'scout', mg: true },
   truck: { hp: 30, speed: 8, accel: 4, track: 2.4, turnMax: 0.8, turret: 0, reload: 99, dmg: 0, shellSpeed: 0, radius: 2.4, height: 3, wake: 45, range: 0, score: 2000, body: 'tank', kind: 'truck', harmless: true, bonus: true },
   turret8: { hp: 30, reload: 4.4, dmg: 10, shellSpeed: 45, radius: 2.4, height: 2.2, wake: 45, range: 60, score: 150, body: 'static', kind: 'turret8' },
-  bigTurret: { hp: 150, turret: 30 * DEG, reload: 3.2, dmg: 18, shellSpeed: 75, radius: 3.6, height: 4.5, wake: 75, range: 95, score: 1000, body: 'static', kind: 'bigTurret', objective: true },
+  bigTurret: { hp: 150, turret: 30 * DEG, reload: 3.2, dmg: 18, shellSpeed: 75, radius: 3.6, height: 4.5, wake: 130, range: 150, score: 1000, body: 'static', kind: 'bigTurret', objective: true },
   launcher: { hp: 110, reload: 7, dmg: 18, shellSpeed: 24, radius: 4.0, height: 3.0, wake: 90, range: 120, score: 1200, body: 'static', kind: 'launcher', objective: true, lobOnly: true, missiles: true },
   mine: { hp: 1, dmg: 26, radius: 0.9, height: 0.6, wake: 9, range: 6, score: 50, body: 'static', kind: 'mine' },
   skyFortress: { hp: 160, reload: 6, dmg: 16, radius: 9, height: 4, wake: 110, range: 120, score: 3000, body: 'air', kind: 'skyFortress', airOnly: true, bonus: true },
