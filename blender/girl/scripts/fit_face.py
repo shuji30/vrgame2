@@ -46,6 +46,7 @@ for v in me.vertices:
     c = cl if p.x > 0 else cr; d = p-c; L = d.length
     if L > 0.048: continue
     w = 1-ss((L-r*1.05)/(0.048-r*1.05))
+    w *= ss(abs(p.x)/0.016)                          # 顔の中央では 0 にする（左右の拡大がぶつかって、眉間に筋が出るのを防ぐ）
     sc = Vector((EYE_BALL,)*3) if any(g.group in eyeg and g.weight > 0.5 for g in v.groups) else Vector((EYE_SX, EYE_BALL, EYE_SZ))
     tilt = 0.0 if any(g.group in eyeg and g.weight > 0.5 for g in v.groups) else (abs(p.x)-abs(c.x))*math.tan(math.radians(EYE_TILT))   # 目尻側を上げ、目頭側を少し下げる
     k.data[v.index].co = basis[v.index].co+(Vector((d.x*sc.x, d.y*sc.y, d.z*sc.z))+Vector((0, 0, tilt)))*w

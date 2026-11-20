@@ -39,6 +39,7 @@ for mn in ("Lash", "LashLower"):
 
 fp = ob["face_params"].to_dict(); fp["EYE_TILT"] = TILT
 for q in "lr": kb[f"{q}-eye-corner2-up"].value = CORNER
+for _k, _v in globals().get("EXTRA_KEYS", {}).items(): kb[_k].value = _v      # ほかの顔の形もここで入れる（線の合わせ直しに含めるため）
 exec(compile(open(D+"fit_face.py", encoding="utf-8").read(), D+"fit_face.py", "exec"), dict(fp)); ob["face_params"] = fp
 
 co = full(); cx, cz = lidc()

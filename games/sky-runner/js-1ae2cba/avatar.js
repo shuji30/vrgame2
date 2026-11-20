@@ -1,6 +1,6 @@
 // プレイヤーの見た目 (宇宙船 / 人間 / 女の子) と視点 (一人称 / 三人称)
 // モデルは Blender で作った assets/ship.glb と assets/harrier.glb (blender の元データは assets/models.blend)、
-// 女の子は「ふたりの休日」の assets/girl.vrm (src/girl.js)。15MB と大きく three-vrm も要るので、選んだときに初めて読む
+// 女の子は assets/girl.vrm と assets/girl2.vrm (src/girl.js)。6〜7MB と大きく three-vrm も要るので、選んだときに初めて読む
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { CockpitPanel, openCockpit } from './cockpit.js';
@@ -13,6 +13,11 @@ const THIRD_OFFSET = {
 };
 // 当たり判定の半径 (m)。宇宙船と人間で難しさが変わらないよう、同じにする (宇宙船は翼が大きいが、遊びやすさを優先して小さめ)
 const RADIUS = { ship: 0.6, human: 0.6, girl: 0.6 };
+// 女の子のモデル。ankle: 足首のボーンから靴の底までの高さ (m)。ストリートコーデはヒールのブーツなので高い
+export const GIRLS = {
+  swim: { file: 'girl.vrm', ankle: 0.09 },
+  street: { file: 'girl2.vrm', ankle: 0.144 },
+};
 
 // 宇宙船のほかは、自分の体で飛ぶ (地面を走る・一人称では体を出さない・やられると倒れる)
 export const onFoot = (kind) => kind !== 'ship';
@@ -129,17 +134,27 @@ export class Avatar {
 
   // 女の子 (VRM) を読む (1 回だけ)。three-vrm が読めなくても、ほかのプレイヤーでは遊べるように import も後から。
   // 炎は人間のモデルのものを借りる
-  loadGirl() {
-    this.girlLoading ||= (async () => {
+  // model: GIRLS のキー ('swim' | 'street')。読んだことのあるモデルは覚えておき、選び直すとすぐ入れ替わる
+  loadGirl(model = 'swim') {
+    if (!GIRLS[model]) model = 'swim';
+    this.girlWant = model;
+    this.girlLoading ||= {};
+    this.girlLoading[model] ||= (async () => {
       await this.loaded;
       const { loadGirl } = await import('./girl.js');
-      const girl = await loadGirl(this.base + 'girl.vrm', this.models.human?.obj.getObjectByName('HFlameL'));
+      const girl = await loadGirl(this.base + GIRLS[model].file, this.models.human?.obj.getObjectByName('HFlameL'), GIRLS[model]);
       girl.obj.visible = false;
       this.mount.add(girl.obj);
-      this.models.girl = girl;
       return girl;
     })();
-    return this.girlLoading;
+    return this.girlLoading[model].then((girl) => {
+      // 読んでいる間に選び直されていたら、最後に選んだほうだけを出す
+      if (this.girlWant === model && this.models.girl !== girl) {
+        if (this.models.girl) this.models.girl.obj.visible = false;
+        this.models.girl = girl;
+      }
+      return girl;
+    });
   }
 
   get ready() { return Object.keys(this.models).length > 0; }

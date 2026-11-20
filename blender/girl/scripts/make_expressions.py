@@ -38,7 +38,7 @@ teeth = set(mem("helper-upper-teeth").tolist()) | set(mem("helper-lower-teeth").
 lips = mem("lips"); lipset = set(lips.tolist()); bodyg = ob.vertex_groups["body"]
 # 前の実行で口のまわりから隠した肌の頂点を、いったん見える状態に戻す（補助の形・関節の目印・服の下は除く）
 _helper = {g.index for g in ob.vertex_groups if g.name.startswith(("helper-", "joint-")) or g.name in ("HelperGeometry", "JointCubes", "hidden_by_clothes", "body")}
-_back = [v.index for v in me.vertices if abs(X[v.index]) < 0.04 and 1.42 < Z[v.index] < 1.50 and Y[v.index] < -0.05
+_back = [v.index for v in me.vertices if abs(X[v.index]) < 0.06 and 1.38 < Z[v.index] < 1.56
          and not any(g.group in _helper and g.weight > 0.5 for g in v.groups)]
 if _back: bodyg.add(_back, 1.0, 'REPLACE')
 bodyg.remove(sorted(teeth | tongue))                     # 歯と舌は隠したままにする。顔の形を大きく変えてあるので位置が合わず、口を開けると欠けらのように見えた。
@@ -65,6 +65,7 @@ for e_ in me.edges:
     a_, b_ = e_.vertices
     if a_ in lipset or b_ in lipset: continue
     if not (AX[a_] < 0.035 and AX[b_] < 0.035 and 1.43 < Z[a_] < 1.50 and 1.43 < Z[b_] < 1.50 and Y[a_] > YSEAM-0.001 and Y[b_] > YSEAM-0.001): continue
+    if Y[a_] > YSEAM+0.055 or Y[b_] > YSEAM+0.055: continue      # 口の奥行きまで（これがないと、首の後ろの肌まで隠してしまう）
     _adj.setdefault(a_, []).append(b_); _adj.setdefault(b_, []).append(a_)
 _sock = set(_seed); _todo = list(_seed)
 while _todo:
@@ -111,7 +112,7 @@ _cx0 = float(np.abs(B0[lips][:, 0]).max()); _mem = set()
 for p in me.polygons:
     vs = list(p.vertices)
     if max(abs(B0[v][0]) for v in vs) > _cx0-0.004 or abs(np.mean([B0[v][2] for v in vs])-ZC0) > 0.014: continue
-    if 0 < sum(lab[v] for v in vs) < len(vs): _mem.update(v for v in vs if v not in lipset and Y[v] > YSEAM-0.0015)      # 合わせ目より奥だけ（手前の肌は隠さない）
+    if 0 < sum(lab[v] for v in vs) < len(vs): _mem.update(v for v in vs if v not in lipset and YSEAM-0.0015 < Y[v] < YSEAM+0.055)      # 合わせ目より奥で、口の奥行きまで（手前の肌も、後頭部の肌も隠さない）
 if _mem: bodyg.remove(sorted(_mem))
 # 口角は動かさない：唇の高さでは、口角へ向かって下あごの重みを 0 にする（口が、口角を両端にした形に開く）
 _cx = float(np.abs(B0[lips][:, 0]).max())
@@ -206,7 +207,8 @@ old_bag = bpy.data.objects.get("Girl_MouthBag")
 if old_bag: bpy.data.objects.remove(old_bag, do_unlink=True)
 import bmesh
 from mathutils import Vector
-bmb = bmesh.new(); BC = Vector((0.0, YSEAM+0.030, ZC-0.006)); BRX, BRY, BRZ = 0.026, 0.026, 0.030
+BAG = globals().get("BAG", 1.0)                           # 袋の大きさの倍率。あごの小さい顔では小さくする（あごの下からはみ出すため）
+bmb = bmesh.new(); BC = Vector((0.0, YSEAM+0.030*BAG, ZC-0.006*BAG)); BRX, BRY, BRZ = 0.026*BAG, 0.026*BAG, 0.030*BAG
 rings = []
 for i in range(1, 9):
     a = math.pi*i/9

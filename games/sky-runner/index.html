@@ -50,7 +50,7 @@
   /* 機体の選択カード */
   .section-label { margin: 6px 0 -6px; font-size: 12px; letter-spacing: 0.2em; color: var(--sun); }
   .players { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
-  .players.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .players.three { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .players.three .card { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; gap: 4px; padding: 10px 6px; }
   .players label { cursor: pointer; }
   .players input { position: absolute; opacity: 0; }
@@ -233,7 +233,7 @@
     <button id="btnTheme" class="theme-btn" type="button">♪ オープニング曲を<span>聞く</span></button>
 
     <p class="section-label">SELECT PLAYER</p>
-    <div class="players three" role="radiogroup" aria-label="プレイヤー">
+    <div class="players three" role="radiogroup" aria-label="プレイヤー"><!-- three: カードを横に並べる (いまは 4 枚) -->
       <label><input type="radio" name="player" value="ship"><span class="card">
         <svg viewBox="0 0 54 44" aria-hidden="true"><path d="M27 2 L33 22 L52 30 L52 34 L33 31 L31 40 L27 37 L23 40 L21 31 L2 34 L2 30 L21 22 Z" fill="#e8ecf4"/><path d="M27 10 L30 22 L24 22 Z" fill="#3ec0ff"/><path d="M8 30 L21 26 L21 29 Z M46 30 L33 26 L33 29 Z" fill="#2a5bd8"/></svg>
         <span><b>宇宙船</b><small>コックピットから操縦</small></span></span></label>
@@ -243,6 +243,9 @@
       <label><input type="radio" name="player" value="girl"><span class="card">
         <svg viewBox="0 0 54 44" aria-hidden="true"><path d="M17 12 Q17 2 27 2 Q37 2 37 12 L38 24 L16 24 Z" fill="#5a3a2a"/><circle cx="27" cy="11" r="7" fill="#ffe0c8"/><path d="M20 7 Q27 2 34 7 L34 9 Q27 5 20 9 Z" fill="#5a3a2a"/><rect x="21" y="18" width="12" height="10" rx="3" fill="#ffffff"/><path d="M33 20 L46 19 L46 22 L33 23 Z" fill="#ffe0c8"/><circle cx="48" cy="20" r="3" fill="#ffb347"/><path d="M20 27 L34 27 L37 33 L17 33 Z" fill="#e2668c"/><path d="M22 33 L20 40 L23 40 L25 33 Z M29 33 L31 40 L34 40 L32 33 Z" fill="#ffe0c8"/><path d="M19 40 L24 40 L24 42 L19 42 Z M30 40 L35 40 L35 42 L30 42 Z" fill="#3ec0ff"/></svg>
         <span><b>女の子</b><small>水着コーデ</small></span></span></label>
+      <label><input type="radio" name="player" value="girl2"><span class="card">
+        <svg viewBox="0 0 54 44" aria-hidden="true"><path d="M36 6 Q46 8 45 22 Q44 30 40 34 Q42 22 37 14 Z" fill="#6b3a1e"/><path d="M17 12 Q17 2 27 2 Q37 2 37 12 L37 16 L17 16 Z" fill="#6b3a1e"/><circle cx="27" cy="11" r="7" fill="#ffe0c8"/><path d="M20 8 Q25 2 34 6 L34 8 Q26 5 20 10 Z" fill="#6b3a1e"/><rect x="21" y="18" width="12" height="7" rx="2" fill="#23252b"/><rect x="22" y="25" width="10" height="3" fill="#ffe0c8"/><path d="M33 19 L46 18 L46 21 L33 22 Z" fill="#ffe0c8"/><circle cx="48" cy="19" r="3" fill="#ffb347"/><path d="M20 28 L34 28 L35 33 L19 33 Z" fill="#23252b"/><rect x="19" y="27" width="16" height="2" fill="#7d8a3c"/><path d="M22 33 L21 37 L24 37 L25 33 Z M29 33 L30 37 L33 37 L32 33 Z" fill="#8a8794"/><path d="M20 37 L25 37 L25 42 L20 42 Z M29 37 L34 37 L34 42 L29 42 Z" fill="#17181c"/></svg>
+        <span><b>女の子 2</b><small>ストリートコーデ</small></span></span></label>
     </div>
 
     <p class="section-label">MODE</p>
@@ -432,7 +435,7 @@
     <button class="tbtn fire" data-hold="fire" aria-label="射撃">FIRE</button>
   </div>
 </div>
-<script type="module" src="./js-cee6fd8/main.js"></script>
+<script type="module" src="./js-1ae2cba/main.js"></script>
 <script>
   // vrgame2 (ゲーム選択画面) の中に置かれたときだけ、戻るリンクとデプロイ日時を出す
   if (/\/games\/[^/]+\/?(index\.html)?$/.test(location.pathname)) {

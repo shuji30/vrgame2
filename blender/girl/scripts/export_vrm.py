@@ -10,6 +10,7 @@ from mathutils import Vector, Matrix
 
 D = "C:\\Users\\shuji\\Documents\\girl-blender\\"
 OUT = D+"export\\"; os.makedirs(OUT, exist_ok=True)
+NAME = globals().get("NAME", "girl"); TITLE = globals().get("TITLE", "Girl (swim)")      # 出力ファイル名（NAME.vrm）と、モデルの名前
 sc = bpy.context.scene; rig = bpy.data.objects["Girl_Rig"]; arm = rig.data
 EXPS = ("aa", "ih", "ou", "ee", "oh", "happy", "surprised", "blink")
 for o in [o for o in bpy.data.objects if o.name.startswith("X_")]: bpy.data.objects.remove(o, do_unlink=True)
@@ -123,6 +124,9 @@ for mt in M: xb.data.materials.append(mt)
 for p, g in zip(xb.data.polygons, pm): p.material_index = g
 print("baked body")
 # 髪・柄のある服
+def _linked(mt):
+    b = next((x for x in mt.node_tree.nodes if x.type == "BSDF_PRINCIPLED"), None) if mt and mt.node_tree else None
+    return bool(b and b.inputs["Base Color"].is_linked)
 for o in others.values():
     mats = [s.name for s in o.material_slots]
     if o.name.startswith("X_Hair"):
@@ -132,6 +136,13 @@ for o in others.values():
     elif "S_Pattern" in mats or "J_Pattern" in mats:
         unwrap(o); ci = image("bake_"+o.name, 1024)
         bake(o, {nm: ci for nm in mats}); merge(ci, None, OUT+o.name+".png"); one_material(o, texmat(o.name+"_M", ci))
+    elif any(_linked(s.material) for s in o.material_slots):      # 計算で描いた柄（デニムなど）の材質だけを画像に焼く。金具などはそのまま
+        lk = [s.name for s in o.material_slots if _linked(s.material)]
+        unwrap(o); ci = image("bake_"+o.name, 1024)
+        bake(o, {nm: ci for nm in lk}); merge(ci, None, OUT+o.name+".png"); tm = texmat(o.name+"_M", ci)
+        for s in o.material_slots:
+            if s.name in lk: s.material = tm
+            else: s.material.use_backface_culling = False
     else:
         for s in o.material_slots: s.material.use_backface_culling = False
     print("baked", o.name)
@@ -148,7 +159,7 @@ for e in EXPS:
     ex = getattr(v1.expressions.preset, e); ex.morph_target_binds.clear()
     for obj in [xb]+[o for o in others.values() if o.data.shape_keys and "exp-"+e in o.data.shape_keys.key_blocks]:
         bd = ex.morph_target_binds.add(); bd.node.mesh_object_name = obj.name; bd.index = "exp-"+e; bd.weight = 1.0
-v1.meta.vrm_name = "Girl (swim)"; v1.meta.version = "1"
+v1.meta.vrm_name = TITLE; v1.meta.version = "1"
 v1.meta.authors.clear(); v1.meta.authors.add().value = "shuji30"
 # T ポーズ：腕を真横、脚を真下へ
 rig.data.pose_position = 'POSE'; P = rig.pose.bones
@@ -168,8 +179,8 @@ except Exception as err: print("pose enum:", [i.identifier for i in v1.humanoid.
 for o in bpy.context.view_layer.objects: o.select_set(False)
 for o in [rig, xb]+list(others.values()): o.select_set(True)
 bpy.context.view_layer.objects.active = rig
-res = bpy.ops.export_scene.vrm(filepath=OUT+"girl.vrm", export_only_selections=True, export_invisibles=False, armature_object_name=rig.name, ignore_warning=True)
-print("export:", res, os.path.getsize(OUT+"girl.vrm") if os.path.exists(OUT+"girl.vrm") else "no file")
+res = bpy.ops.export_scene.vrm(filepath=OUT+NAME+".vrm", export_only_selections=True, export_invisibles=False, armature_object_name=rig.name, ignore_warning=True)
+print("export:", res, os.path.getsize(OUT+NAME+".vrm") if os.path.exists(OUT+NAME+".vrm") else "no file")
 # 片づけ
 for pb in P:
     md, q, l = saved[pb.name]; pb.rotation_mode = md; pb.rotation_quaternion = q; pb.location = l
