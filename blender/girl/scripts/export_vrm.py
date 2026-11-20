@@ -12,11 +12,18 @@ D = "C:\\Users\\shuji\\Documents\\girl-blender\\"
 OUT = D+"export\\"; os.makedirs(OUT, exist_ok=True)
 NAME = globals().get("NAME", "girl"); TITLE = globals().get("TITLE", "Girl (swim)")      # 出力ファイル名（NAME.vrm）と、モデルの名前
 sc = bpy.context.scene; rig = bpy.data.objects["Girl_Rig"]; arm = rig.data
-EXPS = ("aa", "ih", "ou", "ee", "oh", "happy", "surprised", "blink")
+EXPS = ("aa", "ih", "ou", "ee", "oh", "happy", "surprised", "blink", "relaxed", "blinkLeft", "blinkRight")
 for o in [o for o in bpy.data.objects if o.name.startswith("X_")]: bpy.data.objects.remove(o, do_unlink=True)
 col = bpy.data.collections.get("Export") or bpy.data.collections.new("Export")
 if col.name not in sc.collection.children: sc.collection.children.link(col)
 rig.data.pose_position = 'REST'; bpy.context.view_layer.update()
+if "hairSwingEnd" not in arm.bones:                     # 髪の揺れ骨の先（揺れものは、骨が 2 つつながっていないと動かない）
+    for o in bpy.context.view_layer.objects: o.select_set(False)
+    _hid = (rig.hide_viewport, rig.hide_get()); rig.hide_viewport = False; rig.hide_set(False)      # 隠してあると編集に入れない
+    rig.select_set(True); bpy.context.view_layer.objects.active = rig; bpy.ops.object.mode_set(mode='EDIT')
+    _p = arm.edit_bones["hairSwing"]; _e = arm.edit_bones.new("hairSwingEnd"); _e.head = _p.tail; _e.tail = _p.tail+(_p.tail-_p.head).normalized()*0.05; _e.parent = _p; _e.use_connect = True
+    bpy.ops.object.mode_set(mode='OBJECT')
+    rig.hide_viewport = _hid[0]; rig.hide_set(_hid[1])
 
 # ── 1) 写しを作る ──
 def copy_obj(src, name):
@@ -153,14 +160,27 @@ ext = arm.vrm_addon_extension; ext.spec_version = ext.SPEC_VERSION_VRM1; v1 = ex
 def snake(s): return re.sub(r"(?<!^)(?=[A-Z])", "_", s).lower()
 hb = v1.humanoid.human_bones
 for b in arm.bones:
-    if b.name == "hairSwing": continue
+    if b.name.startswith("hairSwing"): continue
     getattr(hb, snake(b.name)).node.bone_name = b.name
 for e in EXPS:
-    ex = getattr(v1.expressions.preset, e); ex.morph_target_binds.clear()
+    ex = getattr(v1.expressions.preset, snake(e)); ex.morph_target_binds.clear()
     for obj in [xb]+[o for o in others.values() if o.data.shape_keys and "exp-"+e in o.data.shape_keys.key_blocks]:
         bd = ex.morph_target_binds.add(); bd.node.mesh_object_name = obj.name; bd.index = "exp-"+e; bd.weight = 1.0
+# 視線：目の骨を回して、見る相手を追う。目の位置（頭の骨から見た、両目のまん中）を入れる
+_hb = arm.bones["head"].head_local; _em = (arm.bones["leftEye"].head_local+arm.bones["rightEye"].head_local)/2
+v1.look_at.type = 'bone'; v1.look_at.offset_from_head_bone = tuple(_em-_hb)
+for _n, _out in (("range_map_horizontal_inner", 8.0), ("range_map_horizontal_outer", 10.0), ("range_map_vertical_down", 8.0), ("range_map_vertical_up", 8.0)):
+    _r = getattr(v1.look_at, _n); _r.input_max_value = 90.0; _r.output_scale = _out
+# 揺れもの：髪（耳の高さから下）を、頭の動きに遅れて揺らす
+_sb = ext.spring_bone1
+while len(_sb.springs): bpy.ops.vrm.remove_spring_bone1_spring(armature_object_name=rig.name, spring_index=0)
+bpy.ops.vrm.add_spring_bone1_spring(armature_object_name=rig.name); _sp = _sb.springs[0]; _sp.vrm_name = "hair"
+for _bn in ("hairSwing", "hairSwingEnd"):
+    bpy.ops.vrm.add_spring_bone1_spring_joint(armature_object_name=rig.name, spring_index=0, guess_properties=False)
+    _j = _sp.joints[-1]; _j.node.bone_name = _bn; _j.hit_radius = 0.0; _j.stiffness = 0.8; _j.gravity_power = 0.35; _j.gravity_dir = (0, 0, -1); _j.drag_force = 0.45
 v1.meta.vrm_name = TITLE; v1.meta.version = "1"
 v1.meta.authors.clear(); v1.meta.authors.add().value = "shuji30"
+v1.meta.commercial_usage = "corporation"                 # 売り物のゲームに使えるように、商用利用を許可（再配布・改変は「不可」のまま）
 # T ポーズ：腕を真横、脚を真下へ
 rig.data.pose_position = 'POSE'; P = rig.pose.bones
 sw = [(c, c.mute) for c in P["hairSwing"].constraints]

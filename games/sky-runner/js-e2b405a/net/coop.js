@@ -15,10 +15,8 @@ export function setupCoop({ scene, avatar, hooks }) {
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(STORE) || '{}'); } catch (_) { /* 既定値 */ }
   $('coopName').value = saved.name || '';
-  // ルームの仲介は PeerJS (peersignal.js)。?coopServer=<api.php の URL> を付けたときだけ、以前のサーバー方式を使う
-  // (以前に保存したサーバーの URL は、終了したレンタルサーバーなので使わない)
-  const server = new URLSearchParams(location.search).get('coopServer') || DEFAULT_SERVER;
-  const save = () => { try { localStorage.setItem(STORE, JSON.stringify({ name: $('coopName').value.trim() })); } catch (_) { /* 保存できない */ } };
+  const server = new URLSearchParams(location.search).get('coopServer') || saved.server || DEFAULT_SERVER;
+  const save = () => { try { localStorage.setItem(STORE, JSON.stringify({ name: $('coopName').value.trim(), server })); } catch (_) { /* 保存できない */ } };
 
   let session = null;
   const handlers = new Map(); // 出来事の種類 → 受け取る関数 (main.js が on() で登録する。ルームに入るたびに付け直す)

@@ -1,20 +1,17 @@
 // 協力プレイのセッション: ルーム (4 文字のコード) に集まり、WebRTC で全員とつながる。
-// つなぎ方は TURBO KART と同じ (mesh.js)。ルームの仲介は PeerJS の公開サーバーとホストのブラウザ (peersignal.js)。
-// レンタルサーバー (server/api.php) は終了したので使わない (URL に ?coopServer=<api.php の URL> を付けたときだけ使う)。計画は docs/coop-plan.md
+// サーバーとつなぎ方は TURBO KART と同じ (mesh.js)。計画は docs/coop-plan.md
 //   ロビー … 名前・プレイヤーの種類・準備ができたか を知らせ合う
 //   出撃   … ホストが面と難しさを決めて、全員に「この時刻に出撃」を配る
 //   プレイ中… 自分の位置を 1 秒に 15 回配る (state)。出来事 (敵の出現・撃破など) は ctl で順番どおりに
 import { SignalClient, Mesh } from './mesh.js';
-import { PeerSignalClient } from './peersignal.js';
 
 export const COOP_MAX = 4;
 export const GAME_TAG = 'sky-runner'; // TURBO KART と同じサーバーなので、ちがうゲームのルームには入らない
-// 以前のレンタルサーバー (終了した)。既定では使わない
-export const DEFAULT_SERVER = '';
+export const DEFAULT_SERVER = 'https://2026082302062910047985.onamaeweb.jp/vrgame2/server/api.php';
 
 export class CoopSession {
   constructor(base) {
-    this.signal = base ? new SignalClient(base) : new PeerSignalClient('skyrunner');
+    this.signal = new SignalClient(base);
     this.mesh = new Mesh(this.signal, (id, m) => this.onPeerMessage(id, m), () => this.emit());
     this.players = [];       // サーバーから届く [{ id, name, joined }]
     this.host = null;

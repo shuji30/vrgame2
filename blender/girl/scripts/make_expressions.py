@@ -186,7 +186,10 @@ SHAPES = {
     "happy": mouth(open_deg=6.0, wide=0.09, smile=1.0, upper=0.0035)+eyes(close=0.22, lower_up=0.0022),
     "surprised": mouth(open_deg=11.0, wide=-0.14, pucker=0.002, upper=0.0030)+eyes(widen=0.0028, lower_up=-0.0008),
     "blink": eyes(close=1.0),
+    "relaxed": mouth(smile=0.45)+eyes(close=0.30, lower_up=0.0015),      # くつろいだ顔：目を細めて、口角を少し上げる
 }
+_left = (X > 0)[:, None]                                 # 本人の左（+X）
+SHAPES["blinkLeft"] = eyes(close=1.0)*_left; SHAPES["blinkRight"] = eyes(close=1.0)*(~_left)      # 片目のまばたき（ウインク）
 basis = kb["Basis"].data
 for n, D in SHAPES.items():
     k = kb.get("exp-"+n) or ob.shape_key_add(name="exp-"+n, from_mix=False)
