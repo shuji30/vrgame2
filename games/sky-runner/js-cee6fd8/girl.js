@@ -1,4 +1,4 @@
-// プレイヤーの女の子 (「ふたりの休日」の女の子)。モデルは assets/girl.vrm (VRM 1.0)
+// プレイヤーの女の子。モデルは assets/girl.vrm (VRM 1.0)。Blender で作った自前のモデル (vrgame2 の blender/girl/。export_vrm.py で書き出す)
 // VRM にはモーションが入っていないので、飛ぶ姿勢・走る姿勢は正規化ボーンに角度を入れて作る。
 // 正規化ボーンは T ポーズで向きがそろっている (前 = +Z、上 = +Y)。
 //   x を + に回すと: 背骨は前へ倒れ、腿は後ろへ、すねは膝を曲げる向き
@@ -40,9 +40,9 @@ function runPose(sw) {
     rightFoot: [0, 0, 0],
   };
 }
-// モデルは身長 1.4 m と小柄なので、人間 (ハリアー。飛ぶ姿勢で高さ約 2 m) と同じくらいの大きさにする
-const SCALE = 1.5;
-const ANKLE = 0.07 * SCALE; // 足首のボーンから靴の底までの高さ (m)
+// モデルは身長 1.65 m。人間 (ハリアー。飛ぶ姿勢で高さ約 2 m) と同じくらいの大きさにする
+const SCALE = 1.27;
+const ANKLE = 0.09 * SCALE; // 足首のボーンから靴の底までの高さ (m)
 
 // flameSrc: 炎のメッシュ (人間のモデルの HFlameL)。無ければ炎を出さない
 export async function loadGirl(url, flameSrc) {

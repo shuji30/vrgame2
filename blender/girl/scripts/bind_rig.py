@@ -26,7 +26,7 @@ if rig:
     kd = kdtree.KDTree(len(src))
     for j, i in enumerate(src): kd.insert(co[i], j)
     kd.balance()
-    HEAD_ONLY = ("Girl_Hair", "Girl_Brows", "Jirai_Headphones")
+    HEAD_ONLY = ("Girl_Hair", "Girl_Brows", "Girl_MouthBag", "Jirai_Headphones")
     n_done = 0
     for o in bpy.data.objects:
         if o.type != 'MESH' or o is body or o.parent_type == 'BONE': continue      # 骨に直接付けた小物（サングラスなど）はそのまま
@@ -121,6 +121,6 @@ if rig:
             pre = o.name.split("_")[0]; under = bpy.data.objects.get(pre+"_Shorts") or bpy.data.objects.get(pre+"_Inner")
             add_pushout(o, body, under, 0.011)
         elif o.name.startswith("Girl_Hair"):
-            add_pushout(o, body, top_now, 0.006)
+            add_pushout(o, body, top_now, 0.003)       # 髪は基本の姿勢でも肌のすぐ近くにあるので、小さめにする
     rig.data.pose_position = was
     print("bound to rig:", n_done, "objects")

@@ -1,6 +1,6 @@
 // プレイヤーの見た目 (宇宙船 / 人間 / 女の子) と視点 (一人称 / 三人称)
 // モデルは Blender で作った assets/ship.glb と assets/harrier.glb (blender の元データは assets/models.blend)、
-// 女の子は「ふたりの休日」の assets/girl.vrm (src/girl.js)。15MB と大きく three-vrm も要るので、選んだときに初めて読む
+// 女の子は assets/girl.vrm (src/girl.js)。6.5MB と大きく three-vrm も要るので、選んだときに初めて読む
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { CockpitPanel, openCockpit } from './cockpit.js';
