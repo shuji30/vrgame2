@@ -76,13 +76,14 @@ try {
 } catch (_) { /* 保存なし */ }
 
 // ---- 設定 (localStorage に保存)
-const settings = { scale: 1.0, bgm: true, engine: true, invertY: false, player: 'ship', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true, autoFire: true, hard: false, seated: false, leftHanded: false, storyAlways: false, realMusic: true, realSfx: true };
+const settings = { scale: 1.0, bgm: true, engine: true, invertY: false, player: 'ship', girl: 'swim', view: '1st', mode: '3d', vignette: 'weak', vrGentle: true, autoFire: true, hard: false, seated: false, leftHanded: false, storyAlways: false, realMusic: true, realSfx: true };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('skyrunner.settings') || '{}')); } catch (_) { /* 保存なし */ }
-// 開発用: ?player=ship|human|girl&view=1st|3rd で上書きする
+// 開発用: ?player=ship|human|girl|girl2&view=1st|3rd で上書きする
 for (const key of ['player', 'view', 'mode']) {
   const v = new URLSearchParams(location.search).get(key);
   if (v) settings[key] = v;
 }
+if (settings.player === 'girl2') { settings.player = 'girl'; settings.girl = 'street'; } // ?player=girl2 は、女の子のストリートコーデ
 const applyAudioSettings = () => { setBGMEnabled(settings.bgm); setEngineEnabled(settings.engine); setRealMusic(settings.realMusic); setRealSfx(settings.realSfx); };
 setRealMusic(settings.realMusic); // リアルミュージックとリアル効果音の設定は、開いた直後から (サウンドテストの試聴にも) 効かせる
 setRealSfx(settings.realSfx);
@@ -1465,7 +1466,7 @@ function update(dt) {
   if (S.mode === 'title') {
     // パッドの A / START でもデスクトップモードを開始できる
     if (a.confirm && (a.source === 'pad' || a.source === 'wheel') && !renderer.xr.isPresenting) startPlay();
-    if (a.leftRight) setPlayer(PLAYERS[Math.max(0, Math.min(PLAYERS.length - 1, PLAYERS.indexOf(settings.player) + Math.sign(a.leftRight)))]);
+    if (a.leftRight) setPlayer(CHOICES[Math.max(0, Math.min(CHOICES.length - 1, CHOICES.indexOf(playerChoice()) + Math.sign(a.leftRight)))]);
   } else if (S.mode === 'over') {
     // ゲームオーバー: 景色だけゆっくり止まっていく。2 秒たったら、もう一度 / タイトルへ
     S.overT += dt;
@@ -1791,20 +1792,26 @@ const status = document.getElementById('status');
 const padStatus = document.getElementById('pads');
 
 // プレイヤーの選択 (宇宙船 / 人間 / 女の子)。パッドの左右でも切り替えられる
+// 女の子はモデルを 2 つから選べる: 画面のカードは girl (水着コーデ) と girl2 (ストリートコーデ)。
+// プレイヤーの種類 (settings.player) はどちらも 'girl' で、モデルは settings.girl ('swim' | 'street') に持つ
 const PLAYERS = ['ship', 'human', 'girl'];
+const CHOICES = ['ship', 'human', 'girl', 'girl2'];
+const playerChoice = () => (settings.player === 'girl' && settings.girl === 'street' ? 'girl2' : settings.player);
 const playerInputs = [...document.querySelectorAll('input[name="player"]')];
-function setPlayer(kind) {
+function setPlayer(choice) {
+  const kind = choice === 'girl2' ? 'girl' : choice;
+  if (kind === 'girl') settings.girl = choice === 'girl2' ? 'street' : 'swim';
   settings.player = kind;
   saveSettings();
-  playerInputs.forEach((el) => { el.checked = el.value === kind; });
+  playerInputs.forEach((el) => { el.checked = el.value === choice; });
   coop?.setKind(kind);
   if (kind === 'girl') {
-    avatar.loadGirl()
+    avatar.loadGirl(settings.girl)
       .then((g) => { if (g.credit) document.getElementById('credit').textContent = `女の子のモデル: ${g.credit}`; }) // VRM のライセンスで作者の表示が要る
       .catch((e) => console.error('女の子のモデルを読み込めませんでした', e));
   }
 }
-setPlayer(PLAYERS.includes(settings.player) ? settings.player : 'ship');
+setPlayer(PLAYERS.includes(settings.player) ? playerChoice() : 'ship');
 // モードの選択 (3D / 横スクロール)
 const modeInputs = [...document.querySelectorAll('input[name="mode"]')];
 function setMode(mode) {

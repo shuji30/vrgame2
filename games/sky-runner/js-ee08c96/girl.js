@@ -1,4 +1,4 @@
-// プレイヤーの女の子。モデルは assets/girl.vrm (VRM 1.0)。Blender で作った自前のモデル (vrgame2 の blender/girl/。export_vrm.py で書き出す)
+// プレイヤーの女の子。モデルは assets/girl.vrm (水着コーデ) と assets/girl2.vrm (ストリートコーデ)。どちらも VRM 1.0。Blender で作った自前のモデル (vrgame2 の blender/girl/。export_vrm.py で書き出す)
 // VRM にはモーションが入っていないので、飛ぶ姿勢・走る姿勢は正規化ボーンに角度を入れて作る。
 // 正規化ボーンは T ポーズで向きがそろっている (前 = +Z、上 = +Y)。
 //   x を + に回すと: 背骨は前へ倒れ、腿は後ろへ、すねは膝を曲げる向き
@@ -42,10 +42,11 @@ function runPose(sw) {
 }
 // モデルは身長 1.65 m。人間 (ハリアー。飛ぶ姿勢で高さ約 2 m) と同じくらいの大きさにする
 const SCALE = 1.27;
-const ANKLE = 0.09 * SCALE; // 足首のボーンから靴の底までの高さ (m)
 
 // flameSrc: 炎のメッシュ (人間のモデルの HFlameL)。無ければ炎を出さない
-export async function loadGirl(url, flameSrc) {
+// ankle: 足首のボーンから靴の底までの高さ (モデルの中の m)。ヒールの靴は高い
+export async function loadGirl(url, flameSrc, { ankle = 0.09 } = {}) {
+  const ANKLE = ankle * SCALE;
   const loader = new GLTFLoader();
   loader.register((parser) => new VRMLoaderPlugin(parser));
   const gltf = await loader.loadAsync(url);
@@ -86,7 +87,7 @@ export async function loadGirl(url, flameSrc) {
       f.name = 'HFlame';
       f.rotation.set(Math.PI, 0, 0); // 炎の長さの向き (+Y) を足の裏の向き (-Y) へ
       f.scale.multiplyScalar(0.55);
-      f.position.set(0, -0.17, -0.02);
+      f.position.set(0, -(ankle + 0.08), -0.02);
       f.renderOrder = 10;
       foot.add(f);
       flames.push({ mesh: f, base: f.scale.clone() });
