@@ -118,18 +118,18 @@ def unwrap(obj):
 
 # 体：肌・唇 / 目 / まつ毛を、べつの画像へ（UV が重なっているかもしれないので分ける）
 names = [s.name for s in xb.material_slots]
-skin_i = image("bake_skin", 2048); eye_i = image("bake_eye", 512); lash_i = image("bake_lash", 512); lash_a = image("bake_lash_a", 512, True)
+skin_i = image("bake_skin", 2048); eye_i = image("bake_eye", 512); lash_i = image("bake_lash", 1024); lash_a = image("bake_lash_a", 1024, True)
 SKIN = ("Skin", "Lips", "MouthInner", "Teeth", "Tongue"); LASH = ("Lash", "LashLower")
 tg = {nm: skin_i for nm in SKIN}; tg["Eye"] = eye_i; tg.update({nm: lash_i for nm in LASH})
-def _eye_uv():
-    """目の玉の UV を、目の画像いっぱいに広げる（元の UV では目が 27×13 ピクセルほどしかなく、瞳がつぶれて白くなる）"""
-    if "Eye" not in names: return
-    uvd = xb.data.uv_layers.active.data; ei = names.index("Eye")
-    ls = [l for p in xb.data.polygons if p.material_index == ei for l in p.loop_indices]
+def _spread_uv(group):
+    """その材質の面の UV を、画像いっぱいに広げる（元の UV では目が 27×13 ピクセルほどしかなく、瞳がつぶれて白くなる。まつ毛も粗くなる）"""
+    idx = [k for k, nm in enumerate(names) if nm in group]
+    uvd = xb.data.uv_layers.active.data
+    ls = [l for p in xb.data.polygons if p.material_index in idx for l in p.loop_indices]
     if not ls: return
     us = [uvd[l].uv.x for l in ls]; vs = [uvd[l].uv.y for l in ls]; u0, u1, v0, v1 = min(us), max(us), min(vs), max(vs)
     for l in ls: uvd[l].uv = (0.04+0.92*(uvd[l].uv.x-u0)/max(u1-u0, 1e-6), 0.04+0.92*(uvd[l].uv.y-v0)/max(v1-v0, 1e-6))
-_eye_uv()
+_spread_uv(("Eye",)); _spread_uv(LASH)
 bake(xb, tg); bake(xb, {nm: lash_a for nm in LASH}, alpha=True)
 merge(skin_i, None, OUT+"skin.png"); merge(eye_i, None, OUT+"eye.png"); merge(lash_i, lash_a, OUT+"lash.png")
 M = [texmat("X_Skin", skin_i), texmat("X_Eye", eye_i), texmat("X_Lash", lash_i, True)]

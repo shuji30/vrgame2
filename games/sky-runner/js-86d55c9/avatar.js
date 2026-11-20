@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { CockpitPanel, openCockpit } from './cockpit.js';
+import { VERSION } from './version.js';
 
 // 三人称で、目の高さから見てモデルをどこに置くか (rig の中の座標)
 const THIRD_OFFSET = {
@@ -142,7 +143,7 @@ export class Avatar {
     this.girlLoading[model] ||= (async () => {
       await this.loaded;
       const { loadGirl } = await import('./girl.js');
-      const girl = await loadGirl(this.base + GIRLS[model].file, this.models.human?.obj.getObjectByName('HFlameL'), GIRLS[model]);
+      const girl = await loadGirl(`${this.base}${GIRLS[model].file}?v=${VERSION}`, this.models.human?.obj.getObjectByName('HFlameL'), GIRLS[model]);
       girl.obj.visible = false;
       this.mount.add(girl.obj);
       return girl;
