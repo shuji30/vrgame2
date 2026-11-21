@@ -7,8 +7,9 @@
 
 - 体（`Girl_Body`）と、人型の骨組み（`Girl_Rig`。骨の名前は VRM と同じ）
 - コーデ：水着のスポーティ（`Outfit_Swim`。いま表示）／ 地雷系（`Outfit_Jirai`）／ カジュアル（`Outfit_Casual`）／ 黒（`Outfit_Black`）
-- 髪：ゆるいウェーブ（`Girl_HairWavy`。いま表示）／ ボブ（`Girl_HairBob`）／ ツインテール（`Girl_HairTwin`）／ お団子（`Girl_HairBun`）／ 元の髪（`Girl_Hair`）
-- いまの姿勢は、両手でサングラスを持つポーズ
+- 髪：ゆるいウェーブ（`Girl_HairWavy`。いま表示。あごの長さ。`make_hair_wavy.py` に `ZB=1.405`・`ZBANG=1.52344` を渡して作ってある）／ ボブ（`Girl_HairBob`）／ ツインテール（`Girl_HairTwin`）／ お団子（`Girl_HairBun`）／ 元の髪（`Girl_Hair`）
+- いまの姿勢は、腕を体の横に下ろしたポーズ。サングラス（`Swim_Sunglasses`。スポーツタイプ）は頭の上に載せて、隠してある
+- 歯（`Girl_Teeth`）は `make_expressions.py` が作る。口を開ける表情のときだけ見える
 
 ## スクリプト（`scripts/`）
 
@@ -27,5 +28,7 @@ Blender の中で `exec(open(パス, encoding="utf-8").read())` で実行しま�
 | `make_expressions.py` | 表情（あ・い・う・え・お、笑顔、驚き、まばたき）のシェイプキーを作る |
 | `export_vrm.py` | ゲーム用に VRM 1.0 で書き出す（色を画像に焼き、T ポーズにする）。SKY RUNNER の `assets/girl.vrm` はこれで作る |
 | `make_pose_sunglasses.py` | サングラスを持つポーズ（`RESET = True` で基本の姿勢に戻す） |
+| `make_face_cute.py` | 1 人目（水着の子）の顔の仕上げ。唇・ほお・鼻・輪郭・ほお骨・おでこ・目の傾き・涙袋なし・しわ取りを入れ、アイラインとまつ毛を実際の目の形に合わせ直す。`set_eye_tilt.py`・`make_makeup_jirai.py` のあとに必ず実行する（実行しないと唇やチークが前の値に戻る） |
+| `make_sunglasses_sport.py` | サングラスをスポーツタイプ（一枚レンズ）に作りかえて、頭の上に載せる |
 
 服や髪のスクリプトは、最後に `bind_rig.py` を自動で実行します。

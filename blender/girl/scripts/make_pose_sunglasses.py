@@ -22,9 +22,9 @@ def aim(name, direction):
 def aim_at(name, point): aim(name, Vector(point)-P[name].head)
 def curl(name, angle, toward):
     """指を曲げる。toward（基本の姿勢での向き）のほうへ指先が動くように、骨のローカル X か Z のどちらで回すかを選ぶ"""
-    rb = rig.data.bones[name]; dvec = (rb.tail_local-rb.head_local)
+    rb = rig.data.bones[name]; dvec = (rb.tail_local-rb.head_local); _m = rb.matrix_local.to_3x3()     # 軸は骨組みの座標で見る（rb.x_axis は親の骨から見た向きなので、指が逆へ反る）
     best = None
-    for ax_name, ax in (("X", rb.x_axis), ("Z", rb.z_axis)):
+    for ax_name, ax in (("X", _m.col[0]), ("Z", _m.col[2])):
         for sg in (1, -1):
             sc = (sg*ax).cross(dvec).dot(toward)         # この軸で正に回したとき、指先が toward へ動く量
             if best is None or sc > best[0]: best = (sc, ax_name, sg)

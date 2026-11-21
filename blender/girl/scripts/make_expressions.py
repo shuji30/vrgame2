@@ -221,6 +221,7 @@ for i in range(len(rings)-1):
 for ring, zz in ((rings[0], BRZ), (rings[-1], -BRZ)):
     cv = bmb.verts.new(BC+Vector((0, 0, zz)))
     for k in range(16): bmb.faces.new((ring[k], ring[(k+1) % 16], cv))
+bmesh.ops.delete(bmb, geom=[f_ for f_ in bmb.faces if f_.calc_center_median().y < BC.y-0.55*BRY], context='FACES')      # 袋の前は開けておく（閉じていると、前の壁が歯を隠してしまう）
 mb = bpy.data.meshes.new("Girl_MouthBag"); bmb.to_mesh(mb); bmb.free()
 for p in mb.polygons: p.use_smooth = True
 mb.materials.append(bpy.data.materials["MouthInner"])
@@ -228,5 +229,45 @@ bag = bpy.data.objects.new("Girl_MouthBag", mb); bpy.context.scene.collection.ob
 if _rig:                                                 # 頭の骨にぴったり付ける
     bag.vertex_groups.new(name="head").add(list(range(len(mb.vertices))), 1.0, 'REPLACE')
     bag.modifiers.new("Armature", 'ARMATURE').object = _rig; bag.parent = _rig
+# 歯：体のメッシュの歯は位置が合わないので隠したまま。かわりに、唇のすぐ裏に歯並びの形の白い帯を置く（Girl_Teeth）。
+#   上の歯は頭に固定。下の歯は、口を開ける表情で下あごと一緒に下がるよう、同じ名前の表情キーを持たせる
+old_t = bpy.data.objects.get("Girl_Teeth")
+if old_t: bpy.data.objects.remove(old_t, do_unlink=True)
+TEETH = globals().get("TEETH", True); LOW_SHOW = globals().get("LOW_SHOW", 0.0026); UP_HIDE = 0.0022      # 口を閉じているときは、唇のすき間から白く見えないよう、上の歯を少し上・下の歯を少し下に引っこめておく      # 下の歯を、口を開けたときに下唇の上へ出す量（m）
+if TEETH:
+    bmt = bmesh.new(); NT = 14; TW = min(0.0185, float(CORNER[0])-0.0045); low_idx = []; up_idx = []
+    def arch(x, back): return YSEAM+0.0022+back+0.0085*(x/0.0185)**2      # 口の中の暗い袋（前の面は合わせ目の 4mm 奥）より手前に置く。奥へ曲げすぎると袋に隠れて、まん中の歯しか見えない
+    for part, (z0, z1, back, wsc) in (("up", (ZC-0.0024+UP_HIDE, ZC+0.0105+UP_HIDE, 0.0, 1.0)), ("low", (ZC-0.0135, ZC-0.0030, 0.0012, 0.90))):
+        for sy in (0.0, 0.0008):                                # 表と裏（厚み）
+            rows = []
+            for j in range(4):
+                z = z0+(z1-z0)*j/3; row = []
+                for i in range(NT+1):
+                    x = TW*wsc*(-1+2*i/NT); gap_ = 0.0                                    # 歯の先はまっすぐにそろえる（切れこみを入れると、前歯だけが目立ってネズミのように見えた）
+                    rnd = (0.0068 if part == "up" else -0.0028)*abs(x/(TW*wsc))**2.0*(1-j/3 if part == "up" else j/3)      # 上の歯の下のふちも、下の歯の上のふちも、まん中が低く両端が上がる（下の歯は下唇の線に沿う）          # 歯並びの両端は丸める（口角から角ばって見えないように）
+                    v = bmt.verts.new((x, arch(x, back)+sy, z+(rnd if part == "up" else -rnd))); row.append(v)
+                    if part == "low": low_idx.append(v)
+                    else: up_idx.append(v)
+                rows.append(row)
+            for j in range(3):
+                for i in range(NT): bmt.faces.new((rows[j][i], rows[j][i+1], rows[j+1][i+1], rows[j+1][i]))
+    bmt.verts.index_update(); low_ids = [v.index for v in low_idx]; up_ids = [v.index for v in up_idx]
+    bmesh.ops.recalc_face_normals(bmt, faces=bmt.faces)
+    mt_ = bpy.data.meshes.new("Girl_Teeth"); bmt.to_mesh(mt_); bmt.free()
+    for p in mt_.polygons: p.use_smooth = True
+    _tm_ = bpy.data.materials["Teeth"]; _tm_.use_backface_culling = False
+    _tb = next(n for n in _tm_.node_tree.nodes if n.type == "BSDF_PRINCIPLED"); _tb.inputs["Base Color"].default_value = (0.93, 0.92, 0.88, 1)
+    mt_.materials.append(_tm_)
+    tobj = bpy.data.objects.new("Girl_Teeth", mt_); bpy.context.scene.collection.objects.link(tobj)
+    tobj.shape_key_add(name="Basis", from_mix=False)
+    for n_, deg in (("aa", 15.0), ("ih", 6.0), ("ou", 7.0), ("ee", 9.0), ("oh", 12.0), ("happy", 6.0), ("surprised", 11.0)):
+        k = tobj.shape_key_add(name="exp-"+n_, from_mix=False); k.value = 0; th = -math.radians(deg)
+        for i in up_ids: k.data[i].co = (mt_.vertices[i].co.x, mt_.vertices[i].co.y, mt_.vertices[i].co.z-UP_HIDE)      # 口を開ける表情では、上の歯を元の高さへ下ろす
+        for i in low_ids:
+            c = mt_.vertices[i].co; ry = c.y-HY; rz = c.z-HZ
+            k.data[i].co = (c.x, HY+ry*math.cos(th)+rz*math.sin(th), HZ-ry*math.sin(th)+rz*math.cos(th)+LOW_SHOW)      # 下あごと一緒に下げ、下唇の上へ少しのぞかせる
+    if _rig:
+        tobj.vertex_groups.new(name="head").add(list(range(len(mt_.vertices))), 1.0, 'REPLACE')
+        tobj.modifiers.new("Armature", 'ARMATURE').object = _rig; tobj.parent = _rig
 print("expressions built:", ", ".join("exp-"+n for n in SHAPES), "| mouth seam z", round(ZC, 4), "eye r", round(ER, 4))
 if _rig: _rig.data.pose_position = _pose
