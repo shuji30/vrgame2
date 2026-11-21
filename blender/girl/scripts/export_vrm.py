@@ -28,6 +28,17 @@ if "hairSwingEnd" not in arm.bones:                     # 髪の揺れ骨の先�
 # ── 1) 写しを作る ──
 def copy_obj(src, name):
     o = src.copy(); o.data = src.data.copy(); o.name = name; o.data.name = name
+    if src.name.startswith("Girl_Hair") and any(m.type == 'SOLIDIFY' for m in src.modifiers):
+        # 髪は厚み（Solidify）を固めてから書き出す。外すと片面だけになり、裏向きの面がゲームで抜けて、髪がへこんで見えた
+        _st = {m.name: (m.show_viewport, m.show_render) for m in src.modifiers}
+        for m in src.modifiers:
+            if m.type != 'SOLIDIFY': m.show_viewport = False; m.show_render = False
+        bpy.context.view_layer.update()
+        _dg = bpy.context.evaluated_depsgraph_get()
+        _me = bpy.data.meshes.new_from_object(src.evaluated_get(_dg), preserve_all_data_layers=True, depsgraph=_dg)
+        for m in src.modifiers: m.show_viewport, m.show_render = _st[m.name]
+        _me.name = name; o.data = _me
+        for p in o.data.polygons: p.use_smooth = True
     for c in list(o.users_collection): c.objects.unlink(o)
     col.objects.link(o); o.hide_viewport = False; o.hide_render = False
     for md in [m for m in o.modifiers if m.type != 'ARMATURE']: o.modifiers.remove(md)
@@ -65,7 +76,7 @@ def image(name, size, noncolor=False):
     if noncolor: im.colorspace_settings.name = 'Non-Color'
     return im
 dummy = image("bake_dummy", 16)
-def bake(obj, targets, alpha=False):
+def bake(obj, targets, alpha=False, clear=True):
     """targets: {マテリアル名: 画像}。alpha=True のときは、透明度（Alpha につながっている値）を色として焼く"""
     temp = []; undo = []
     for slot in obj.material_slots:
@@ -81,7 +92,7 @@ def bake(obj, targets, alpha=False):
             undo.append((nt, bc, prev))
     for o in bpy.context.view_layer.objects: o.select_set(False)
     obj.select_set(True); bpy.context.view_layer.objects.active = obj
-    bpy.ops.object.bake(type='DIFFUSE', pass_filter={'COLOR'}, margin=8, use_clear=True)
+    bpy.ops.object.bake(type='DIFFUSE', pass_filter={'COLOR'}, margin=8, use_clear=clear)
     for u in undo:
         if len(u) == 3:
             nt, bc, prev = u
@@ -96,6 +107,12 @@ def merge(color, alpha_im, path):
         b = np.empty(w*h*4, dtype=np.float32); alpha_im.pixels.foreach_get(b); a[:, 3] = b.reshape(-1, 4)[:, 0]
     else: a[:, 3] = 1.0
     color.pixels.foreach_set(a.ravel()); color.filepath_raw = path; color.file_format = 'PNG'; color.save()
+def _fill_bg(im):
+    """焼いていない所（透明のまま）を、焼いた色の平均で埋める（縮小表示のときに、黒い余白がふちににじまないように）"""
+    w, h = im.size; a = np.empty(w*h*4, dtype=np.float32); im.pixels.foreach_get(a); a = a.reshape(-1, 4)
+    m = a[:, :3].sum(axis=1) > 0.02                       # 焼けた所（唇の色は真っ黒にはならない）
+    if m.any(): a[~m, :3] = a[m, :3].mean(axis=0); a[~m, 3] = 1.0
+    im.pixels.foreach_set(a.ravel())
 def texmat(name, img, cutout=False):
     mt = bpy.data.materials.get(name)
     if mt: bpy.data.materials.remove(mt)
@@ -118,8 +135,8 @@ def unwrap(obj):
 
 # 体：肌・唇 / 目 / まつ毛を、べつの画像へ（UV が重なっているかもしれないので分ける）
 names = [s.name for s in xb.material_slots]
-skin_i = image("bake_skin", 2048); eye_i = image("bake_eye", 512); lash_i = image("bake_lash", 1024); lash_a = image("bake_lash_a", 1024, True)
-SKIN = ("Skin", "Lips", "MouthInner", "Teeth", "Tongue"); LASH = ("Lash", "LashLower")
+skin_i = image("bake_skin", 2048); eye_i = image("bake_eye", 512); lip_i = image("bake_lip", 1024); lash_i = image("bake_lash", 2048); lash_a = image("bake_lash_a", 2048, True)      # まつ毛は細い筋なので 2048 で焼く
+SKIN = ("Skin", "MouthInner", "Teeth", "Tongue"); LASH = ("Lash", "LashLower")    # 唇は別の画像へ（肌の画像の一角では粗く、口の中の暗い色もにじんで、まだらに見えた）
 tg = {nm: skin_i for nm in SKIN}; tg["Eye"] = eye_i; tg.update({nm: lash_i for nm in LASH})
 def _spread_uv(group):
     """その材質の面の UV を、画像いっぱいに広げる（元の UV では目が 27×13 ピクセルほどしかなく、瞳がつぶれて白くなる。まつ毛も粗くなる）"""
@@ -130,10 +147,26 @@ def _spread_uv(group):
     us = [uvd[l].uv.x for l in ls]; vs = [uvd[l].uv.y for l in ls]; u0, u1, v0, v1 = min(us), max(us), min(vs), max(vs)
     for l in ls: uvd[l].uv = (0.04+0.92*(uvd[l].uv.x-u0)/max(u1-u0, 1e-6), 0.04+0.92*(uvd[l].uv.y-v0)/max(v1-v0, 1e-6))
 _spread_uv(("Eye",)); _spread_uv(LASH)
+def _unwrap_faces(group):
+    """その材質の面だけ、重ならない UV に開き直す（唇の元の UV は左右が重なっていて、ほかの面の色が暗い斑点になって焼けた）"""
+    idx = {k for k, nm in enumerate(names) if nm in group}
+    for o in bpy.context.view_layer.objects: o.select_set(False)
+    xb.select_set(True); bpy.context.view_layer.objects.active = xb
+    bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='DESELECT'); bpy.ops.object.mode_set(mode='OBJECT')
+    for p in xb.data.polygons: p.select = p.material_index in idx
+    bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.uv.smart_project(angle_limit=1.2, island_margin=0.03); bpy.ops.object.mode_set(mode='OBJECT')
+_unwrap_faces(("Lips",))
 bake(xb, tg); bake(xb, {nm: lash_a for nm in LASH}, alpha=True)
-merge(skin_i, None, OUT+"skin.png"); merge(eye_i, None, OUT+"eye.png"); merge(lash_i, lash_a, OUT+"lash.png")
-M = [texmat("X_Skin", skin_i), texmat("X_Eye", eye_i), texmat("X_Lash", lash_i, True)]
-grp = [0 if nm in SKIN else (1 if nm == "Eye" else (2 if nm in LASH else 0)) for nm in names]
+# 唇：焼かずに、唇の色 1 色で塗った画像を使う。焼くと、島のふちの黒い線と、口角の暗い三角形が入り、ゲームで唇が汚く見えた
+#（材質を 1 色に近づけても消えなかった。原因は特定できていない）
+_lb = next((n for n in bpy.data.materials["Lips"].node_tree.nodes if n.type == "MIX" and n.data_type == 'RGBA'), None)
+_lc = tuple(_lb.inputs[7].default_value)[:3] if _lb else (0.8, 0.4, 0.4)
+_px = np.tile(np.array([*_lc, 1.0], dtype=np.float32), lip_i.size[0]*lip_i.size[1]); lip_i.pixels.foreach_set(_px)
+LIP_BAKE = False
+_fill_bg(skin_i); merge(skin_i, None, OUT+"skin.png");      # 肌の余白も埋める（黒い余白が継ぎ目（あごのライン・口のまわり）ににじんで、欠けや斑点に見えた） merge(eye_i, None, OUT+"eye.png"); merge(lip_i, None, OUT+"lip.png"); merge(lash_i, lash_a, OUT+"lash.png")
+M = [texmat("X_Skin", skin_i), texmat("X_Eye", eye_i), texmat("X_Lash", lash_i, True), texmat("X_Lip", lip_i)]
+M[3].use_backface_culling = True       # 唇は裏面を描かない（口角で内側の面が表へ折れ返り、その裏面が暗い斑点に見えた）
+grp = [0 if nm in SKIN else (1 if nm == "Eye" else (2 if nm in LASH else (3 if nm == "Lips" else 0))) for nm in names]
 pm = [grp[p.material_index] for p in xb.data.polygons]
 xb.data.materials.clear()
 for mt in M: xb.data.materials.append(mt)
@@ -145,8 +178,9 @@ def _linked(mt):
     return bool(b and b.inputs["Base Color"].is_linked)
 for o in others.values():
     mats = [s.name for s in o.material_slots]
-    if o.name.startswith("X_Hair"):
-        ci = image("bake_"+o.name, 1024); ai = image("bake_"+o.name+"_a", 1024, True)
+    if o.name.startswith("X_Hair") or (o.name.startswith("X_Brows") and any(_linked(s_.material) for s_ in o.material_slots)):      # 毛の筋を透けで描いた眉も、髪と同じく色と透けを焼く
+        _hs = 2048 if o.name.startswith("X_Hair") else 1024      # 髪は 2048 で焼く（生えぎわの細い後れ毛が、1024 だと潰れて直線に見えた）
+        ci = image("bake_"+o.name, _hs); ai = image("bake_"+o.name+"_a", _hs, True)
         bake(o, {mats[0]: ci}); bake(o, {mats[0]: ai}, alpha=True); merge(ci, ai, OUT+o.name+".png")
         one_material(o, texmat(o.name+"_M", ci, True))
     elif "S_Pattern" in mats or "J_Pattern" in mats:

@@ -36,20 +36,38 @@ def front_y(x, z):
     h = bvh.ray_cast(Vector((x, -1, z)), Vector((0, 1, 0))); return h[0].y-OFF if h[0] else None
 
 PART = 0.55*BANG                                         # 分け目の位置（前髪の幅の 2 割のところ。正で本人の左寄り）
+def hairline(a):
+    """生えぎわ（頭のてっぺんからの角度）：こめかみ → 耳の上（耳の一番上の 1cm ほど上）→ 耳の後ろ → えりあし。
+    ポニーテールなので、ここから上の毛は頭に沿って結び目へ引っ張られる"""
+    # （角度は頭の中心＝目の高さが 90°。耳の一番上 ≒ 92°、耳たぶ ≒ 122°）。（方位, 角度）の表を、なだらかにつなぐ
+    T = ((0, 98), (55, 101), (72, 97), (82, 89), (100, 89), (110, 93), (122, 118), (145, 134), (180, 137))      # 耳の上は耳のすぐ上。耳の後ろ（耳より後ろ）へ回ってから下ろす（耳たぶにかけない）
+    for (a0, p0), (a1, p1) in zip(T, T[1:]):
+        if a <= a1:
+            pe = lerp(p0, p1, sstep((a-a0)/(a1-a0))); break
+    else: pe = T[-1][1]
+    pe += 16*math.cos(min(1.0, abs(a-70)/6.0)*math.pi/2)**2       # SIDEBURN：耳の前に、細いもみあげ（耳の中ほどの高さまで、幅 ±6°）
+    return pe
 def strand(thd, kind):
     th = math.radians(thd)
     pts = [ell(th, math.radians(10*i)) for i in range(NH)]
     if kind == "bang":
         # 横分け：分け目でおでこを出し、広い側は長くほおのわきまで流す。狭い側は短め
-        if thd <= PART: rise = 0.052-0.085*((PART-thd)/(PART+BANG))**1.6
-        else: rise = 0.052-0.045*((thd-PART)/(BANG-PART))**1.6
+        rise = 0.050*(1-sstep((abs(thd)/BANG-0.45)/0.55))     # 額の生えぎわのすぐ下で終え、両端（こめかみ）は横の毛の生えぎわへ下ろしてつなぐ
         ph = math.acos(max(-0.99, min(0.99, (ZBANG-0.009+rise-C.z)/RZ))); p = ell(th, ph); pts.append(p); pts.append(p+Vector((0, 0.004, -0.005))); return pts
     if kind == "cap":                                   # 頭に沿って、えりあしまで
         a = thd if thd < 180 else 360-thd
-        pe = lerp(98, 128, sstep((a-70)/60))
-        pe -= 26*max(0.0, 1-abs(a-88)/22.0)             # EAR_OPEN：耳のところは髪を短くして、耳を出す
-        pe += 30*max(0.0, 1-abs(a-64)/11.0)**0.8        # SIDEBURN：耳の前に、もみあげを下ろす
-        return pts+[ell(th, math.radians(lerp(90, pe, i/5))) for i in range(6)]
+        pe = hairline(a)
+        # こめかみ：前髪の土台と重ねて、前髪の生えぎわの高さで終える（継ぎ目にすき間ができて、はげのように見えた）
+        _rb = 0.050*(1-sstep((min(a, BANG)/BANG-0.45)/0.55))
+        _pb = math.degrees(math.acos(max(-0.99, min(0.99, (ZBANG-0.009+_rb-C.z)/RZ))))+3
+        pe = lerp(_pb, pe, sstep((a-(BANG-4))/16))
+        # ポニーテールの結び目から生えぎわ（pe）まで、頭の表面に沿って下ろす（毛の流れが、生えぎわから結び目へ引き上げられた向きになる）
+        d1 = Vector((math.sin(math.radians(pe))*math.sin(th), -math.sin(math.radians(pe))*math.cos(th), math.cos(math.radians(pe))))
+        out = []
+        for i in range(NH+6):
+            t = sstep(i/(NH+5))*0.7+0.3*(i/(NH+5)); d = (TIE_D*(1-t)+d1*t).normalized()
+            out.append(C+Vector((RX*d.x, RY*d.y, RZ*d.z)))
+        return out
     E = ell(th, math.radians(90)); pts.append(E)        # 顔の横の毛束
     s = 1 if E.x > 0 else -1; a = thd if thd < 180 else 360-thd
     xb = s*(0.050+min(1, (a-BANG)/LOCKW)*0.040); run = None
@@ -63,9 +81,11 @@ def strand(thd, kind):
         pts.append(Vector((x, y, z)))
     return pts
 
+TIE_D = Vector((0.0, 0.50, 0.80)).normalized()          # 結び目の向き（頭の中心から。下の TIE と同じ所）
 def rng(a, b, n): return [a+(b-a)*i/n for i in range(n+1)]
-panels = [("bang", rng(-BANG, BANG, 24)), ("cap", rng(BANG, 360-BANG, 56))]      # 顔の横の板のような毛束は作らない（巻いた毛束を別に下ろす）
+panels = [("bang", rng(-BANG, BANG, 24)), ("cap", rng(BANG-16, 360-BANG+16, 124))]      # 横の毛は前髪と 16° 重ねる      # 顔の横の板のような毛束は作らない（巻いた毛束を別に下ろす）
 _rnd = random.Random(7)
+_capv = set(); _bangv = set()
 bm = bmesh.new(); uv = bm.loops.layers.uv.new("UVMap"); uvt = bm.loops.layers.uv.new("Tip")
 L_t = bm.verts.layers.float.new("t"); L_c = bm.verts.layers.float.new("clump")
 for kind, ths in panels:
@@ -76,8 +96,8 @@ for kind, ths in panels:
         zend = P[-1].z
         for j, pt in enumerate(P):
             v = bm.verts.new(pt)
-            if kind == "bang": v[L_t] = j/(len(P)-1)*0.5; v[L_c] = cl*0.35; tv.append((pt.z-zend)/0.022)
-            elif kind == "cap": v[L_t] = max(0.0, (j-(NH-1))/(len(P)-NH))*0.5; v[L_c] = cl*0.5; tv.append((len(P)-1-j)/1.5)
+            if kind == "bang": v[L_t] = j/(len(P)-1)*0.5; v[L_c] = cl*0.35; tv.append((pt.z-zend)/(0.022*(1-0.65*sstep((abs(th)/BANG-0.5)/0.5))))      # こめかみ側は切れ込みの帯を細く（地肌が大きく透けた）
+            elif kind == "cap": v[L_t] = max(0.0, (j-(NH-1))/(len(P)-NH)); v[L_c] = cl*0.25; tv.append(sum((P[q+1]-P[q]).length for q in range(j, len(P)-1))/0.009); _capv.add(v)      # 生えぎわは細かいギザギザ。帯は 9mm（2.2cm だと耳まわり・えりあしがまばらに透けて、はげて見えた）
             else: v[L_t] = max(0.0, (j-(NH-1))/(len(P)-NH)); v[L_c] = cl; tv.append((pt.z-zend)/0.060)
             col.append(v)
         grid.append(col); tips.append(tv)
@@ -113,6 +133,34 @@ for it in range(4):
 for v in bm.verts:
     dv = Vector((v.co.x-C.x, v.co.y-C.y, 0))
     if dv.length > 1e-5: v.co += dv.normalized()*v[L_c]*0.0055*sstep(v[L_t]*1.4)
+# 土台の毛の生えぎわより下（頭のいちばん張った所より下）は、頭・首の肌に沿わせる（垂れ下がって、ボブのように見えていた）
+_cap_alive = [v for v in _capv if v.is_valid]
+# 生えぎわの線（土台の毛のすそのふち）を、ふちに沿ってならして、なめらかな曲線にする
+_rim = [v for v in _cap_alive if v.is_boundary and v.co.z < C.z+0.03]
+for _ in range(12):
+    _nw = {}
+    for v in _rim:
+        nb = [e.other_vert(v) for e in v.link_edges if e.is_boundary]
+        if len(nb) == 2: _nw[v] = v.co*0.5+(nb[0].co+nb[1].co)*0.25
+    for v, c in _nw.items(): v.co = c
+# 頭に沿わせるときの当たり判定は、耳を外した体（耳に当たると、髪が耳の上に乗って段になった）
+_bo = bpy.data.objects["Girl_Body"]; _eg = _bo.vertex_groups["ears"].index
+_earv = {v.index for v in _bo.data.vertices if any(g.group == _eg and g.weight > 0.3 for g in v.groups)}
+_mkb = next(m for m in _bo.modifiers if m.type == 'MASK'); _mkb.show_viewport = False; bpy.context.view_layer.update()
+_eb = _bo.evaluated_get(bpy.context.evaluated_depsgraph_get()); _mb = _eb.to_mesh()
+_hv = [_bo.matrix_world @ v.co for v in _mb.vertices]
+_bi = _bo.vertex_groups["body"].index; _vis = {v.index for v in _bo.data.vertices if any(g.group == _bi and g.weight > 0.5 for g in v.groups)}
+_hp = [tuple(p_.vertices) for p_ in _mb.polygons if all(i in _vis and i not in _earv for i in p_.vertices)]
+_eb.to_mesh_clear(); _mkb.show_viewport = True
+bvh_noear = BVHTree.FromPolygons(_hv, _hp)
+for v in _cap_alive:
+    if v.co.z > C.z+0.08: continue
+    dv = (v.co-C).normalized()                          # 外から頭の中心へ光線を当てて、最初に当たる外側の肌に沿わせる
+    hit = bvh_noear.ray_cast(C+dv*0.30, -dv, 0.30)      # （いちばん近い面だと、体の中の補助の形に当たって内側へ寄った）
+    if hit[0] is None: continue
+    k = sstep((C.z+0.08-v.co.z)/0.04)                   # 耳の上（頭の横の張り出し）から下を、頭に沿わせる
+    off = 0.0035+0.0045*sstep((v.co.z-(C.z-0.01))/0.06)   # 生えぎわに近いほど、頭にぴったり（3.5mm）。上は髪の厚み（8mm）
+    v.co = v.co.lerp(hit[0]+dv*off, k)
 
 # ── 縦ロール ───────────────────────────────────
 def catmull(P, n):
@@ -198,19 +246,22 @@ def _dir_of(thd, phd):
     th = math.radians(thd); ph = math.radians(phd); return Vector((math.sin(ph)*math.sin(th), -math.sin(ph)*math.cos(th), math.cos(ph)))
 def _bang_ph(thd):
     t_ = max(-BANG, min(BANG, thd))
-    rise = 0.052-0.085*((PART-t_)/(PART+BANG))**1.6 if t_ <= PART else 0.052-0.045*((t_-PART)/(BANG-PART))**1.6
+    rise = 0.050*(1-sstep((abs(t_)/BANG-0.45)/0.55))
     return math.degrees(math.acos(max(-0.99, min(0.99, (ZBANG-0.009+rise-C.z)/RZ))))
 _fr = random.Random(23); _nlock = [0]
-def lock(dirs, wid, lift, tip_out=0.0):
+def lock(dirs, wid, lift, tip_out=0.0, cut_at_root=False):
     NS = 28; NKL = 3
     ds = resample(catmull(dirs, 10), NS); grid = []; uc = 0.02+0.031*(_nlock[0] % 30); _nlock[0] += 1
     cs = []
     for i, d in enumerate(ds):
         d = d.normalized(); s = i/NS
-        cs.append((C+Vector((d.x*RX, d.y*RY, d.z*RZ))*(1+(lift*math.sin(math.pi*min(1, s*1.15))**0.6-0.0015+tip_out*s**3)/0.105), d))      # 根元は髪の中から出て、頭に沿う
+        _pe = C+Vector((d.x*RX, d.y*RY, d.z*RZ)); _dn = (_pe-C).normalized()
+        _h = bvh_noear.ray_cast(C+_dn*0.30, -_dn, 0.30)                 # 頭の表面（耳は外す）（外から光線を当てて最初に当たる所）。楕円のままだと、頭の横で 2cm 浮いた
+        _r = max((_pe-C).length, ((_h[0]-C).length+0.006) if _h[0] is not None else 0.0) if _dn.z > 0.55 else (((_h[0]-C).length+0.006) if _h[0] is not None else (_pe-C).length)
+        cs.append((C+_dn*(_r+lift*math.sin(math.pi*min(1, s*1.15))**0.6-0.0015+tip_out*s**3), d))      # 根元は髪の中から出て、頭に沿う
     for i, (c, d) in enumerate(cs):
         s = i/NS; tg = (cs[min(NS, i+1)][0]-cs[max(0, i-1)][0]).normalized(); side = tg.cross(d).normalized()
-        w = wid*(0.35+0.65*sstep(s/0.25))*(1-0.85*sstep((s-0.62)/0.38)); row = []
+        w = wid*(0.35+0.65*sstep(s/0.25))*(1-0.97*sstep((s-0.45)/0.55)); row = []      # 毛先はほぼ 0 まで、長い距離で細くする（幅 15% で平らに切れて、くしの歯のように並んで見えた）
         for q in range(NKL+1):
             kk = -1+2*q/NKL; pt = c+side*(kk*w/2)+d*(0.0018*(1-kk*kk))
             loc, nor, idx, dist = bvh.find_nearest(pt)
@@ -221,21 +272,53 @@ def lock(dirs, wid, lift, tip_out=0.0):
         for q in range(NKL):
             f = bm.faces.new((grid[i][q], grid[i+1][q], grid[i+1][q+1], grid[i][q+1]))
             for l, (ii, qq) in zip(f.loops, ((i, q), (i+1, q), (i+1, q+1), (i, q+1))):
-                l[uv].uv = (uc+qq/NKL*0.03, 1-ii/NS); l[uvt].uv = (uc+qq/NKL*0.03, (NS-ii)/NS/0.14)
+                l[uv].uv = (uc+qq/NKL*0.03, 1-ii/NS); l[uvt].uv = (uc+qq/NKL*0.03, 3.0+(ii/NS if cut_at_root else (NS-ii)/NS))      # 毛束は形が毛先へ細くなるので、透けの切れ込みは使わない（ゲームでギザギザに見えた）      # cut_at_root：毛先の切れ込みを始点（結び目）の側に
 _tie_d = Vector(((TIE.x-C.x)/RX, (TIE.y-C.y)/RY, (TIE.z-C.z)/RZ)).normalized()
-for k in range(16):                                     # 前髪の広い側：分け目から斜めに下りて、毛先が外へ流れる
-    te = lerp(PART-6, -BANG+2, k/15)+_fr.uniform(-1.5, 1.5); pe = _bang_ph(te)+_fr.uniform(-2, 1)
-    lock([_dir_of(PART+3, 22), _dir_of(lerp(PART, te, 0.30), 44), _dir_of(lerp(PART, te, 0.70), pe-17), _dir_of(te-3, pe-5), _dir_of(te-7, pe)],
-         _fr.uniform(0.009, 0.013), _fr.uniform(0.002, 0.0045), 0.0015)
-for k in range(7):                                      # 前髪の狭い側
-    te = lerp(PART+6, BANG-2, k/6)+_fr.uniform(-1.5, 1.5); pe = _bang_ph(te)+_fr.uniform(-2, 1)
-    lock([_dir_of(PART-2, 22), _dir_of(lerp(PART, te, 0.35), 44), _dir_of(lerp(PART, te, 0.75), pe-16), _dir_of(te+2, pe-5), _dir_of(te+5, pe)],
-         _fr.uniform(0.009, 0.013), _fr.uniform(0.002, 0.0045), 0.0015)
+# 顔まわりの前髪（カーテン）：分け目から額の両わきへ流れ、顔の横をあごの下まで下りる長い毛束。毛先は少し外へ流れる
+_ribv = []
+def ribbon(P, wid, NS=40):
+    """点の列 P に沿った、細い帯の毛束（根元と毛先は細く）。頭・顔の外へ出す"""
+    ds = resample(catmull(P, 12), NS); grid = []; uc = 0.02+0.031*(_nlock[0] % 30); _nlock[0] += 1; NKL = 3
+    for i, c in enumerate(ds):
+        s_ = i/NS; tg = (ds[min(NS, i+1)]-ds[max(0, i-1)]).normalized()
+        out = (c-Vector((C.x, C.y, c.z))).normalized() if c.z < C.z-0.02 else (c-C).normalized()
+        side = tg.cross(out).normalized()
+        w = wid*(0.25+0.75*sstep(s_/0.12))*(1-0.95*sstep((s_-0.55)/0.45)); row = []
+        for q in range(NKL+1):
+            kk = -1+2*q/NKL; pt = c+side*(kk*w/2)+out*(0.0015*(1-kk*kk))
+            loc, nor, idx, dist = bvh.find_nearest(pt)
+            if loc is not None and ((pt-loc).dot(nor) < 0 or dist < 0.005): pt = loc+nor*0.005
+            v = bm.verts.new(pt); v[L_t] = 0.85+0.13*s_; v[L_c] = 0.0; row.append(v); _ribv.append(v)
+        grid.append(row)
+    for i in range(NS):
+        for q in range(NKL):
+            f = bm.faces.new((grid[i][q], grid[i+1][q], grid[i+1][q+1], grid[i][q+1]))
+            for l, (ii, qq) in zip(f.loops, ((i, q), (i+1, q), (i+1, q+1), (i, q+1))):
+                l[uv].uv = (uc+qq/NKL*0.03, 1-ii/NS); l[uvt].uv = (uc+qq/NKL*0.03, 3.0)
+def _face_y(x, z, off):
+    fy = front_y(x, z)
+    return (fy+OFF-off) if fy is not None else None
+ZHL = ZBANG+0.040                                       # 額の生えぎわの高さ
+for sg in (1, -1):
+    for k in range(10):
+        t = k/9
+        r0 = ell(math.radians(PART+sg*(1.5+2*t)), math.radians(14+5*t))                       # 分け目
+        a1 = sg*(12+20*t); r1 = ell(math.radians(a1), math.acos(max(-0.99, min(0.99, (ZHL-C.z)/RZ))))   # 額の生えぎわ
+        r1 = C+(r1-C)*1.06
+        x2 = sg*(0.050+0.020*t); z2 = ZBANG-0.010-0.006*t                                    # こめかみ・目じりの横
+        x3 = sg*(0.064+0.016*t); z3 = C.z-0.060                                              # ほおの横
+        x4 = sg*(0.068+0.016*t); z4 = C.z-0.100-0.016*t+_fr.uniform(-0.006, 0.006)             # 毛先（あごの横。外へはねない）
+        P = [r0, r1]; yprev = r1.y
+        for (x, z, off) in ((x2, z2, 0.006), (x3, z3, 0.008), (x4, z4, 0.009)):
+            y = _face_y(x, z, off)
+            if y is None or y < yprev-0.02: y = yprev+0.012          # 顔に当たらない所（あごの横）は、前の点より少し後ろへ（前へ飛び出さない）
+            P.append(Vector((x, y, z))); yprev = y
+        ribbon(P, _fr.uniform(0.011, 0.015))
 for sg in (1, -1):                                      # サイド：生えぎわから後ろ上の結び目へ
     for k in range(14):
-        a0 = lerp(BANG+3, 124, k/13)+_fr.uniform(-2, 2); p0 = 90-18*max(0.0, 1-abs(a0-88)/20.0)+_fr.uniform(-3, 3)
+        a0 = lerp(BANG+3, 124, k/13)+_fr.uniform(-2, 2); p0 = hairline(a0)-4+_fr.uniform(-2, 1)      # 端は生えぎわのすぐ上（地肌の上に浮かないように）
         lock([_tie_d, _dir_of(sg*lerp(a0, 172, 0.80), 30), _dir_of(sg*lerp(a0, 160, 0.42), 56), _dir_of(sg*lerp(a0, 150, 0.12), p0-14), _dir_of(sg*a0, p0)],
-             _fr.uniform(0.010, 0.014), _fr.uniform(0.002, 0.0045))
+             _fr.uniform(0.010, 0.014), _fr.uniform(0.002, 0.0045), cut_at_root=True)      # サイドは生えぎわから引っ張られる：切れ込みは結び目の側（生えぎわの側に置くと、耳の上でギザギザの段に見えた）
 # TOPFLOW：頭の上の流れ。前の生えぎわ・分け目から、てっぺんをこえて結び目へ引きつめる毛束。後ろはえりあしから結び目へ上げる
 def _arc(d0, n=3, wob=0.0):
     out = [_tie_d]
@@ -271,6 +354,7 @@ bmesh.ops.recalc_face_normals(bm, faces=[f for i, f in enumerate(bm.faces) if i 
 for i, f in enumerate(bm.faces): f.material_index = 1 if i >= n_hair else 0
 
 bm.verts.ensure_lookup_table(); _tw = [v[L_t] for v in bm.verts]
+bm.verts.index_update(); _rib_idx = [v.index for v in _ribv if v.is_valid]
 old = bpy.data.objects.get("Girl_HairPony")
 if old: bpy.data.objects.remove(old, do_unlink=True)
 mesh = bpy.data.meshes.new("Girl_HairPony"); bm.to_mesh(mesh); bm.free()
@@ -295,4 +379,9 @@ for _n in ("Girl_Hair", "Girl_HairTwin", "Girl_HairBun", "Girl_HairBob", "Girl_H
 print("pony hair built", len(mesh.vertices), len(mesh.polygons))
 if _rig:                                                 # 作り直した物を骨組みに付け直し、姿勢を元に戻す
     exec(compile(open("C:\\Users\\shuji\\Documents\\girl-blender\\scripts\\bind_rig.py", encoding="utf-8").read(), "bind_rig.py", "exec"), {"__name__": "__main__"})
+    # 顔まわりの長い前髪は頭の骨だけに付ける（耳より下は髪の揺れ骨に付くので、首を回すと外へはねた）
+    _ho = bpy.data.objects["Girl_HairPony"]; _gh = _ho.vertex_groups.get("head"); _gs = _ho.vertex_groups.get("hairSwing")
+    if _gh and _rib_idx:
+        if _gs: _gs.remove(_rib_idx)
+        _gh.add(_rib_idx, 1.0, 'REPLACE')
     _rig.data.pose_position = _pose
